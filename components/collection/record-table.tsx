@@ -1,0 +1,98 @@
+'use client';
+
+import { useState } from 'react';
+import type { Collection, CollectionRecord } from '@/lib/types';
+import { snakeCaseToTitleCase } from '@/lib/utils/format';
+import { RecordModal } from '@/components/collection/record-modal';
+
+interface RecordTableProps {
+  collection: Collection;
+  records: CollectionRecord[];
+}
+
+export function RecordTable({ collection, records }: RecordTableProps) {
+  const columns = collection.display_columns || [];
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+
+  const selectedRecord = selectedIdx !== null ? records[selectedIdx] : null;
+
+  return (
+    <>
+      {/* Desktop table */}
+      <div className="hidden lg:block overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-brand-gold/[0.08]">
+              {columns.map((col) => (
+                <th
+                  key={col}
+                  className="text-left py-3 px-4 text-xs font-semibold tracking-wide uppercase text-brand-muted"
+                >
+                  {snakeCaseToTitleCase(col)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((record, idx) => (
+              <tr
+                key={record.id}
+                onClick={() => setSelectedIdx(idx)}
+                className="border-b border-brand-gold/[0.04] hover:bg-brand-card-hover transition-colors cursor-pointer"
+              >
+                {columns.map((col, i) => (
+                  <td key={col} className="py-3 px-4 text-sm text-brand-cream">
+                    {i === 0 ? (
+                      <span className="text-brand-gold hover:text-brand-gold-light">
+                        {String(record[col] ?? '—')}
+                      </span>
+                    ) : (
+                      String(record[col] ?? '—')
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="lg:hidden space-y-3">
+        {records.map((record, idx) => (
+          <button
+            key={record.id}
+            onClick={() => setSelectedIdx(idx)}
+            className="block w-full text-left bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-4 hover:border-brand-gold/25 transition-colors"
+          >
+            {columns.slice(0, 4).map((col, i) => (
+              <div key={col} className={i === 0 ? 'mb-2' : 'mb-1'}>
+                {i === 0 ? (
+                  <p className="text-sm font-medium text-brand-gold">{String(record[col] ?? '—')}</p>
+                ) : (
+                  <p className="text-xs text-brand-muted">
+                    <span className="text-brand-cream-muted">{snakeCaseToTitleCase(col)}:</span>{' '}
+                    {String(record[col] ?? '—')}
+                  </p>
+                )}
+              </div>
+            ))}
+          </button>
+        ))}
+      </div>
+
+      {/* Record Detail Modal */}
+      {selectedRecord && (
+        <RecordModal
+          collection={collection}
+          record={selectedRecord}
+          onClose={() => setSelectedIdx(null)}
+          onPrev={selectedIdx! > 0 ? () => setSelectedIdx(selectedIdx! - 1) : undefined}
+          onNext={selectedIdx! < records.length - 1 ? () => setSelectedIdx(selectedIdx! + 1) : undefined}
+          hasPrev={selectedIdx! > 0}
+          hasNext={selectedIdx! < records.length - 1}
+        />
+      )}
+    </>
+  );
+}
