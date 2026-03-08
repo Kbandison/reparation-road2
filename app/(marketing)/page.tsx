@@ -53,7 +53,7 @@ export default function HomePage() {
           priority
           className="object-cover"
         />
-        <div className="absolute inset-0 bg-brand-burgundy/40" />
+        <div className="absolute inset-0 bg-[#5B2E00]/40" />
         <div className="max-w-7xl mx-auto px-6 py-32 relative z-10 grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
           <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-8 md:p-10">
             <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-white leading-[1.15] mb-6">
