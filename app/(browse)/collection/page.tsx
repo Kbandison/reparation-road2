@@ -41,7 +41,6 @@ export default async function CollectionsPage({
   const eras = [...new Set(allTopLevel.map((c) => c.era).filter(Boolean))] as string[];
   const regions = [...new Set(allTopLevel.map((c) => c.region).filter(Boolean))] as string[];
 
-  // Separate free and premium collections
   const freeCollections = collections.filter((c) => c.access_tier === 'free');
   const premiumCollections = collections.filter((c) => c.access_tier !== 'free');
 
@@ -53,47 +52,47 @@ export default async function CollectionsPage({
         description="Browse our growing archive of historical records, census data, military records, and more."
       />
 
-      <GlobalCollectionSearch />
+      <GlobalCollectionSearch>
+        {allTopLevel.length > 0 && (
+          <CollectionFilters categories={categories} eras={eras} regions={regions} />
+        )}
 
-      {allTopLevel.length > 0 && (
-        <CollectionFilters categories={categories} eras={eras} regions={regions} />
-      )}
-
-      {collections.length > 0 ? (
-        <>
-          {freeCollections.length > 0 && (
-            <div className="mb-10">
-              <h2 className="font-display text-lg font-semibold text-brand-cream mb-4">
-                Free Collections
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {freeCollections.map((collection) => (
-                  <CollectionCard key={collection.id} collection={collection} />
-                ))}
+        {collections.length > 0 ? (
+          <>
+            {freeCollections.length > 0 && (
+              <div className="mb-10">
+                <h2 className="font-display text-lg font-semibold text-brand-cream mb-4">
+                  Free Collections
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {freeCollections.map((collection) => (
+                    <CollectionCard key={collection.id} collection={collection} />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {premiumCollections.length > 0 && (
-            <div>
-              <h2 className="font-display text-lg font-semibold text-brand-cream mb-4">
-                Premium Collections
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {premiumCollections.map((collection) => (
-                  <CollectionCard key={collection.id} collection={collection} />
-                ))}
+            {premiumCollections.length > 0 && (
+              <div>
+                <h2 className="font-display text-lg font-semibold text-brand-cream mb-4">
+                  Premium Collections
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {premiumCollections.map((collection) => (
+                    <CollectionCard key={collection.id} collection={collection} />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </>
-      ) : (
-        <EmptyState
-          icon={Library}
-          title="No Collections Found"
-          description="Collections are being set up. Check back soon, or try adjusting your filters."
-        />
-      )}
+            )}
+          </>
+        ) : (
+          <EmptyState
+            icon={Library}
+            title="No Collections Found"
+            description="Collections are being set up. Check back soon, or try adjusting your filters."
+          />
+        )}
+      </GlobalCollectionSearch>
     </>
   );
 }
