@@ -38,7 +38,16 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+  // If the refresh token is invalid/expired, clear auth cookies and treat as logged out
+  if (userError) {
+    request.cookies.getAll().forEach(({ name }) => {
+      if (name.includes('-auth-token')) {
+        supabaseResponse.cookies.set(name, '', { maxAge: 0 });
+      }
+    });
+  }
 
   const protectedPaths = ['/dashboard', '/admin'];
   const isProtected = protectedPaths.some(path => request.nextUrl.pathname.startsWith(path));

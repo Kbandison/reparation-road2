@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 
 const exploreLinks = [
@@ -25,14 +26,18 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
           {/* Brand */}
           <div className="md:col-span-1">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-gold to-brand-burgundy flex items-center justify-center">
-                <span className="font-display text-base font-bold text-brand-cream">R</span>
-              </div>
+            <Link href="/" className="flex items-center gap-3 mb-4">
+              <Image
+                src="/logo-reparation-road.png"
+                alt="Reparation Road"
+                width={36}
+                height={36}
+                className="rounded-full"
+              />
               <span className="font-display text-lg font-semibold text-brand-cream">
                 Reparation Road
               </span>
-            </div>
+            </Link>
             <p className="text-brand-muted text-sm leading-relaxed">
               Restoring history through research and advocacy. A digital archive dedicated to uncovering Black history.
             </p>

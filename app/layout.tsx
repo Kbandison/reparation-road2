@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Playfair_Display, DM_Sans } from 'next/font/google';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { ThemeProvider } from '@/contexts/theme-context';
 import { MainNavServer } from '@/components/layout/main-nav-server';
 import './globals.css';
 
@@ -57,15 +58,24 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="light" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('rr-theme');if(t==='dark'){document.documentElement.classList.remove('light')}}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body
         className={`${playfairDisplay.variable} ${dmSans.variable} antialiased`}
       >
-        <TooltipProvider>
-          <MainNavServer />
-          {children}
-        </TooltipProvider>
-        <Toaster richColors position="top-right" />
+        <ThemeProvider>
+          <TooltipProvider>
+            <MainNavServer />
+            {children}
+          </TooltipProvider>
+          <Toaster richColors position="top-right" />
+        </ThemeProvider>
       </body>
     </html>
   );

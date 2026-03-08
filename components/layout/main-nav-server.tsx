@@ -4,10 +4,10 @@ import type { Profile } from '@/lib/types';
 
 export async function MainNavServer() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error } = await supabase.auth.getUser();
 
   let profile: Profile | null = null;
-  if (user) {
+  if (user && !error) {
     const { data } = await supabase
       .from('profiles')
       .select('*')

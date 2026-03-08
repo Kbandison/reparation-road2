@@ -14,6 +14,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { AuthModal } from '@/components/auth/auth-modal';
+import { ThemeToggle } from '@/components/layout/theme-toggle';
 import type { Profile } from '@/lib/types';
 
 const navLinks = [
@@ -31,12 +33,18 @@ interface MainNavProps {
 export function MainNav({ profile }: MainNavProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
-  const isLoggedIn = !!profile;
+  const isLoggedIn = mounted && !!profile;
   const isAdmin = profile?.role === 'admin';
   const initial = profile?.first_name?.[0]?.toUpperCase() || profile?.email?.[0]?.toUpperCase() || '?';
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 40);
@@ -93,6 +101,8 @@ export function MainNav({ profile }: MainNavProps) {
               );
             })}
 
+            <ThemeToggle />
+
             {isLoggedIn ? (
               <DropdownMenu>
                 <DropdownMenuTrigger className="flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-brand-card-hover transition-colors">
@@ -136,11 +146,12 @@ export function MainNav({ profile }: MainNavProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Link href="/login">
-                <Button className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-sm">
-                  Sign In
-                </Button>
-              </Link>
+              <Button
+                onClick={() => setAuthModalOpen(true)}
+                className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-sm"
+              >
+                Sign In
+              </Button>
             )}
           </div>
 
@@ -169,6 +180,10 @@ export function MainNav({ profile }: MainNavProps) {
                 {link.label}
               </Link>
             ))}
+            <div className="mt-4">
+              <ThemeToggle />
+            </div>
+
             {isLoggedIn ? (
               <>
                 <Link
@@ -186,14 +201,23 @@ export function MainNav({ profile }: MainNavProps) {
                 </button>
               </>
             ) : (
-              <Link href="/login" onClick={() => setMobileOpen(false)}>
-                <Button className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl px-8 mt-4">
-                  Sign In
-                </Button>
-              </Link>
+              <Button
+                onClick={() => {
+                  setMobileOpen(false);
+                  setAuthModalOpen(true);
+                }}
+                className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl px-8 mt-4"
+              >
+                Sign In
+              </Button>
             )}
           </div>
         </div>
+      )}
+
+      {/* Auth modal */}
+      {authModalOpen && (
+        <AuthModal onClose={() => setAuthModalOpen(false)} />
       )}
     </>
   );

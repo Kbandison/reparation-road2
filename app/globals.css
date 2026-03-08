@@ -46,22 +46,42 @@
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
 
-  /* Brand colors */
-  --color-brand-bg: #0F0D0B;
-  --color-brand-card: #1C1917;
-  --color-brand-card-hover: #292524;
-  --color-brand-cream: #F5F0E8;
-  --color-brand-cream-muted: #D6CFC4;
-  --color-brand-gold: #C8956C;
-  --color-brand-gold-light: #E0B992;
-  --color-brand-burgundy: #8B3A3A;
-  --color-brand-burgundy-light: #A85454;
-  --color-brand-sage: #7A8B6F;
-  --color-brand-muted: #A8A29E;
+  /* Brand colors — mapped via CSS vars so theme can swap them */
+  --color-brand-bg: var(--brand-bg);
+  --color-brand-card: var(--brand-card);
+  --color-brand-card-hover: var(--brand-card-hover);
+  --color-brand-cream: var(--brand-cream);
+  --color-brand-cream-muted: var(--brand-cream-muted);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-gold-light: var(--brand-gold-light);
+  --color-brand-burgundy: var(--brand-burgundy);
+  --color-brand-burgundy-light: var(--brand-burgundy-light);
+  --color-brand-sage: var(--brand-sage);
+  --color-brand-green: var(--brand-green);
+  --color-brand-green-light: var(--brand-green-light);
+  --color-brand-muted: var(--brand-muted);
 }
 
-:root {
+/* ─── Dark theme (default) ─── */
+html {
   --radius: 0.625rem;
+
+  /* Dark brand palette */
+  --brand-bg: #0F0D0B;
+  --brand-card: #1C1917;
+  --brand-card-hover: #292524;
+  --brand-cream: #F5F0E8;
+  --brand-cream-muted: #D6CFC4;
+  --brand-gold: #C8956C;
+  --brand-gold-light: #E0B992;
+  --brand-burgundy: #8B3A3A;
+  --brand-burgundy-light: #A85454;
+  --brand-sage: #7A8B6F;
+  --brand-green: #4B9C2C;
+  --brand-green-light: #5CB83A;
+  --brand-muted: #A8A29E;
+
+  /* shadcn tokens — dark */
   --background: #0F0D0B;
   --foreground: #F5F0E8;
   --card: #1C1917;
@@ -95,6 +115,57 @@
   --sidebar-ring: rgba(200, 149, 108, 0.2);
 }
 
+/* ─── Light theme (original reparationroad.org palette) ─── */
+html.light {
+  /* Light brand palette — green/tan/brown from original site */
+  --brand-bg: #FEFAF5;
+  --brand-card: #FFFFFF;
+  --brand-card-hover: #F8F0E3;
+  --brand-cream: #1C1C1C;
+  --brand-cream-muted: #3D3D3D;
+  --brand-gold: #4B9C2C;
+  --brand-gold-light: #194D12;
+  --brand-burgundy: #5B2E00;
+  --brand-burgundy-light: #7A4A1A;
+  --brand-sage: #4B9C2C;
+  --brand-green: #4B9C2C;
+  --brand-green-light: #194D12;
+  --brand-muted: #666666;
+
+  /* shadcn tokens — light */
+  --background: #FEFAF5;
+  --foreground: #1C1C1C;
+  --card: #FFFFFF;
+  --card-foreground: #1C1C1C;
+  --popover: #FFFFFF;
+  --popover-foreground: #1C1C1C;
+  --primary: #4B9C2C;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F8F0E3;
+  --secondary-foreground: #1C1C1C;
+  --muted: #F8F0E3;
+  --muted-foreground: #666666;
+  --accent: #F8F0E3;
+  --accent-foreground: #1C1C1C;
+  --destructive: #DC2626;
+  --border: rgba(75, 156, 44, 0.15);
+  --input: rgba(75, 156, 44, 0.2);
+  --ring: rgba(75, 156, 44, 0.25);
+  --chart-1: #4B9C2C;
+  --chart-2: #5B2E00;
+  --chart-3: #7A8B6F;
+  --chart-4: #194D12;
+  --chart-5: #7A4A1A;
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #1C1C1C;
+  --sidebar-primary: #4B9C2C;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F8F0E3;
+  --sidebar-accent-foreground: #1C1C1C;
+  --sidebar-border: rgba(75, 156, 44, 0.12);
+  --sidebar-ring: rgba(75, 156, 44, 0.2);
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -104,7 +175,12 @@ html {
   color: #F5F0E8;
 }
 
-/* Custom scrollbar */
+html.light ::selection {
+  background-color: rgba(75, 156, 44, 0.25);
+  color: #1C1C1C;
+}
+
+/* Custom scrollbar — dark */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -120,6 +196,19 @@ html {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(200, 149, 108, 0.5);
+}
+
+/* Custom scrollbar — light */
+html.light ::-webkit-scrollbar-track {
+  background: #FEFAF5;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: rgba(75, 156, 44, 0.25);
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 156, 44, 0.4);
 }
 
 @layer base {

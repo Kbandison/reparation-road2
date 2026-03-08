@@ -45,7 +45,7 @@ export default function HomePage() {
   return (
     <>
       {/* Hero Section */}
-      <section className="min-h-screen flex items-center justify-center relative overflow-hidden">
+      <section className="min-h-screen flex items-center relative overflow-hidden">
         <Image
           src="/hero-landing.png"
           alt="Grandmother and granddaughter exploring history together"
@@ -53,40 +53,22 @@ export default function HomePage() {
           priority
           className="object-cover"
         />
-        <div className="absolute inset-0 bg-brand-bg/70" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(200,149,108,0.06)_0%,_transparent_70%)]" />
-        <div className="max-w-7xl mx-auto px-6 py-24 text-center relative z-10">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-brand-gold/20 bg-brand-gold/5 mb-8">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-gold" />
-            <span className="font-body text-xs tracking-wide text-brand-gold">
-              Preserving Truth &middot; Empowering Community
-            </span>
-          </div>
+        <div className="absolute inset-0 bg-brand-burgundy/40" />
+        <div className="max-w-7xl mx-auto px-6 py-32 relative z-10 grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+          <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-8 md:p-10">
+            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-white leading-[1.15] mb-6">
+              Restoring History Through Research and Advocacy
+            </h1>
 
-          <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-semibold tracking-tight text-brand-cream leading-[1.1] max-w-4xl mx-auto mb-6">
-            Restoring History
-            <br />
-            <span className="italic text-brand-gold">Through Research</span>
-            <br />
-            & Advocacy
-          </h1>
+            <p className="font-body text-base md:text-lg text-white/85 leading-relaxed mb-8">
+              Reparation Road is a cultural and historical resource dedicated to uncovering
+              Black history and empowering communities through research and education.
+            </p>
 
-          <p className="font-body text-base md:text-lg text-brand-muted leading-relaxed max-w-[580px] mx-auto mb-10">
-            A digital archive and research platform dedicated to uncovering Black history,
-            preserving ancestral records, and empowering communities through knowledge.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/booking">
               <Button className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl px-6 h-12 text-sm font-medium">
                 <CalendarDays className="w-4 h-4 mr-2" />
-                Book a Research Session
-              </Button>
-            </Link>
-            <Link href="/collection">
-              <Button variant="outline" className="border-brand-gold/30 text-brand-cream hover:bg-brand-gold/5 rounded-xl px-6 h-12 text-sm font-medium group">
-                Explore the Collection
-                <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                Book Your Research Session
               </Button>
             </Link>
           </div>
