@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import type { Collection, CollectionRecord } from '@/lib/types';
-import { buildImageUrl } from '@/lib/collections/helpers';
+import { buildImageUrl, getRecordTitle } from '@/lib/collections/helpers';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
+import { trackActivity } from '@/lib/hooks/use-activity';
 import { RecordModal } from '@/components/collection/record-modal';
 
 interface BookGridProps {
@@ -17,6 +18,18 @@ export function BookGrid({ collection, records }: BookGridProps) {
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
   const selectedRecord = selectedIdx !== null ? records[selectedIdx] : null;
+
+  function selectRecord(idx: number) {
+    setSelectedIdx(idx);
+    const record = records[idx];
+    trackActivity({
+      type: 'record',
+      slug: record.slug || record.id,
+      name: getRecordTitle(record, columns),
+      collectionSlug: collection.slug,
+      collectionName: collection.name,
+    });
+  }
 
   return (
     <>
@@ -32,7 +45,7 @@ export function BookGrid({ collection, records }: BookGridProps) {
           return (
             <button
               key={record.id}
-              onClick={() => setSelectedIdx(idx)}
+              onClick={() => selectRecord(idx)}
               className="group block text-left"
             >
               <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden hover:border-brand-gold/25 hover:-translate-y-1 transition-all duration-200">

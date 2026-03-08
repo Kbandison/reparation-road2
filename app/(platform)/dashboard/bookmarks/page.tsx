@@ -6,6 +6,7 @@ import { Bookmark, ArrowRight } from 'lucide-react';
 import { EmptyState } from '@/components/shared/empty-state';
 import { formatDate } from '@/lib/utils/format';
 import { DeleteBookmarkButton } from '@/components/dashboard/delete-bookmark-button';
+import { BookmarkLink } from '@/components/collection/bookmark-link';
 
 export const metadata: Metadata = {
   title: 'Bookmarks',
@@ -59,22 +60,27 @@ export default async function BookmarksPage({
             key={bm.id}
             className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-4 flex items-center justify-between hover:border-brand-gold/25 transition-colors"
           >
-            <Link
-              href={`/collection/${bm.collection_slug}/${bm.record_id}`}
-              className="flex-1 min-w-0 group"
+            <BookmarkLink
+              collectionSlug={bm.collection_slug}
+              recordId={bm.record_id}
+              className="flex-1 min-w-0 group text-left"
             >
               <p className="text-sm font-medium text-brand-cream truncate group-hover:text-brand-gold transition-colors">
                 {bm.record_title || 'Untitled Record'}
               </p>
               <p className="text-xs text-brand-muted">
-                {bm.collection_slug} &middot; Saved {formatDate(bm.created_at)}
+                {bm.collection_slug.split('/').pop()} &middot; Saved {formatDate(bm.created_at)}
               </p>
-            </Link>
+            </BookmarkLink>
             <div className="flex items-center gap-2 flex-shrink-0 ml-4">
               <DeleteBookmarkButton bookmarkId={bm.id} />
-              <Link href={`/collection/${bm.collection_slug}/${bm.record_id}`}>
-                <ArrowRight className="w-4 h-4 text-brand-muted hover:text-brand-gold" />
-              </Link>
+              <BookmarkLink
+                collectionSlug={bm.collection_slug}
+                recordId={bm.record_id}
+                className="text-brand-muted hover:text-brand-gold"
+              >
+                <ArrowRight className="w-4 h-4" />
+              </BookmarkLink>
             </div>
           </div>
         ))}

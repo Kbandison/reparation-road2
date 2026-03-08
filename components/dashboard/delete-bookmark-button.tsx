@@ -21,6 +21,7 @@ export function DeleteBookmarkButton({ bookmarkId }: { bookmarkId: string }) {
     }
 
     toast.success('Bookmark removed');
+    window.dispatchEvent(new CustomEvent('bookmarks-changed'));
     router.refresh();
   }
 

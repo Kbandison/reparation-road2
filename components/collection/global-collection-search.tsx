@@ -74,9 +74,10 @@ function HighlightMatch({ text, query }: { text: string; query: string }) {
 
 interface Props {
   children: React.ReactNode;
+  filters?: React.ReactNode;
 }
 
-export function GlobalCollectionSearch({ children }: Props) {
+export function GlobalCollectionSearch({ children, filters }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
@@ -169,29 +170,30 @@ export function GlobalCollectionSearch({ children }: Props) {
 
   return (
     <>
-      {/* Search bar */}
-      <div className="mb-8">
-        <div className="relative max-w-2xl mx-auto">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-brand-muted" />
+      {/* Search bar + filters row */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-8">
+        <div className="relative w-full sm:w-auto sm:min-w-[280px] sm:flex-1">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted" />
           <Input
             type="text"
             placeholder="Search all collections and records..."
             value={query}
             onChange={(e) => handleChange(e.target.value)}
-            className="pl-12 pr-12 h-12 text-base bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold rounded-xl"
+            className="pl-10 pr-10 h-[38px] text-sm bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold rounded-xl"
           />
           {query && (
             <button
               onClick={clearSearch}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-lg text-brand-muted hover:text-brand-cream transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-lg text-brand-muted hover:text-brand-cream transition-colors"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
           {(loading || modalLoading) && (
-            <Loader2 className="absolute right-12 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-brand-gold" />
+            <Loader2 className="absolute right-9 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-brand-gold" />
           )}
         </div>
+        {!isSearching && filters}
       </div>
 
       {/* Show search results OR collection grid */}

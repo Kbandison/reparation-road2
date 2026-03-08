@@ -13,29 +13,50 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient();
 
-  // Get collection metadata
-  const { data: col } = await supabase
-    .from('collections')
-    .select('*')
-    .eq('slug', collectionSlug)
-    .single();
+  // collection_slug may be hierarchical (parent/sub/record-slug)
+  // Try each segment to find a leaf collection with a table_name
+  const slugParts = collectionSlug.split('/').filter(Boolean);
+  let collection: Collection | null = null;
 
-  if (!col || !col.table_name) {
+  for (const part of slugParts) {
+    const { data: col } = await supabase
+      .from('collections')
+      .select('*')
+      .eq('slug', part)
+      .single();
+
+    if (col && col.table_name) {
+      collection = col as Collection;
+      break;
+    }
+  }
+
+  if (!collection) {
     return NextResponse.json({ error: 'Collection not found' }, { status: 404 });
   }
 
-  const collection = col as Collection;
-
-  // Fetch the record
+  // Try fetching by id first, then by slug
   let query = supabase.from(collection.table_name!).select('*').eq('id', recordId);
 
   if (collection.discriminator_column && collection.discriminator_value) {
     query = query.eq(collection.discriminator_column, collection.discriminator_value);
   }
 
-  const { data: record, error } = await query.maybeSingle();
+  let { data: record } = await query.maybeSingle();
 
-  if (error || !record) {
+  // Fallback: try by slug if id didn't match
+  if (!record) {
+    let slugQuery = supabase.from(collection.table_name!).select('*').eq('slug', recordId);
+
+    if (collection.discriminator_column && collection.discriminator_value) {
+      slugQuery = slugQuery.eq(collection.discriminator_column, collection.discriminator_value);
+    }
+
+    const { data: bySlug } = await slugQuery.maybeSingle();
+    record = bySlug;
+  }
+
+  if (!record) {
     return NextResponse.json({ error: 'Record not found' }, { status: 404 });
   }
 

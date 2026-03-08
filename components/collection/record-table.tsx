@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import type { Collection, CollectionRecord } from '@/lib/types';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
+import { trackActivity } from '@/lib/hooks/use-activity';
+import { getRecordTitle } from '@/lib/collections/helpers';
 import { RecordModal } from '@/components/collection/record-modal';
 
 interface RecordTableProps {
@@ -15,6 +17,18 @@ export function RecordTable({ collection, records }: RecordTableProps) {
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
   const selectedRecord = selectedIdx !== null ? records[selectedIdx] : null;
+
+  function selectRecord(idx: number) {
+    setSelectedIdx(idx);
+    const record = records[idx];
+    trackActivity({
+      type: 'record',
+      slug: record.slug || record.id,
+      name: getRecordTitle(record, columns),
+      collectionSlug: collection.slug,
+      collectionName: collection.name,
+    });
+  }
 
   return (
     <>
@@ -37,7 +51,7 @@ export function RecordTable({ collection, records }: RecordTableProps) {
             {records.map((record, idx) => (
               <tr
                 key={record.id}
-                onClick={() => setSelectedIdx(idx)}
+                onClick={() => selectRecord(idx)}
                 className="border-b border-brand-gold/[0.04] hover:bg-brand-card-hover transition-colors cursor-pointer"
               >
                 {columns.map((col, i) => (
@@ -62,7 +76,7 @@ export function RecordTable({ collection, records }: RecordTableProps) {
         {records.map((record, idx) => (
           <button
             key={record.id}
-            onClick={() => setSelectedIdx(idx)}
+            onClick={() => selectRecord(idx)}
             className="block w-full text-left bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-4 hover:border-brand-gold/25 transition-colors"
           >
             {columns.slice(0, 4).map((col, i) => (

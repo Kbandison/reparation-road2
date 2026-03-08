@@ -52,6 +52,7 @@ export function BookmarkButton({ collectionSlug, recordId, recordTitle }: Bookma
         toast.error('Failed to remove bookmark');
       } else {
         toast.success('Bookmark removed');
+        window.dispatchEvent(new CustomEvent('bookmarks-changed'));
       }
     } else {
       const { error } = await supabase
@@ -68,6 +69,7 @@ export function BookmarkButton({ collectionSlug, recordId, recordTitle }: Bookma
         toast.error('Failed to add bookmark');
       } else {
         toast.success('Bookmarked!');
+        window.dispatchEvent(new CustomEvent('bookmarks-changed'));
       }
     }
   }

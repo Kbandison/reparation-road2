@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { Bookmark, CalendarDays, MessageSquare, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatDate } from '@/lib/utils/format';
+import { BookmarkLink } from '@/components/collection/bookmark-link';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -85,16 +86,17 @@ export default async function DashboardPage() {
             <ul className="space-y-3">
               {recentBookmarks.map((bm) => (
                 <li key={bm.id}>
-                  <Link
-                    href={`/collection/${bm.collection_slug}/${bm.record_id}`}
-                    className="flex items-center justify-between py-2 px-3 rounded-xl hover:bg-brand-card-hover transition-colors group"
+                  <BookmarkLink
+                    collectionSlug={bm.collection_slug}
+                    recordId={bm.record_id}
+                    className="flex items-center justify-between py-2 px-3 rounded-xl hover:bg-brand-card-hover transition-colors group w-full text-left"
                   >
                     <div className="min-w-0">
                       <p className="text-sm text-brand-cream truncate">{bm.record_title || 'Untitled Record'}</p>
-                      <p className="text-xs text-brand-muted">{bm.collection_slug}</p>
+                      <p className="text-xs text-brand-muted">{bm.collection_slug.split('/').pop()}</p>
                     </div>
                     <ArrowRight className="w-4 h-4 text-brand-muted group-hover:text-brand-gold flex-shrink-0" />
-                  </Link>
+                  </BookmarkLink>
                 </li>
               ))}
             </ul>

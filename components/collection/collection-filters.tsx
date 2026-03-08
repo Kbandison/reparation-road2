@@ -28,7 +28,7 @@ export function CollectionFilters({ categories, eras, regions }: CollectionFilte
   }
 
   return (
-    <div className="flex flex-wrap gap-3 mb-8">
+    <div className="flex flex-wrap gap-3">
       <select
         value={currentCategory}
         onChange={(e) => updateFilter('category', e.target.value)}

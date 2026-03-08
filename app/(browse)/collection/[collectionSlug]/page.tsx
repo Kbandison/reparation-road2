@@ -13,6 +13,7 @@ import { SubcollectionGrid } from '@/components/collection/subcollection-grid';
 import { CollectionSearchBar } from '@/components/collection/collection-search-bar';
 import { AccessGate } from '@/components/collection/access-gate';
 import { ActivityTracker } from '@/components/collection/activity-tracker';
+import { BookmarkRecordOpener } from '@/components/collection/bookmark-record-opener';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -208,6 +209,8 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
           )}
         </>
       )}
+
+      <BookmarkRecordOpener collectionSlug={collectionSlug} />
     </>
   );
 }
