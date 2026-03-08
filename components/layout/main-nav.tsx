@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { AuthModal } from '@/components/auth/auth-modal';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
+import { NavBookmarks } from '@/components/layout/nav-bookmarks';
 import type { Profile } from '@/lib/types';
 
 const navLinks = [
@@ -102,6 +103,8 @@ export function MainNav({ profile }: MainNavProps) {
             })}
 
             <ThemeToggle />
+
+            {isLoggedIn && <NavBookmarks profile={profile ?? null} />}
 
             {isLoggedIn ? (
               <DropdownMenu>
@@ -192,6 +195,13 @@ export function MainNav({ profile }: MainNavProps) {
                   className="font-display text-2xl text-brand-cream hover:text-brand-gold transition-colors"
                 >
                   Dashboard
+                </Link>
+                <Link
+                  href="/dashboard/bookmarks"
+                  onClick={() => setMobileOpen(false)}
+                  className="font-display text-2xl text-brand-cream hover:text-brand-gold transition-colors"
+                >
+                  Bookmarks
                 </Link>
                 <button
                   onClick={handleSignOut}

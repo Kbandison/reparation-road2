@@ -6,6 +6,7 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Collection, CollectionRecord } from '@/lib/types';
 import { buildImageUrl } from '@/lib/collections/helpers';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
+import { BookmarkButton } from '@/components/collection/bookmark-button';
 
 interface RecordModalProps {
   collection: Collection;
@@ -97,12 +98,19 @@ export function RecordModal({
               </button>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-brand-card transition-colors text-brand-muted hover:text-brand-cream flex-shrink-0"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <BookmarkButton
+              collectionSlug={collection.slug}
+              recordId={record.slug || record.id}
+              recordTitle={String(title)}
+            />
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-brand-card transition-colors text-brand-muted hover:text-brand-cream"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Body */}

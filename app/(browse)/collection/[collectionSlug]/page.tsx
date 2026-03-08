@@ -12,6 +12,7 @@ import { BookGrid } from '@/components/collection/book-grid';
 import { SubcollectionGrid } from '@/components/collection/subcollection-grid';
 import { CollectionSearchBar } from '@/components/collection/collection-search-bar';
 import { AccessGate } from '@/components/collection/access-gate';
+import { ActivityTracker } from '@/components/collection/activity-tracker';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -51,6 +52,7 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
 
     return (
       <>
+        <ActivityTracker type="collection" slug={collectionSlug} name={collection.name} />
         <div className="mb-2">
           <Link href="/collection" className="text-sm text-brand-muted hover:text-brand-gold transition-colors">
             &larr; All Collections
@@ -114,6 +116,13 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
 
   return (
     <>
+      <ActivityTracker
+        type={collection.parent_slug ? 'subcollection' : 'collection'}
+        slug={collectionSlug}
+        name={collection.name}
+        parentSlug={collection.parent_slug || undefined}
+        parentName={parentCollection?.name}
+      />
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-brand-muted mb-2">
         <Link href="/collection" className="hover:text-brand-gold transition-colors">

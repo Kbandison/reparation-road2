@@ -6,6 +6,7 @@ import { Search, Loader2, Library, FolderOpen, FileText, X } from 'lucide-react'
 import { Input } from '@/components/ui/input';
 import { RecordModal } from '@/components/collection/record-modal';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
+import { trackActivity } from '@/lib/hooks/use-activity';
 import type { Collection, CollectionRecord } from '@/lib/types';
 
 interface CollectionResult {
@@ -137,6 +138,17 @@ export function GlobalCollectionSearch({ children }: Props) {
       if (data.collection && data.record) {
         setModalCollection(data.collection);
         setModalRecord(data.record);
+        // Track record activity
+        const title = data.collection.display_columns?.[0]
+          ? String(data.record[data.collection.display_columns[0]] ?? r.id)
+          : r.id;
+        trackActivity({
+          type: 'record',
+          slug: data.record.slug || r.id,
+          name: String(title),
+          collectionSlug: r.collectionSlug,
+          collectionName: r.collectionName,
+        });
       }
     } catch {
       // silently fail

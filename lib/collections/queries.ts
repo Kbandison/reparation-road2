@@ -15,7 +15,7 @@ export async function getCollections(
     .from('collections')
     .select('*')
     .eq('is_published', true)
-    .order('sort_order');
+    .order('name');
 
   if (filters?.topLevelOnly) {
     query = query.is('parent_slug', null);
@@ -42,7 +42,7 @@ export async function getChildCollections(
     .select('*')
     .eq('parent_slug', parentSlug)
     .eq('is_published', true)
-    .order('sort_order');
+    .order('name');
 
   if (error) {
     console.error('Failed to fetch child collections:', error.message);

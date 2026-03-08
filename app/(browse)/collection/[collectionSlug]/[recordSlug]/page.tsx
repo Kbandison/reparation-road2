@@ -11,6 +11,7 @@ import { OcrDisplay } from '@/components/collection/ocr-display';
 import { BookmarkButton } from '@/components/collection/bookmark-button';
 import { RelatedRecords } from '@/components/collection/related-records';
 import { AccessGate } from '@/components/collection/access-gate';
+import { ActivityTracker } from '@/components/collection/activity-tracker';
 
 interface Props {
   params: Promise<{ collectionSlug: string; recordSlug: string }>;
@@ -63,6 +64,13 @@ export default async function RecordDetailPage({ params }: Props) {
 
   return (
     <>
+      <ActivityTracker
+        type="record"
+        slug={record.slug || record.id}
+        name={recordTitle}
+        collectionSlug={collectionSlug}
+        collectionName={collection.name}
+      />
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-brand-muted mb-6">
         <Link href="/collection" className="hover:text-brand-gold transition-colors">

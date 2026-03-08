@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { CollectionCard } from '@/components/collection/collection-card';
 import { CollectionFilters } from '@/components/collection/collection-filters';
 import { GlobalCollectionSearch } from '@/components/collection/global-collection-search';
+import { RecentActivity } from '@/components/collection/recent-activity';
 import { Library } from 'lucide-react';
 import { EmptyState } from '@/components/shared/empty-state';
 
@@ -52,47 +53,57 @@ export default async function CollectionsPage({
         description="Browse our growing archive of historical records, census data, military records, and more."
       />
 
-      <GlobalCollectionSearch>
-        {allTopLevel.length > 0 && (
-          <CollectionFilters categories={categories} eras={eras} regions={regions} />
-        )}
-
-        {collections.length > 0 ? (
-          <>
-            {freeCollections.length > 0 && (
-              <div className="mb-10">
-                <h2 className="font-display text-lg font-semibold text-brand-cream mb-4">
-                  Free Collections
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {freeCollections.map((collection) => (
-                    <CollectionCard key={collection.id} collection={collection} />
-                  ))}
-                </div>
-              </div>
+      <div className="flex gap-6">
+        {/* Main content */}
+        <div className="flex-1 min-w-0">
+          <GlobalCollectionSearch>
+            {allTopLevel.length > 0 && (
+              <CollectionFilters categories={categories} eras={eras} regions={regions} />
             )}
 
-            {premiumCollections.length > 0 && (
-              <div>
-                <h2 className="font-display text-lg font-semibold text-brand-cream mb-4">
-                  Premium Collections
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {premiumCollections.map((collection) => (
-                    <CollectionCard key={collection.id} collection={collection} />
-                  ))}
-                </div>
-              </div>
+            {collections.length > 0 ? (
+              <>
+                {freeCollections.length > 0 && (
+                  <div className="mb-10">
+                    <h2 className="font-display text-lg font-semibold text-brand-cream mb-4">
+                      Free Collections
+                    </h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                      {freeCollections.map((collection) => (
+                        <CollectionCard key={collection.id} collection={collection} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {premiumCollections.length > 0 && (
+                  <div>
+                    <h2 className="font-display text-lg font-semibold text-brand-cream mb-4">
+                      Premium Collections
+                    </h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                      {premiumCollections.map((collection) => (
+                        <CollectionCard key={collection.id} collection={collection} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <EmptyState
+                icon={Library}
+                title="No Collections Found"
+                description="Collections are being set up. Check back soon, or try adjusting your filters."
+              />
             )}
-          </>
-        ) : (
-          <EmptyState
-            icon={Library}
-            title="No Collections Found"
-            description="Collections are being set up. Check back soon, or try adjusting your filters."
-          />
-        )}
-      </GlobalCollectionSearch>
+          </GlobalCollectionSearch>
+        </div>
+
+        {/* Floating sidebar - hidden on mobile/tablet */}
+        <aside className="hidden xl:block w-72 flex-shrink-0">
+          <RecentActivity />
+        </aside>
+      </div>
     </>
   );
 }
