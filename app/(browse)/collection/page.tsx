@@ -4,6 +4,7 @@ import { getCollections } from '@/lib/collections/queries';
 import { PageHeader } from '@/components/shared/page-header';
 import { CollectionCard } from '@/components/collection/collection-card';
 import { CollectionFilters } from '@/components/collection/collection-filters';
+import { GlobalCollectionSearch } from '@/components/collection/global-collection-search';
 import { Library } from 'lucide-react';
 import { EmptyState } from '@/components/shared/empty-state';
 
@@ -51,6 +52,8 @@ export default async function CollectionsPage({
         title="Explore the Collections"
         description="Browse our growing archive of historical records, census data, military records, and more."
       />
+
+      <GlobalCollectionSearch />
 
       {allTopLevel.length > 0 && (
         <CollectionFilters categories={categories} eras={eras} regions={regions} />
