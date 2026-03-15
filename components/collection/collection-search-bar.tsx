@@ -16,7 +16,7 @@ export function CollectionSearchBar({ collectionSlug, initialSearch }: Collectio
     (value: string) => {
       const params = new URLSearchParams();
       if (value) params.set('search', value);
-      router.push(`/collection/${collectionSlug}?${params.toString()}`);
+      router.replace(`/collection/${collectionSlug}?${params.toString()}`);
     },
     [router, collectionSlug]
   );

@@ -34,7 +34,7 @@ export default function SignupPage() {
     setLoading(true);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -49,6 +49,14 @@ export default function SignupPage() {
       toast.error(error.message);
       setLoading(false);
       return;
+    }
+
+    // Update profile with names (the DB trigger may not read user_metadata)
+    if (signUpData.user) {
+      await supabase
+        .from('profiles')
+        .update({ first_name: firstName, last_name: lastName })
+        .eq('id', signUpData.user.id);
     }
 
     setSuccess(true);

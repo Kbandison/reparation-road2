@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type { Collection, CollectionRecord, RelatedRecord } from '@/lib/types';
 
 interface CollectionFilters {
@@ -86,7 +87,7 @@ export async function getCollectionRecords(
     .select('*', { count: 'exact' });
 
   if (collection.discriminator_column && collection.discriminator_value) {
-    query = query.eq(collection.discriminator_column, collection.discriminator_value);
+    query = query.ilike(collection.discriminator_column, collection.discriminator_value);
   }
 
   if (search && collection.search_columns?.length > 0) {
@@ -111,7 +112,21 @@ export async function getCollectionRecords(
     return { data: [], count: 0 };
   }
 
-  return { data: (data || []) as unknown as CollectionRecord[], count: count || 0 };
+  const liveCount = count || 0;
+
+  // Sync record_count if stale (fire-and-forget via admin client to bypass RLS)
+  if (liveCount !== collection.record_count) {
+    try {
+      const admin = createAdminClient();
+      admin
+        .from('collections')
+        .update({ record_count: liveCount })
+        .eq('id', collection.id)
+        .then();
+    } catch { /* ignore — admin client may not be available in all envs */ }
+  }
+
+  return { data: (data || []) as unknown as CollectionRecord[], count: liveCount };
 }
 
 export async function getRecordBySlug(
@@ -136,7 +151,7 @@ export async function getRecordBySlug(
     .eq('id', recordSlug);
 
   if (collection.discriminator_column && collection.discriminator_value) {
-    idQuery = idQuery.eq(collection.discriminator_column, collection.discriminator_value);
+    idQuery = idQuery.ilike(collection.discriminator_column, collection.discriminator_value);
   }
 
   const { data: byId } = await idQuery.maybeSingle();

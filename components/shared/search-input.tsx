@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -22,18 +22,17 @@ export function SearchInput({
   autoFocus,
 }: SearchInputProps) {
   const [value, setValue] = useState(externalValue || '');
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const onSearchRef = useRef(onSearch);
+  onSearchRef.current = onSearch;
 
-  useEffect(() => {
-    if (externalValue !== undefined) setValue(externalValue);
-  }, [externalValue]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      onSearch(value);
+  const handleChange = useCallback((newValue: string) => {
+    setValue(newValue);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onSearchRef.current(newValue);
     }, debounceMs);
-
-    return () => clearTimeout(timer);
-  }, [value, debounceMs, onSearch]);
+  }, [debounceMs]);
 
   return (
     <div className={`relative ${className || ''}`}>
@@ -42,7 +41,7 @@ export function SearchInput({
         type="text"
         placeholder={placeholder}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => handleChange(e.target.value)}
         autoFocus={autoFocus}
         className="pl-10 bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold"
       />
