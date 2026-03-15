@@ -9,6 +9,7 @@ import { buildImageUrl } from '@/lib/collections/helpers';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
 import { BookmarkButton } from '@/components/collection/bookmark-button';
 import { ModalRelatedRecords } from '@/components/collection/modal-related-records';
+import { RecordCitation } from '@/components/collection/record-citation';
 
 interface RecordModalProps {
   collection: Collection;
@@ -241,6 +242,9 @@ export function RecordModal({
                     onNavigate={handleNavigateToRecord}
                   />
                 )}
+
+                {/* Citation */}
+                <RecordCitation collection={activeCollection} record={activeRecord} />
               </div>
             </div>
           ) : (
@@ -285,6 +289,9 @@ export function RecordModal({
                   onNavigate={handleNavigateToRecord}
                 />
               )}
+
+              {/* Citation */}
+              <RecordCitation collection={activeCollection} record={activeRecord} />
             </>
           )}
         </div>

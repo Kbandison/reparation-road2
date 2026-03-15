@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getCollectionBySlug, getCollectionRecords } from '@/lib/collections/queries';
 import { PageHeader } from '@/components/shared/page-header';
 import { AdminRecordsTable } from '@/components/admin/admin-records-table';
+import { AdminCitationEditor } from '@/components/admin/admin-citation-editor';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -67,6 +68,9 @@ export default async function AdminCollectionRecordsPage({ params, searchParams 
         title={collection.name}
         description={`${count} records · Table: ${collection.table_name} · Click any row to edit all fields`}
       />
+
+      {/* Citation Template Editor */}
+      <AdminCitationEditor collection={collection} />
 
       {/* Search */}
       <form className="mb-6">

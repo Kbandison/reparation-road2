@@ -39,6 +39,7 @@ export interface Collection {
   is_published: boolean;
   parent_slug: string | null;
   display_type: 'table' | 'book';
+  citation_template: string | null;
   created_at: string;
   updated_at: string;
 }
