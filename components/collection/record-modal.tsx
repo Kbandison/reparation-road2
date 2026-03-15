@@ -242,9 +242,6 @@ export function RecordModal({
                     onNavigate={handleNavigateToRecord}
                   />
                 )}
-
-                {/* Citation */}
-                <RecordCitation collection={activeCollection} record={activeRecord} />
               </div>
             </div>
           ) : (
@@ -289,11 +286,14 @@ export function RecordModal({
                   onNavigate={handleNavigateToRecord}
                 />
               )}
-
-              {/* Citation */}
-              <RecordCitation collection={activeCollection} record={activeRecord} />
             </>
           )}
+
+        </div>
+
+        {/* Citation — sticky footer, full modal width */}
+        <div className="flex-shrink-0">
+          <RecordCitation collection={activeCollection} record={activeRecord} />
         </div>
       </div>
     </div>
