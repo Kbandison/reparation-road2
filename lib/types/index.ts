@@ -138,3 +138,19 @@ export interface RelatedRecord {
   is_bidirectional: boolean;
   is_featured: boolean;
 }
+
+export interface AlgorithmicMatch {
+  id: string;
+  slug: string;
+  name: string;
+  collectionSlug: string;
+  collectionName: string;
+  tableName: string;
+  matchReasons: string[];
+  score: number;
+}
+
+export interface RelatedRecordsResponse {
+  curated: RelatedRecord[];
+  algorithmic: AlgorithmicMatch[];
+}
