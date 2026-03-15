@@ -62,38 +62,23 @@ function timeAgo(ts: number) {
 
 const DEFAULT_X = -40; // offset from right edge
 const DEFAULT_Y = 144; // ~top-36
-
-function loadPosition(): { x: number; y: number } | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem('rr-activity-pos');
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return null;
-}
-
-function savePosition(x: number, y: number) {
-  try {
-    localStorage.setItem('rr-activity-pos', JSON.stringify({ x, y }));
-  } catch { /* ignore */ }
-}
+const NAV_HEIGHT = 64; // h-16 navbar
 
 export function RecentActivity() {
   const { items, clearActivity } = useRecentActivity();
   const [collapsed, setCollapsed] = useState(false);
   const [showAll, setShowAll] = useState(false);
 
-  // Drag state
+  // Drag state — always reset to default on mount (no persistence)
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: DEFAULT_X, y: DEFAULT_Y });
   const [dragging, setDragging] = useState(false);
+  const [wasDragged, setWasDragged] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
-  const didDrag = useRef(false);
 
-  // Load saved position on mount
+  // Clear any stale saved position on mount
   useEffect(() => {
-    const saved = loadPosition();
-    if (saved) setPos(saved);
+    try { localStorage.removeItem('rr-activity-pos'); } catch { /* ignore */ }
   }, []);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
@@ -107,7 +92,6 @@ export function RecentActivity() {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     };
-    didDrag.current = false;
     setDragging(true);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }, []);
@@ -115,16 +99,16 @@ export function RecentActivity() {
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragging) return;
     e.preventDefault();
-    didDrag.current = true;
+    setWasDragged(true);
 
     const newX = e.clientX - dragOffset.current.x;
     const newY = e.clientY - dragOffset.current.y;
 
-    // Clamp to viewport
+    // Clamp to viewport, keeping panel below the navbar
     const w = panelRef.current?.offsetWidth || 288;
     const h = panelRef.current?.offsetHeight || 200;
     const clampedX = Math.max(0, Math.min(window.innerWidth - w, newX));
-    const clampedY = Math.max(0, Math.min(window.innerHeight - h, newY));
+    const clampedY = Math.max(NAV_HEIGHT, Math.min(window.innerHeight - h, newY));
 
     setPos({ x: clampedX, y: clampedY });
   }, [dragging]);
@@ -134,20 +118,14 @@ export function RecentActivity() {
     setDragging(false);
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
 
-    // Save position
-    if (didDrag.current) {
-      const rect = panelRef.current?.getBoundingClientRect();
-      if (rect) savePosition(rect.left, rect.top);
-    }
   }, [dragging]);
 
   if (items.length === 0) return null;
 
   const displayItems = showAll ? items.slice(0, 20) : items.slice(0, 8);
 
-  // Determine style: saved position uses left/top, default uses right/top
-  const saved = loadPosition();
-  const positionStyle: React.CSSProperties = saved || didDrag.current
+  // Determine style: after dragging use left/top, default uses right/top
+  const positionStyle: React.CSSProperties = wasDragged
     ? { left: pos.x, top: pos.y }
     : { right: Math.abs(DEFAULT_X), top: pos.y };
 
