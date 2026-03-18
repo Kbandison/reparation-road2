@@ -1,28 +1,90 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { SearchInput } from '@/components/shared/search-input';
+import { Search, Loader2, Library, FolderOpen, FileText } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/shared/page-header';
-import { createClient } from '@/lib/supabase/client';
-import { Loader2, Search } from 'lucide-react';
+import { RecordModal } from '@/components/collection/record-modal';
+import { snakeCaseToTitleCase } from '@/lib/utils/format';
+import { trackActivity } from '@/lib/hooks/use-activity';
 import { EmptyState } from '@/components/shared/empty-state';
 import type { Collection, CollectionRecord } from '@/lib/types';
-import { getRecordTitle } from '@/lib/collections/helpers';
 
-interface SearchResult {
-  collection: Collection;
-  records: CollectionRecord[];
+interface CollectionResult {
+  slug: string;
+  name: string;
+  shortDescription: string | null;
+  category: string;
+  recordCount: number;
+  accessTier: string;
+}
+
+interface SubcollectionResult {
+  slug: string;
+  name: string;
+  shortDescription: string | null;
+  parentSlug: string;
+  parentName: string;
+  category: string;
+  recordCount: number;
+  accessTier: string;
+}
+
+interface RecordResult {
+  id: string;
+  slug?: string;
+  collectionSlug: string;
+  collectionName: string;
+  parentSlug: string | null;
+  matchField: string;
+  matchValue: string;
+  displayFields: Record<string, string>;
+}
+
+interface SearchResults {
+  collections: CollectionResult[];
+  subcollections: SubcollectionResult[];
+  records: RecordResult[];
+}
+
+function HighlightMatch({ text, query }: { text: string; query: string }) {
+  if (!query || query.length < 2) return <>{text}</>;
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const idx = lowerText.indexOf(lowerQuery);
+  if (idx === -1) return <>{text}</>;
+
+  const matchEnd = idx + query.length;
+  const contextStart = Math.max(0, idx - 80);
+  const contextEnd = Math.min(text.length, matchEnd + 80);
+
+  return (
+    <>
+      {(contextStart > 0 ? '...' : '') + text.slice(contextStart, idx)}
+      <mark className="bg-brand-gold/30 text-brand-cream rounded px-0.5">
+        {text.slice(idx, matchEnd)}
+      </mark>
+      {text.slice(matchEnd, contextEnd) + (contextEnd < text.length ? '...' : '')}
+    </>
+  );
 }
 
 export default function SearchPage() {
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  const handleSearch = useCallback(async (query: string) => {
-    if (!query || query.length < 2) {
-      setResults([]);
+  // Modal state
+  const [modalRecord, setModalRecord] = useState<CollectionRecord | null>(null);
+  const [modalCollection, setModalCollection] = useState<Collection | null>(null);
+  const [modalLoading, setModalLoading] = useState(false);
+
+  const search = useCallback(async (q: string) => {
+    if (q.trim().length < 2) {
+      setResults(null);
       setSearched(false);
       return;
     }
@@ -30,48 +92,60 @@ export default function SearchPage() {
     setLoading(true);
     setSearched(true);
 
-    const supabase = createClient();
-
-    const { data: collections } = await supabase
-      .from('collections')
-      .select('*')
-      .eq('is_published', true);
-
-    if (!collections) {
-      setLoading(false);
-      return;
+    try {
+      const res = await fetch(`/api/collection-search?q=${encodeURIComponent(q.trim())}`);
+      const data = await res.json();
+      setResults(data);
+    } catch {
+      setResults({ collections: [], subcollections: [], records: [] });
     }
 
-    const searchResults: SearchResult[] = [];
-
-    for (const collection of collections) {
-      if (!collection.search_columns || collection.search_columns.length === 0) continue;
-
-      const selectColumns = ['id', 'slug', ...collection.display_columns].filter(
-        (v, i, a) => a.indexOf(v) === i
-      );
-
-      const orFilter = collection.search_columns
-        .map((col: string) => `${col}.ilike.%${query}%`)
-        .join(',');
-
-      const { data: records } = await supabase
-        .from(collection.table_name)
-        .select(selectColumns.join(','))
-        .or(orFilter)
-        .limit(5);
-
-      if (records && records.length > 0) {
-        searchResults.push({
-          collection: collection as Collection,
-          records: records as unknown as CollectionRecord[],
-        });
-      }
-    }
-
-    setResults(searchResults);
     setLoading(false);
   }, []);
+
+  function handleChange(value: string) {
+    setQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (value.trim().length < 2) {
+      setResults(null);
+      setSearched(false);
+      return;
+    }
+    debounceRef.current = setTimeout(() => search(value), 400);
+  }
+
+  async function openRecordModal(r: RecordResult) {
+    setModalLoading(true);
+    try {
+      const res = await fetch(
+        `/api/collection-search/record?collection=${encodeURIComponent(r.collectionSlug)}&id=${encodeURIComponent(r.id)}`
+      );
+      const data = await res.json();
+      if (data.collection && data.record) {
+        setModalCollection(data.collection);
+        setModalRecord(data.record);
+        trackActivity({
+          type: 'record',
+          slug: data.record.slug || r.id,
+          name: String(
+            data.collection.display_columns?.[0]
+              ? data.record[data.collection.display_columns[0]] ?? r.id
+              : r.id
+          ),
+          collectionSlug: r.collectionSlug,
+          collectionName: r.collectionName,
+        });
+      }
+    } catch {
+      // silently fail
+    }
+    setModalLoading(false);
+  }
+
+  const totalResults =
+    (results?.collections.length || 0) +
+    (results?.subcollections.length || 0) +
+    (results?.records.length || 0);
 
   return (
     <>
@@ -81,13 +155,20 @@ export default function SearchPage() {
         description="Search across all collections to find records, names, and historical data."
       />
 
-      <SearchInput
-        placeholder="Search names, places, records..."
-        onSearch={handleSearch}
-        debounceMs={500}
-        autoFocus
-        className="max-w-xl mb-8"
-      />
+      <div className="relative max-w-xl mb-8">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted" />
+        <Input
+          type="text"
+          placeholder="Search names, places, records..."
+          value={query}
+          onChange={(e) => handleChange(e.target.value)}
+          autoFocus
+          className="pl-10 h-[42px] text-sm bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold rounded-xl"
+        />
+        {(loading || modalLoading) && (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-brand-gold" />
+        )}
+      </div>
 
       {loading && (
         <div className="flex items-center justify-center py-16">
@@ -95,7 +176,7 @@ export default function SearchPage() {
         </div>
       )}
 
-      {!loading && searched && results.length === 0 && (
+      {!loading && searched && totalResults === 0 && (
         <EmptyState
           icon={Search}
           title="No Results Found"
@@ -103,40 +184,154 @@ export default function SearchPage() {
         />
       )}
 
-      {!loading && results.length > 0 && (
+      {!loading && results && totalResults > 0 && (
         <div className="space-y-8">
-          {results.map((result) => (
-            <div key={result.collection.id}>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-display text-lg font-semibold text-brand-cream">
-                  {result.collection.name}
-                </h2>
-                <Link
-                  href={`/collection/${result.collection.slug}`}
-                  className="text-xs text-brand-gold hover:text-brand-gold-light"
-                >
-                  View all
-                </Link>
+          <p className="text-sm text-brand-muted">
+            Found {totalResults} result{totalResults !== 1 ? 's' : ''} for &ldquo;{query}&rdquo;
+          </p>
+
+          {/* Collections */}
+          {results.collections.length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <Library className="w-4 h-4 text-brand-gold" />
+                <h3 className="font-display text-sm font-semibold text-brand-cream uppercase tracking-wide">
+                  Collections ({results.collections.length})
+                </h3>
               </div>
-              <div className="space-y-2">
-                {result.records.map((record) => (
+              <div className="grid gap-3">
+                {results.collections.map((c) => (
                   <Link
-                    key={record.id}
-                    href={`/collection/${result.collection.slug}/${record.slug || record.id}`}
-                    className="block bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-4 hover:border-brand-gold/25 transition-colors"
+                    key={c.slug}
+                    href={`/collection/${c.slug}`}
+                    className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-5 hover:border-brand-gold/25 transition-all hover:-translate-y-0.5 block group"
                   >
-                    <p className="text-sm font-medium text-brand-gold">
-                      {getRecordTitle(record, result.collection.display_columns)}
-                    </p>
-                    <p className="text-xs text-brand-muted mt-1">
-                      {result.collection.name}
-                    </p>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-display text-base font-semibold text-brand-cream group-hover:text-brand-gold transition-colors">
+                          <HighlightMatch text={c.name} query={query} />
+                        </p>
+                        {c.shortDescription && (
+                          <p className="text-sm text-brand-muted mt-1 line-clamp-2">
+                            <HighlightMatch text={c.shortDescription} query={query} />
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-brand-muted/10 text-brand-muted">
+                          {c.recordCount} records
+                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          c.accessTier === 'free'
+                            ? 'bg-brand-sage/10 text-brand-sage'
+                            : 'bg-brand-gold/10 text-brand-gold'
+                        }`}>
+                          {c.accessTier === 'free' ? 'Free' : 'Premium'}
+                        </span>
+                      </div>
+                    </div>
                   </Link>
                 ))}
               </div>
-            </div>
-          ))}
+            </section>
+          )}
+
+          {/* Subcollections */}
+          {results.subcollections.length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <FolderOpen className="w-4 h-4 text-brand-sage" />
+                <h3 className="font-display text-sm font-semibold text-brand-cream uppercase tracking-wide">
+                  Subcollections ({results.subcollections.length})
+                </h3>
+              </div>
+              <div className="grid gap-3">
+                {results.subcollections.map((c) => (
+                  <Link
+                    key={c.slug}
+                    href={`/collection/${c.slug}`}
+                    className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-5 hover:border-brand-gold/25 transition-all hover:-translate-y-0.5 block group"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-display text-base font-semibold text-brand-cream group-hover:text-brand-gold transition-colors">
+                          <HighlightMatch text={c.name} query={query} />
+                        </p>
+                        <p className="text-xs text-brand-muted mt-0.5">
+                          in {c.parentName}
+                        </p>
+                      </div>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-brand-muted/10 text-brand-muted flex-shrink-0">
+                        {c.recordCount} records
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Records */}
+          {results.records.length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <FileText className="w-4 h-4 text-brand-burgundy-light" />
+                <h3 className="font-display text-sm font-semibold text-brand-cream uppercase tracking-wide">
+                  Records ({results.records.length})
+                </h3>
+              </div>
+              <div className="grid gap-3">
+                {results.records.map((r) => (
+                  <button
+                    key={`${r.collectionSlug}-${r.id}`}
+                    onClick={() => openRecordModal(r)}
+                    className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-5 hover:border-brand-gold/25 transition-all hover:-translate-y-0.5 block w-full text-left group"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          {Object.entries(r.displayFields).map(([key, val]) => (
+                            <span key={key} className="text-sm">
+                              <span className="text-brand-muted text-xs mr-1">
+                                {snakeCaseToTitleCase(key)}:
+                              </span>
+                              <span className="text-brand-cream font-medium group-hover:text-brand-gold transition-colors">
+                                <HighlightMatch text={val} query={query} />
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                        {!r.displayFields[r.matchField] && (
+                          <p className="text-xs text-brand-muted mt-2 line-clamp-2">
+                            <span className="text-brand-muted/70">
+                              {snakeCaseToTitleCase(r.matchField)}:{' '}
+                            </span>
+                            <HighlightMatch text={r.matchValue} query={query} />
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-card-hover text-brand-muted whitespace-nowrap flex-shrink-0">
+                        {r.collectionName}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
+      )}
+
+      {/* Record detail modal */}
+      {modalRecord && modalCollection && (
+        <RecordModal
+          collection={modalCollection}
+          record={modalRecord}
+          onClose={() => {
+            setModalRecord(null);
+            setModalCollection(null);
+          }}
+        />
       )}
     </>
   );

@@ -136,8 +136,14 @@ export async function DELETE(request: NextRequest) {
   const admin = await verifyAdmin();
   if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get('id');
+  let id: string | null = null;
+  try {
+    const body = await request.clone().json();
+    id = body.id;
+  } catch {
+    const { searchParams } = new URL(request.url);
+    id = searchParams.get('id');
+  }
 
   if (!id) {
     return NextResponse.json({ error: 'User id is required' }, { status: 400 });
@@ -150,12 +156,19 @@ export async function DELETE(request: NextRequest) {
 
   const supabase = createAdminClient();
 
-  // Delete auth user (cascade should handle profile)
+  // Delete dependent rows first to avoid foreign key constraint errors
+  await supabase.from('bookmarks').delete().eq('user_id', id);
+  await supabase.from('forum_reactions').delete().eq('user_id', id);
+  await supabase.from('forum_posts').delete().eq('user_id', id);
+  await supabase.from('forum_threads').delete().eq('user_id', id);
+  await supabase.from('profiles').delete().eq('id', id);
+
+  // Now delete the auth user
   const { error } = await supabase.auth.admin.deleteUser(id);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error && !error.message.includes('not found') && error.status !== 404) {
+    return NextResponse.json({ error: `Auth delete failed: ${error.message}` }, { status: 400 });
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, deletedId: id });
 }

@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
             if (
               c.discriminator_column &&
               c.discriminator_value &&
-              row[c.discriminator_column] === c.discriminator_value
+              String(row[c.discriminator_column]).toLowerCase() === c.discriminator_value.toLowerCase()
             ) {
               matchCol = c;
               break;

@@ -115,7 +115,11 @@ export function AdminUsersTable() {
   async function handleDelete() {
     if (!deleteUser) return;
 
-    const res = await fetch(`/api/admin/users?id=${deleteUser.id}`, { method: 'DELETE' });
+    const res = await fetch('/api/admin/users', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: deleteUser.id }),
+    });
 
     if (res.ok) {
       toast.success('User deleted');
