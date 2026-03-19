@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
   let query = supabase.from(collection.table_name!).select('*').eq('id', recordId);
 
   if (collection.discriminator_column && collection.discriminator_value) {
-    query = query.eq(collection.discriminator_column, collection.discriminator_value);
+    query = query.ilike(collection.discriminator_column, collection.discriminator_value);
   }
 
   let { data: record } = await query.maybeSingle();
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     let slugQuery = supabase.from(collection.table_name!).select('*').eq('slug', recordId);
 
     if (collection.discriminator_column && collection.discriminator_value) {
-      slugQuery = slugQuery.eq(collection.discriminator_column, collection.discriminator_value);
+      slugQuery = slugQuery.ilike(collection.discriminator_column, collection.discriminator_value);
     }
 
     const { data: bySlug } = await slugQuery.maybeSingle();

@@ -174,7 +174,7 @@ export async function searchCandidateCollection(
       .limit(maxResults * 2);
 
     if (candidate.discriminator_column && candidate.discriminator_value) {
-      query = query.eq(candidate.discriminator_column, candidate.discriminator_value);
+      query = query.ilike(candidate.discriminator_column, candidate.discriminator_value);
     }
 
     const { data, error } = await query;

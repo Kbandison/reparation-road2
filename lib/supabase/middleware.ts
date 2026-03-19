@@ -59,10 +59,8 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const authPaths = ['/login', '/signup'];
-  const isAuthPage = authPaths.some(path => request.nextUrl.pathname === path);
-
-  if (isAuthPage && user) {
+  // Redirect /login if already authenticated (/signup redirects to /login)
+  if (request.nextUrl.pathname === '/login' && user) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);

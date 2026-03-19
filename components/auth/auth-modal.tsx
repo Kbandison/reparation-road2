@@ -205,8 +205,19 @@ function SignupForm({
 
     setLoading(true);
 
+    // Send welcome email BEFORE signUp — signUp triggers immediate auth redirect
+    try {
+      await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'welcome', email, firstName, lastName }),
+      });
+    } catch {
+      // Don't block signup if email fails
+    }
+
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { first_name: firstName, last_name: lastName } },
@@ -216,6 +227,19 @@ function SignupForm({
       toast.error(error.message);
       setLoading(false);
       return;
+    }
+
+    // Update profile names via server (bypasses RLS) — use sendBeacon to survive redirect
+    if (signUpData.user) {
+      navigator.sendBeacon(
+        '/api/contact',
+        new Blob([JSON.stringify({
+          type: 'welcome-profile',
+          userId: signUpData.user.id,
+          firstName,
+          lastName,
+        })], { type: 'application/json' })
+      );
     }
 
     setSuccess(true);

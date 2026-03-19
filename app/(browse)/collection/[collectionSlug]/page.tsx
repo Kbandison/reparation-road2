@@ -14,6 +14,7 @@ import { CollectionSearchBar } from '@/components/collection/collection-search-b
 import { AccessGate } from '@/components/collection/access-gate';
 import { ActivityTracker } from '@/components/collection/activity-tracker';
 import { BookmarkRecordOpener } from '@/components/collection/bookmark-record-opener';
+import { ComingSoon } from '@/components/collection/coming-soon';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -78,12 +79,18 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
               {snakeCaseToTitleCase(collection.era)}
             </span>
           )}
-          <span className="text-xs px-2.5 py-1 rounded-full bg-brand-card-hover text-brand-cream-muted font-medium">
-            {children.length} subcollections
-          </span>
+          {children.length > 0 && (
+            <span className="text-xs px-2.5 py-1 rounded-full bg-brand-card-hover text-brand-cream-muted font-medium">
+              {children.length} subcollections
+            </span>
+          )}
         </div>
 
-        <SubcollectionGrid children={children} />
+        {children.length > 0 ? (
+          <SubcollectionGrid children={children} />
+        ) : (
+          <ComingSoon collectionName={collection.name} />
+        )}
       </>
     );
   }

@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
       .limit(20);
 
     if (col.discriminator_column && col.discriminator_value) {
-      query = query.eq(col.discriminator_column, col.discriminator_value);
+      query = query.ilike(col.discriminator_column, col.discriminator_value);
     }
 
     const { data: records } = await query;
