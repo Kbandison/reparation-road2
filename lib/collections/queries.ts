@@ -99,6 +99,8 @@ export async function getCollectionRecords(
 
   if (sortBy) {
     query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+  } else if (collection.display_columns?.length > 0) {
+    query = query.order(collection.display_columns[0], { ascending: true });
   }
 
   const from = (page - 1) * pageSize;

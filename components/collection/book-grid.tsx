@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import type { Collection, CollectionRecord } from '@/lib/types';
 import { buildImageUrl, getRecordTitle } from '@/lib/collections/helpers';
-import { snakeCaseToTitleCase } from '@/lib/utils/format';
+import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
 import { trackActivity } from '@/lib/hooks/use-activity';
 import { RecordModal } from '@/components/collection/record-modal';
 
@@ -69,9 +69,9 @@ export function BookGrid({ collection, records }: BookGridProps) {
                 {/* Record snapshot */}
                 <div className="px-3 pt-2.5 pb-3 space-y-1">
                   {/* Title from first display column */}
-                  {columns[0] && String(record[columns[0]] ?? '') && (
+                  {columns[0] && formatFieldValue(record[columns[0]]) && (
                     <p className="text-sm font-medium text-brand-cream truncate">
-                      {String(record[columns[0]])}
+                      {formatFieldValue(record[columns[0]])}
                     </p>
                   )}
                   {/* Additional detail fields */}
@@ -81,7 +81,7 @@ export function BookGrid({ collection, records }: BookGridProps) {
                     return (
                       <p key={col} className="text-xs text-brand-muted truncate">
                         <span className="text-brand-muted/70">{snakeCaseToTitleCase(col)}:</span>{' '}
-                        <span className="text-brand-cream/70">{String(val)}</span>
+                        <span className="text-brand-cream/70">{formatFieldValue(val)}</span>
                       </p>
                     );
                   })}

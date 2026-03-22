@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { X, ChevronLeft, ChevronRight, ArrowLeft, Loader2 } from 'lucide-react';
 import type { Collection, CollectionRecord } from '@/lib/types';
 import { buildImageUrl } from '@/lib/collections/helpers';
-import { snakeCaseToTitleCase } from '@/lib/utils/format';
+import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
 import { BookmarkButton } from '@/components/collection/bookmark-button';
 import { ModalRelatedRecords } from '@/components/collection/modal-related-records';
 import { RecordCitation } from '@/components/collection/record-citation';
@@ -214,7 +214,7 @@ export function RecordModal({
                           {snakeCaseToTitleCase(key)}
                         </p>
                         <p className="text-sm text-brand-cream break-words leading-relaxed">
-                          {String(val)}
+                          {formatFieldValue(val)}
                         </p>
                       </div>
                     ))}

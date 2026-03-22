@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { Collection, CollectionRecord } from '@/lib/types';
-import { snakeCaseToTitleCase } from '@/lib/utils/format';
+import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
 import { trackActivity } from '@/lib/hooks/use-activity';
 import { getRecordTitle } from '@/lib/collections/helpers';
 import { RecordModal } from '@/components/collection/record-modal';
@@ -58,10 +58,10 @@ export function RecordTable({ collection, records }: RecordTableProps) {
                   <td key={col} className="py-3 px-4 text-sm text-brand-cream">
                     {i === 0 ? (
                       <span className="text-brand-gold hover:text-brand-gold-light">
-                        {String(record[col] ?? '—')}
+                        {formatFieldValue(record[col]) || '—'}
                       </span>
                     ) : (
-                      String(record[col] ?? '—')
+                      formatFieldValue(record[col]) || '—'
                     )}
                   </td>
                 ))}
@@ -82,11 +82,11 @@ export function RecordTable({ collection, records }: RecordTableProps) {
             {columns.slice(0, 4).map((col, i) => (
               <div key={col} className={i === 0 ? 'mb-2' : 'mb-1'}>
                 {i === 0 ? (
-                  <p className="text-sm font-medium text-brand-gold">{String(record[col] ?? '—')}</p>
+                  <p className="text-sm font-medium text-brand-gold">{formatFieldValue(record[col]) || '—'}</p>
                 ) : (
                   <p className="text-xs text-brand-muted">
                     <span className="text-brand-cream-muted">{snakeCaseToTitleCase(col)}:</span>{' '}
-                    {String(record[col] ?? '—')}
+                    {formatFieldValue(record[col]) || '—'}
                   </p>
                 )}
               </div>
