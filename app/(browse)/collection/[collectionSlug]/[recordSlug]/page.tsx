@@ -1,5 +1,4 @@
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
 import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { getCollectionBySlug, getRecordBySlug, getRelatedRecords } from '@/lib/collections/queries';
@@ -12,6 +11,7 @@ import { BookmarkButton } from '@/components/collection/bookmark-button';
 import { RelatedRecords } from '@/components/collection/related-records';
 import { AccessGate } from '@/components/collection/access-gate';
 import { ActivityTracker } from '@/components/collection/activity-tracker';
+import { Breadcrumbs } from '@/components/shared/breadcrumbs';
 
 interface Props {
   params: Promise<{ collectionSlug: string; recordSlug: string }>;
@@ -41,11 +41,10 @@ export default async function RecordDetailPage({ params }: Props) {
   if (!access.hasAccess) {
     return (
       <>
-        <div className="mb-2">
-          <Link href={`/collection/${collectionSlug}`} className="text-sm text-brand-muted hover:text-brand-gold transition-colors">
-            &larr; {collection.name}
-          </Link>
-        </div>
+        <Breadcrumbs items={[
+          { label: 'Collections', href: '/collection' },
+          { label: collection.name, href: `/collection/${collectionSlug}` },
+        ]} />
         <AccessGate collection={collection} reason={access.reason!} />
       </>
     );
@@ -71,18 +70,11 @@ export default async function RecordDetailPage({ params }: Props) {
         collectionSlug={collectionSlug}
         collectionName={collection.name}
       />
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-brand-muted mb-6">
-        <Link href="/collection" className="hover:text-brand-gold transition-colors">
-          Collections
-        </Link>
-        <span>/</span>
-        <Link href={`/collection/${collectionSlug}`} className="hover:text-brand-gold transition-colors">
-          {collection.name}
-        </Link>
-        <span>/</span>
-        <span className="text-brand-cream truncate">{recordTitle}</span>
-      </div>
+      <Breadcrumbs items={[
+        { label: 'Collections', href: '/collection' },
+        { label: collection.name, href: `/collection/${collectionSlug}` },
+        { label: recordTitle },
+      ]} />
 
       {/* Title + Bookmark */}
       <div className="flex items-start justify-between gap-4 mb-8">

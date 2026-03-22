@@ -1,5 +1,4 @@
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
 import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { getCollectionBySlug, getCollectionRecords, getChildCollections } from '@/lib/collections/queries';
@@ -7,6 +6,8 @@ import { checkCollectionAccess } from '@/lib/collections/access';
 import { getCategoryColor } from '@/lib/collections/helpers';
 import { formatNumber, snakeCaseToTitleCase } from '@/lib/utils/format';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/shared/breadcrumbs';
+import { PagePagination } from '@/components/shared/page-pagination';
 import { RecordTable } from '@/components/collection/record-table';
 import { BookGrid } from '@/components/collection/book-grid';
 import { SubcollectionGrid } from '@/components/collection/subcollection-grid';
@@ -15,8 +16,6 @@ import { AccessGate } from '@/components/collection/access-gate';
 import { ActivityTracker } from '@/components/collection/activity-tracker';
 import { BookmarkRecordOpener } from '@/components/collection/bookmark-record-opener';
 import { ComingSoon } from '@/components/collection/coming-soon';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 
 interface Props {
   params: Promise<{ collectionSlug: string }>;
@@ -52,14 +51,27 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
   if (isParent) {
     const children = await getChildCollections(supabase, collectionSlug);
 
+    // Check which children are themselves parents (have their own subcollections)
+    const parentSlugs = new Set<string>();
+    if (children.length > 0) {
+      const childSlugs = children.map((c) => c.slug);
+      const { data: grandchildren } = await supabase
+        .from('collections')
+        .select('parent_slug')
+        .in('parent_slug', childSlugs)
+        .eq('is_published', true);
+      if (grandchildren) {
+        grandchildren.forEach((gc: { parent_slug: string }) => parentSlugs.add(gc.parent_slug));
+      }
+    }
+
     return (
       <>
         <ActivityTracker type="collection" slug={collectionSlug} name={collection.name} />
-        <div className="mb-2">
-          <Link href="/collection" className="text-sm text-brand-muted hover:text-brand-gold transition-colors">
-            &larr; All Collections
-          </Link>
-        </div>
+        <Breadcrumbs items={[
+          { label: 'Collections', href: '/collection' },
+          { label: collection.name },
+        ]} />
 
         <PageHeader title={collection.name} description={collection.short_description || undefined} />
 
@@ -87,7 +99,7 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
         </div>
 
         {children.length > 0 ? (
-          <SubcollectionGrid children={children} />
+          <SubcollectionGrid children={children} parentSlugs={parentSlugs} />
         ) : (
           <ComingSoon collectionName={collection.name} />
         )}
@@ -132,19 +144,11 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
         parentName={parentCollection?.name}
       />
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-brand-muted mb-2">
-        <Link href="/collection" className="hover:text-brand-gold transition-colors">
-          Collections
-        </Link>
-        {parentCollection && (
-          <>
-            <span>/</span>
-            <Link href={`/collection/${parentCollection.slug}`} className="hover:text-brand-gold transition-colors">
-              {parentCollection.name}
-            </Link>
-          </>
-        )}
-      </div>
+      <Breadcrumbs items={[
+        { label: 'Collections', href: '/collection' },
+        ...(parentCollection ? [{ label: parentCollection.name, href: `/collection/${parentCollection.slug}` }] : []),
+        { label: collection.name },
+      ]} />
 
       <PageHeader title={collection.name} description={collection.short_description || undefined} />
 
@@ -181,39 +185,11 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
             <RecordTable collection={collection} records={records} />
           )}
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-4 mt-8">
-              <Link
-                href={`/collection/${collectionSlug}?page=${page - 1}${search ? `&search=${search}` : ''}`}
-                className={page <= 1 ? 'pointer-events-none' : ''}
-              >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  className="border-brand-gold/20 text-brand-cream"
-                >
-                  <ChevronLeft className="w-4 h-4 mr-1" />
-                  Previous
-                </Button>
-              </Link>
-              <span className="text-sm text-brand-muted">Page {page} of {totalPages}</span>
-              <Link
-                href={`/collection/${collectionSlug}?page=${page + 1}${search ? `&search=${search}` : ''}`}
-                className={page >= totalPages ? 'pointer-events-none' : ''}
-              >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  className="border-brand-gold/20 text-brand-cream"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
-              </Link>
-            </div>
-          )}
+          <PagePagination
+            currentPage={page}
+            totalPages={totalPages}
+            buildHref={(p) => `/collection/${collectionSlug}?page=${p}${search ? `&search=${search}` : ''}`}
+          />
         </>
       )}
 
