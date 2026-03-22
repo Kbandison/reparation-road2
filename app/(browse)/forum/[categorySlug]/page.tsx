@@ -98,6 +98,7 @@ export default async function CategoryPage({ params, searchParams }: Props) {
 
       <div className="flex items-start justify-between gap-4 mb-8">
         <PageHeader title={category.name} description={category.description || undefined} />
+
         <Link href={`/forum/new?category=${categorySlug}`}>
           <Button className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl flex-shrink-0">
             <Plus className="w-4 h-4 mr-2" />

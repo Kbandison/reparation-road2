@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider } from '@/contexts/theme-context';
 import { MainNavServer } from '@/components/layout/main-nav-server';
 import './globals.css';
+import { Analytics } from "@vercel/analytics/next"
 
 const playfairDisplay = Playfair_Display({
   variable: '--font-playfair-display',
@@ -69,6 +70,7 @@ export default function RootLayout({
       <body
         className={`${playfairDisplay.variable} ${dmSans.variable} antialiased`}
       >
+      <Analytics/>
         <ThemeProvider>
           <TooltipProvider>
             <MainNavServer />
