@@ -22,7 +22,7 @@ interface RecordModalProps {
 }
 
 const HIDDEN_FIELDS = new Set([
-  'id', 'slug', 'created_at', 'updated_at', 'embedding',
+  'id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv',
   'image_path', 'image_url', 'ocr_text',
 ]);
 
@@ -233,66 +233,53 @@ export function RecordModal({
                   )}
                 </div>
 
-                {/* Related Records */}
-                {activeCollection.table_name && (
-                  <ModalRelatedRecords
-                    recordId={activeRecord.id}
-                    tableName={activeCollection.table_name}
-                    collectionSlug={activeCollection.slug}
-                    onNavigate={handleNavigateToRecord}
-                  />
-                )}
               </div>
             </div>
           ) : (
             /* No image — single-panel card layout */
-            <>
-              <div className="p-5">
-                <p className="text-[11px] text-brand-muted font-medium uppercase tracking-wide mb-4">
-                  Record Information
-                </p>
-                <div className="space-y-0">
-                  {fields.map(([key, val]) => (
-                    <div key={key} className="py-2.5 border-b border-brand-gold/[0.04] last:border-b-0">
-                      <p className="text-[11px] text-brand-muted font-medium mb-0.5">
-                        {snakeCaseToTitleCase(key)}
-                      </p>
-                      <p className="text-sm text-brand-cream break-words leading-relaxed">
-                        {String(val)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* OCR Text */}
-                {activeCollection.has_ocr && ocrText && (
-                  <div className="mt-4 bg-brand-card border border-brand-gold/[0.08] rounded-xl p-4">
-                    <p className="text-[11px] text-brand-muted font-medium uppercase tracking-wide mb-2">
-                      OCR Transcription
+            <div className="p-5">
+              <p className="text-[11px] text-brand-muted font-medium uppercase tracking-wide mb-4">
+                Record Information
+              </p>
+              <div className="space-y-0">
+                {fields.map(([key, val]) => (
+                  <div key={key} className="py-2.5 border-b border-brand-gold/[0.04] last:border-b-0">
+                    <p className="text-[11px] text-brand-muted font-medium mb-0.5">
+                      {snakeCaseToTitleCase(key)}
                     </p>
-                    <p className="text-sm text-brand-cream/80 leading-relaxed whitespace-pre-wrap font-mono">
-                      {ocrText}
+                    <p className="text-sm text-brand-cream break-words leading-relaxed">
+                      {String(val)}
                     </p>
                   </div>
-                )}
+                ))}
               </div>
 
-              {/* Related Records */}
-              {activeCollection.table_name && (
-                <ModalRelatedRecords
-                  recordId={activeRecord.id}
-                  tableName={activeCollection.table_name}
-                  collectionSlug={activeCollection.slug}
-                  onNavigate={handleNavigateToRecord}
-                />
+              {/* OCR Text */}
+              {activeCollection.has_ocr && ocrText && (
+                <div className="mt-4 bg-brand-card border border-brand-gold/[0.08] rounded-xl p-4">
+                  <p className="text-[11px] text-brand-muted font-medium uppercase tracking-wide mb-2">
+                    OCR Transcription
+                  </p>
+                  <p className="text-sm text-brand-cream/80 leading-relaxed whitespace-pre-wrap font-mono">
+                    {ocrText}
+                  </p>
+                </div>
               )}
-            </>
+            </div>
           )}
 
         </div>
 
-        {/* Citation — sticky footer, full modal width */}
+        {/* Related Records + Citation — sticky footer, full modal width */}
         <div className="flex-shrink-0">
+          {activeCollection.table_name && (
+            <ModalRelatedRecords
+              recordId={activeRecord.id}
+              tableName={activeCollection.table_name}
+              collectionSlug={activeCollection.slug}
+              onNavigate={handleNavigateToRecord}
+            />
+          )}
           <RecordCitation collection={activeCollection} record={activeRecord} />
         </div>
       </div>

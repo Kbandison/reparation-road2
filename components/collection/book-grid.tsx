@@ -66,17 +66,25 @@ export function BookGrid({ collection, records }: BookGridProps) {
                   )}
                 </div>
 
-                {/* Label */}
-                <div className="p-3">
-                  {columns.slice(0, 2).map((col) => (
-                    <p
-                      key={col}
-                      className="text-xs text-brand-muted truncate"
-                    >
-                      <span className="text-brand-cream-muted">{snakeCaseToTitleCase(col)}:</span>{' '}
-                      {String(record[col] ?? '—')}
+                {/* Record snapshot */}
+                <div className="px-3 pt-2.5 pb-3 space-y-1">
+                  {/* Title from first display column */}
+                  {columns[0] && String(record[columns[0]] ?? '') && (
+                    <p className="text-sm font-medium text-brand-cream truncate">
+                      {String(record[columns[0]])}
                     </p>
-                  ))}
+                  )}
+                  {/* Additional detail fields */}
+                  {columns.slice(1, 5).map((col) => {
+                    const val = record[col];
+                    if (!val && val !== 0) return null;
+                    return (
+                      <p key={col} className="text-xs text-brand-muted truncate">
+                        <span className="text-brand-muted/70">{snakeCaseToTitleCase(col)}:</span>{' '}
+                        <span className="text-brand-cream/70">{String(val)}</span>
+                      </p>
+                    );
+                  })}
                 </div>
               </div>
             </button>
