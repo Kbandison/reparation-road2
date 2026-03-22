@@ -196,20 +196,24 @@ export function AdminUsersTable() {
                       className={`text-xs px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
                         p.subscription_status === 'paid'
                           ? 'bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/20'
+                          : p.subscription_status === 'donor'
+                          ? 'bg-brand-sage/10 text-brand-sage hover:bg-brand-sage/20'
                           : 'bg-brand-muted/10 text-brand-muted hover:bg-brand-muted/20'
                       }`}
-                      title={`Click to ${p.subscription_status === 'paid' ? 'downgrade' : 'upgrade'}`}
-                      onClick={() =>
-                        handleQuickAction(
-                          p.id,
-                          'subscription_status',
-                          p.subscription_status === 'paid' ? 'free' : 'paid'
-                        )
-                      }
+                      title="Click to cycle: Free → Paid → Donor → Free"
+                      onClick={() => {
+                        const cycle = { free: 'paid', paid: 'donor', donor: 'free' } as const;
+                        const next = cycle[p.subscription_status as keyof typeof cycle] || 'free';
+                        handleQuickAction(p.id, 'subscription_status', next);
+                      }}
                     >
                       {p.subscription_status === 'paid' ? (
                         <span className="flex items-center gap-1">
                           <Crown className="w-3 h-3" /> Premium
+                        </span>
+                      ) : p.subscription_status === 'donor' ? (
+                        <span className="flex items-center gap-1">
+                          <Crown className="w-3 h-3" /> Donor
                         </span>
                       ) : (
                         'Free'
@@ -530,6 +534,18 @@ function UserEditModal({
                 >
                   <Crown className="w-3.5 h-3.5" />
                   Premium
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, subscription_status: 'donor' })}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm border transition-colors ${
+                    form.subscription_status === 'donor'
+                      ? 'border-brand-sage bg-brand-sage/10 text-brand-sage'
+                      : 'border-brand-gold/[0.15] text-brand-muted hover:text-brand-cream'
+                  }`}
+                >
+                  <Crown className="w-3.5 h-3.5" />
+                  Donor
                 </button>
               </div>
             </div>

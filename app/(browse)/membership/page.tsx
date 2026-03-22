@@ -60,6 +60,7 @@ export default function MembershipPage() {
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const isDonor = profile?.subscription_status === 'donor';
 
   async function handleSubscribe(priceId: string) {
     if (!profile) {
@@ -96,8 +97,25 @@ export default function MembershipPage() {
         description={profile ? 'Manage your subscription and access premium features.' : 'Unlock the full archive with a premium membership.'}
       />
 
-      {/* Current plan status */}
-      {isPremium && profile && (
+      {/* Donor status */}
+      {isDonor && profile && (
+        <div className="bg-brand-card border border-brand-gold/20 rounded-2xl p-6 mb-10 max-w-3xl mx-auto">
+          <div className="flex items-center gap-3 mb-4">
+            <Crown className="w-6 h-6 text-brand-gold" />
+            <h2 className="font-display text-xl font-semibold text-brand-cream">Donor Member</h2>
+          </div>
+          <p className="text-sm text-brand-muted mb-2">
+            Thank you for your generous support. You have full premium access to the entire Reparation Road archive.
+          </p>
+          <div className="text-sm">
+            <span className="text-brand-muted">Status</span>
+            <p className="text-brand-sage">Active — Donor</p>
+          </div>
+        </div>
+      )}
+
+      {/* Premium member status */}
+      {isPremium && !isDonor && profile && (
         <div className="bg-brand-card border border-brand-gold/20 rounded-2xl p-6 mb-10 max-w-3xl mx-auto">
           <div className="flex items-center gap-3 mb-4">
             <Crown className="w-6 h-6 text-brand-gold" />
@@ -134,8 +152,8 @@ export default function MembershipPage() {
         </div>
       )}
 
-      {/* Plan cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl mx-auto">
+      {/* Plan cards — hidden for donors */}
+      {!isDonor && <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl mx-auto">
         {/* Free */}
         <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-8 flex flex-col">
           <h3 className="font-display text-xl font-semibold text-brand-cream mb-1">Free</h3>
@@ -202,8 +220,10 @@ export default function MembershipPage() {
         </div>
       </div>
 
+      }
+
       {/* Yearly option */}
-      <div className="max-w-3xl mx-auto mt-5">
+      {!isDonor && <div className="max-w-3xl mx-auto mt-5">
         <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -231,6 +251,8 @@ export default function MembershipPage() {
           )}
         </div>
       </div>
+
+      }
 
       {/* Why Create an Account */}
       <div className="max-w-3xl mx-auto mt-20">

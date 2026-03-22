@@ -33,54 +33,42 @@ export function RecordTable({ collection, records }: RecordTableProps) {
   return (
     <>
       {/* Desktop table */}
-      <div className="hidden lg:block bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-brand-bg/50 border-b border-brand-gold/[0.08]">
-                <th className="text-left py-3 px-4 text-[11px] font-semibold tracking-wider uppercase text-brand-muted w-8">
-                  #
+      <div className="hidden lg:block overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-brand-gold/[0.08]">
+              {columns.map((col) => (
+                <th
+                  key={col}
+                  className="text-left py-3 px-4 text-xs font-semibold tracking-wide uppercase text-brand-muted"
+                >
+                  {snakeCaseToTitleCase(col)}
                 </th>
-                {columns.map((col) => (
-                  <th
-                    key={col}
-                    className="text-left py-3 px-4 text-[11px] font-semibold tracking-wider uppercase text-brand-muted"
-                  >
-                    {snakeCaseToTitleCase(col)}
-                  </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((record, idx) => (
+              <tr
+                key={record.id}
+                onClick={() => selectRecord(idx)}
+                className="border-b border-brand-gold/[0.04] hover:bg-brand-gold/[0.04] transition-colors cursor-pointer"
+              >
+                {columns.map((col, i) => (
+                  <td key={col} className="py-3 px-4 text-sm text-brand-cream">
+                    {i === 0 ? (
+                      <span className="text-brand-gold hover:text-brand-gold-light">
+                        {formatFieldValue(record[col]) || '—'}
+                      </span>
+                    ) : (
+                      formatFieldValue(record[col]) || '—'
+                    )}
+                  </td>
                 ))}
               </tr>
-            </thead>
-            <tbody>
-              {records.map((record, idx) => (
-                <tr
-                  key={record.id}
-                  onClick={() => selectRecord(idx)}
-                  className={`border-b border-brand-gold/[0.03] hover:bg-brand-gold/[0.04] transition-colors cursor-pointer ${
-                    idx % 2 === 0 ? 'bg-transparent' : 'bg-brand-bg/30'
-                  }`}
-                >
-                  <td className="py-3 px-4 text-xs text-brand-muted tabular-nums">
-                    {idx + 1}
-                  </td>
-                  {columns.map((col, i) => (
-                    <td key={col} className={`py-3 px-4 text-sm ${i === 0 ? 'font-medium' : ''}`}>
-                      {i === 0 ? (
-                        <span className="text-brand-gold hover:text-brand-gold-light">
-                          {formatFieldValue(record[col]) || '—'}
-                        </span>
-                      ) : (
-                        <span className="text-brand-cream/80">
-                          {formatFieldValue(record[col]) || '—'}
-                        </span>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {/* Mobile cards */}

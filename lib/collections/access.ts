@@ -21,6 +21,6 @@ export async function checkCollectionAccess(
     .eq('id', user.id)
     .single();
 
-  if (profile?.subscription_status === 'paid') return { hasAccess: true };
+  if (profile?.subscription_status === 'paid' || profile?.subscription_status === 'donor') return { hasAccess: true };
   return { hasAccess: false, reason: 'subscribe' };
 }

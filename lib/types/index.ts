@@ -3,7 +3,7 @@ export interface Profile {
   email: string;
   first_name: string | null;
   last_name: string | null;
-  subscription_status: 'free' | 'paid';
+  subscription_status: 'free' | 'paid' | 'donor';
   role: 'user' | 'admin';
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;

@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
-import { X, ChevronLeft, ChevronRight, ArrowLeft, Loader2 } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ArrowLeft, Loader2, ZoomIn } from 'lucide-react';
 import type { Collection, CollectionRecord } from '@/lib/types';
 import { buildImageUrl } from '@/lib/collections/helpers';
 import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
@@ -38,6 +38,7 @@ export function RecordModal({
   // Internal navigation override state
   const [overrideData, setOverrideData] = useState<{ collection: Collection; record: CollectionRecord } | null>(null);
   const [navigating, setNavigating] = useState(false);
+  const [imageZoom, setImageZoom] = useState(false);
 
   // Use override data when navigated, otherwise use props
   const activeCollection = overrideData?.collection ?? collection;
@@ -189,7 +190,10 @@ export function RecordModal({
                   <p className="text-[11px] text-brand-muted font-medium uppercase tracking-wide mb-2">
                     Document Image
                   </p>
-                  <div className="relative w-full aspect-[3/4] rounded-xl overflow-hidden bg-black">
+                  <button
+                    onClick={() => setImageZoom(true)}
+                    className="relative w-full aspect-[3/4] rounded-xl overflow-hidden bg-black group cursor-zoom-in"
+                  >
                     <Image
                       src={imageUrl!}
                       alt={String(title)}
@@ -197,7 +201,10 @@ export function RecordModal({
                       className="object-contain"
                       sizes="(max-width: 768px) 100vw, 50vw"
                     />
-                  </div>
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                      <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
+                    </div>
+                  </button>
                 </div>
               </div>
 
@@ -286,5 +293,35 @@ export function RecordModal({
     </div>
   );
 
-  return createPortal(modal, document.body);
+  const zoomOverlay = imageZoom && imageUrl ? (
+    <div
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 cursor-zoom-out"
+      onClick={() => setImageZoom(false)}
+    >
+      <button
+        onClick={() => setImageZoom(false)}
+        className="absolute top-4 right-4 p-2 rounded-lg bg-black/50 text-white hover:bg-black/70 transition-colors z-10"
+      >
+        <X className="w-5 h-5" />
+      </button>
+      <div className="relative w-[90vw] h-[90vh]">
+        <Image
+          src={imageUrl}
+          alt={String(title)}
+          fill
+          className="object-contain"
+          sizes="90vw"
+          quality={95}
+        />
+      </div>
+    </div>
+  ) : null;
+
+  return createPortal(
+    <>
+      {modal}
+      {zoomOverlay}
+    </>,
+    document.body
+  );
 }

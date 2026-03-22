@@ -188,6 +188,7 @@ function SignupForm({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [donorCode, setDonorCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -229,7 +230,7 @@ function SignupForm({
       return;
     }
 
-    // Update profile names via server (bypasses RLS) — use sendBeacon to survive redirect
+    // Update profile names + donor status via server (bypasses RLS)
     if (signUpData.user) {
       navigator.sendBeacon(
         '/api/contact',
@@ -238,6 +239,7 @@ function SignupForm({
           userId: signUpData.user.id,
           firstName,
           lastName,
+          donorCode: donorCode.trim() || undefined,
         })], { type: 'application/json' })
       );
     }
@@ -341,6 +343,19 @@ function SignupForm({
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             required
+            className="bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="modal-donor-code" className="text-brand-muted">
+            Donor Code <span className="text-brand-muted/50">(optional)</span>
+          </Label>
+          <Input
+            id="modal-donor-code"
+            placeholder="Enter donor code if you have one"
+            value={donorCode}
+            onChange={(e) => setDonorCode(e.target.value)}
             className="bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold"
           />
         </div>

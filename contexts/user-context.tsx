@@ -23,7 +23,7 @@ export function UserProvider({
   children: React.ReactNode;
 }) {
   const isAdmin = profile?.role === 'admin';
-  const isPremium = profile?.subscription_status === 'paid';
+  const isPremium = profile?.subscription_status === 'paid' || profile?.subscription_status === 'donor';
 
   return (
     <UserContext.Provider value={{ profile, isAdmin, isPremium }}>

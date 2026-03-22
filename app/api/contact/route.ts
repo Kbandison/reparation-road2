@@ -10,12 +10,23 @@ export async function POST(request: Request) {
   const body = await request.json();
 
   if (body.type === 'welcome-profile') {
-    // Just update profile names (called after user creation)
+    // Update profile names + donor status (called after user creation)
     if (body.userId) {
       const supabase = createAdminClient();
+      const updates: Record<string, unknown> = {
+        first_name: body.firstName || null,
+        last_name: body.lastName || null,
+      };
+
+      // Validate donor code
+      const DONOR_CODE = process.env.DONOR_CODE || 'RRDONOR0326';
+      if (body.donorCode && body.donorCode.toUpperCase() === DONOR_CODE.toUpperCase()) {
+        updates.subscription_status = 'donor';
+      }
+
       await supabase
         .from('profiles')
-        .update({ first_name: body.firstName || null, last_name: body.lastName || null })
+        .update(updates)
         .eq('id', body.userId);
     }
     return NextResponse.json({ success: true });

@@ -8,7 +8,9 @@ import {
   ChevronDown,
   FolderOpen,
   FileText,
+  RefreshCw,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { snakeCaseToTitleCase, formatNumber } from '@/lib/utils/format';
 import type { Collection } from '@/lib/types';
 
@@ -21,6 +23,24 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
   const supabase = createClient();
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [syncing, setSyncing] = useState(false);
+
+  async function syncCounts() {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/admin/sync-counts', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Synced ${data.synced} of ${data.total} collections`);
+        router.refresh();
+      } else {
+        toast.error(data.error || 'Sync failed');
+      }
+    } catch {
+      toast.error('Sync failed');
+    }
+    setSyncing(false);
+  }
 
   // Separate parents and standalone from children
   const parents = collections.filter((c) => !c.table_name && !c.parent_slug);
@@ -154,6 +174,17 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
   };
 
   return (
+    <>
+    <div className="mb-4 flex justify-end">
+      <button
+        onClick={syncCounts}
+        disabled={syncing}
+        className="flex items-center gap-2 px-4 py-2 bg-brand-gold/10 text-brand-gold rounded-xl text-sm font-medium hover:bg-brand-gold/20 transition-colors disabled:opacity-40"
+      >
+        <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+        {syncing ? 'Syncing...' : 'Sync Record Counts'}
+      </button>
+    </div>
     <div className="overflow-x-auto bg-brand-card border border-brand-gold/[0.08] rounded-2xl">
       <table className="w-full">
         <thead>
@@ -193,5 +224,6 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
         </tbody>
       </table>
     </div>
+    </>
   );
 }
