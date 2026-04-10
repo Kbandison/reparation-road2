@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { UserProvider } from '@/contexts/user-context';
 import { PlatformSidebar } from '@/components/layout/platform-sidebar';
 import type { Profile } from '@/lib/types';
+import { CopyProtection } from '@/components/shared/copy-protection';
 
 export default async function PlatformLayout({
   children,
@@ -24,6 +25,7 @@ export default async function PlatformLayout({
 
   return (
     <UserProvider profile={profile as Profile | null}>
+      <CopyProtection />
       <div className="pt-16 min-h-screen flex">
         <PlatformSidebar />
         <main className="flex-1 lg:ml-[260px]">

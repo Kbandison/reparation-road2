@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { UserProvider } from '@/contexts/user-context';
 import { Footer } from '@/components/layout/footer';
+import { CopyProtection } from '@/components/shared/copy-protection';
 import type { Profile } from '@/lib/types';
 
 export default async function BrowseLayout({
@@ -23,6 +24,7 @@ export default async function BrowseLayout({
 
   return (
     <UserProvider profile={profile}>
+      <CopyProtection />
       <main className="pt-16 min-h-screen">
         <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 py-6 lg:py-8">
           {children}
