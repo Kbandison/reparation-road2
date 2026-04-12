@@ -157,7 +157,7 @@ export async function DELETE(request: NextRequest) {
   const supabase = createAdminClient();
 
   // Delete dependent rows first to avoid foreign key constraint errors
-  await supabase.from('bookmarks').delete().eq('user_id', id);
+  await supabase.from('bookmarks_unified').delete().eq('user_id', id);
   await supabase.from('forum_reactions').delete().eq('user_id', id);
   await supabase.from('forum_posts').delete().eq('user_id', id);
   await supabase.from('forum_threads').delete().eq('user_id', id);

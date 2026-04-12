@@ -19,9 +19,11 @@ export function ImageViewer({ imagePath, alt }: ImageViewerProps) {
 
   return (
     <>
-      <div
-        className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-brand-card border border-brand-gold/[0.08] cursor-pointer hover:border-brand-gold/25 transition-colors"
+      <button
+        type="button"
+        className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-brand-card border border-brand-gold/[0.08] cursor-zoom-in hover:border-brand-gold/25 transition-colors"
         onClick={() => setOpen(true)}
+        aria-label={`View full size image: ${alt}`}
       >
         <Image
           src={imageUrl}
@@ -31,7 +33,7 @@ export function ImageViewer({ imagePath, alt }: ImageViewerProps) {
           sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 800px"
           priority
         />
-      </div>
+      </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] bg-brand-bg border-brand-gold/[0.08] p-2">
