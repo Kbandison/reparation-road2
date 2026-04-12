@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import { OAuthButtons } from '@/components/auth/oauth-buttons';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -46,6 +47,14 @@ export default function LoginPage() {
       <p className="text-brand-muted text-sm text-center mb-8">
         Sign in to continue your research
       </p>
+
+      <OAuthButtons redirectTo={redirect} />
+
+      <div className="flex items-center gap-3 my-5">
+        <div className="flex-1 h-px bg-brand-gold/[0.08]" />
+        <span className="text-xs text-brand-muted">or continue with email</span>
+        <div className="flex-1 h-px bg-brand-gold/[0.08]" />
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">

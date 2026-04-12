@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { X, Loader2, CheckCircle } from 'lucide-react';
+import { OAuthButtons } from '@/components/auth/oauth-buttons';
 
 type AuthView = 'login' | 'signup' | 'forgot';
 
@@ -116,6 +117,14 @@ function LoginForm({
       <p className="text-brand-muted text-sm text-center mb-8">
         Sign in to continue your research
       </p>
+
+      <OAuthButtons />
+
+      <div className="flex items-center gap-3 my-5">
+        <div className="flex-1 h-px bg-brand-gold/[0.08]" />
+        <span className="text-xs text-brand-muted">or continue with email</span>
+        <div className="flex-1 h-px bg-brand-gold/[0.08]" />
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
@@ -279,6 +288,14 @@ function SignupForm({
       <p className="text-brand-muted text-sm text-center mb-8">
         Join the community and start exploring
       </p>
+
+      <OAuthButtons />
+
+      <div className="flex items-center gap-3 my-5">
+        <div className="flex-1 h-px bg-brand-gold/[0.08]" />
+        <span className="text-xs text-brand-muted">or sign up with email</span>
+        <div className="flex-1 h-px bg-brand-gold/[0.08]" />
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
