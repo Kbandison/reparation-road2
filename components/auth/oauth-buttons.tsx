@@ -44,10 +44,21 @@ export function OAuthButtons({ redirectTo }: OAuthButtonsProps) {
     setLoading(provider);
     const supabase = createClient();
 
+    // Determine where to send the user after login
+    let next = redirectTo;
+    if (!next && typeof window !== 'undefined') {
+      const currentPath = window.location.pathname + window.location.search;
+      // Don't redirect back to auth pages
+      const isAuthPage = ['/login', '/signup', '/forgot-password', '/reset-password', '/auth/callback'].some(
+        (p) => currentPath.startsWith(p)
+      );
+      if (!isAuthPage) next = currentPath;
+    }
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback${redirectTo ? `?next=${encodeURIComponent(redirectTo)}` : ''}`,
+        redirectTo: `${window.location.origin}/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ''}`,
       },
     });
 
