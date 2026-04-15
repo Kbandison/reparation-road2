@@ -93,9 +93,32 @@ export function Footer() {
         </div>
 
         {/* Bottom bar */}
-        <div className="border-t border-brand-gold/10 mt-12 pt-8 text-center">
+        <div className="border-t border-brand-gold/10 mt-12 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-brand-muted text-sm">
             &copy; 2026 Reparation Road. All rights reserved.
+          </p>
+          <div className="flex items-center gap-5 text-sm">
+            <Link href="/privacy" className="text-brand-muted hover:text-brand-cream transition-colors">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="text-brand-muted hover:text-brand-cream transition-colors">
+              Terms of Service
+            </Link>
+          </div>
+        </div>
+
+        {/* Credit */}
+        <div className="mt-6 text-center">
+          <p className="text-xs text-brand-muted/60">
+            Designed &amp; built by{' '}
+            <a
+              href="https://luxwebstudio.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand-gold/80 hover:text-brand-gold transition-colors"
+            >
+              Luxweb Studio
+            </a>
           </p>
         </div>
       </div>
