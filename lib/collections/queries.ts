@@ -91,30 +91,16 @@ export async function getCollectionRecords(
   }
 
   if (search) {
-    // Fetch all columns from a sample row so we can search every text field
-    const { data: sampleData } = await supabase
-      .from(collection.table_name)
-      .select('*')
-      .limit(1);
-
-    const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
-    let searchCols: string[] = [];
-
-    if (sampleData && sampleData.length > 0) {
-      // Use all non-system columns that hold text-like values
-      searchCols = Object.entries(sampleData[0])
-        .filter(([key, val]) => !systemCols.has(key) && (typeof val === 'string' || val === null))
-        .map(([key]) => key);
-    }
-
-    // Fall back to configured search_columns if we couldn't infer anything
-    if (searchCols.length === 0 && collection.search_columns?.length > 0) {
-      searchCols = collection.search_columns;
-    }
+    // Union of display_columns + search_columns — these are all known text fields
+    const searchCols = [...new Set([
+      ...(collection.display_columns || []),
+      ...(collection.search_columns || []),
+    ])];
 
     if (searchCols.length > 0) {
-      const escaped = search.replace(/[%_,()]/g, '\\$&');
-      const orFilter = searchCols.map((col) => `${col}.ilike.%${escaped}%`).join(',');
+      // Escape commas only (PostgREST filter separator). LIKE wildcards % and _ pass through.
+      const safe = search.replace(/,/g, '');
+      const orFilter = searchCols.map((col) => `${col}.ilike.%${safe}%`).join(',');
       query = query.or(orFilter);
     }
   }

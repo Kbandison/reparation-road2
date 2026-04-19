@@ -71,18 +71,8 @@ export async function GET(request: NextRequest) {
       const allSearchCols = [...new Set(cols.flatMap((c) => c.search_columns))];
       const allDisplayCols = [...new Set(cols.flatMap((c) => c.display_columns))];
 
-      // Fetch a sample row to discover ALL text columns in the table
-      const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
-      let tableTextCols: string[] = [];
-      const { data: sample } = await supabase.from(tableName).select('*').limit(1);
-      if (sample && sample.length > 0) {
-        tableTextCols = Object.entries(sample[0])
-          .filter(([key, val]) => !systemCols.has(key) && (typeof val === 'string' || val === null))
-          .map(([key]) => key);
-      }
-
-      // Expanded search set: union of configured search_columns + discovered text columns
-      const expandedSearchCols = [...new Set([...allSearchCols, ...tableTextCols])];
+      // Search across union of configured search_columns + display_columns
+      const expandedSearchCols = [...new Set([...allSearchCols, ...allDisplayCols])];
 
       // Build select columns
       const selectCols = [
@@ -99,9 +89,9 @@ export async function GET(request: NextRequest) {
 
       const uniqueSelect = [...new Set(selectCols)].join(',');
 
-      const escaped = query.replace(/[%_,()]/g, '\\$&');
+      const safe = query.replace(/,/g, '');
       const orFilter = expandedSearchCols
-        .map((col) => `${col}.ilike.%${escaped}%`)
+        .map((col) => `${col}.ilike.%${safe}%`)
         .join(',');
 
       try {
