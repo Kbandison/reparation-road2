@@ -22,7 +22,7 @@ interface RecordModalProps {
 }
 
 const HIDDEN_FIELDS = new Set([
-  'id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv',
+  'id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag',
   'image_path', 'image_url', 'ocr_text',
 ]);
 

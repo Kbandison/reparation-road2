@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
       const allDisplayCols = [...new Set(cols.flatMap((c) => c.display_columns))];
 
       // Fetch a sample row to discover ALL text columns in the table
-      const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'image_path', 'image_url']);
+      const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
       let tableTextCols: string[] = [];
       const { data: sample } = await supabase.from(tableName).select('*').limit(1);
       if (sample && sample.length > 0) {

@@ -31,7 +31,7 @@ interface StorageItem {
   fullPath: string;
 }
 
-const SYSTEM_FIELDS = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding']);
+const SYSTEM_FIELDS = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag']);
 const IMAGE_FIELDS = new Set(['image_path', 'image_url']);
 const LONG_TEXT_FIELDS = new Set([
   'ocr_text',

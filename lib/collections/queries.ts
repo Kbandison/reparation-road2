@@ -97,7 +97,7 @@ export async function getCollectionRecords(
       .select('*')
       .limit(1);
 
-    const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'image_path', 'image_url']);
+    const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
     let searchCols: string[] = [];
 
     if (sampleData && sampleData.length > 0) {
