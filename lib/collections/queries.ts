@@ -91,46 +91,27 @@ export async function getCollectionRecords(
   }
 
   if (search) {
-    // Fetch a handful of rows to reliably detect column types across rows with some nulls
-    const { data: sampleData } = await supabase
-      .from(collection.table_name)
-      .select('*')
-      .limit(10);
-
+    // Get text-only columns from database schema
     const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
     let textCols: string[] = [];
 
-    if (sampleData && sampleData.length > 0) {
-      // Collect all column names
-      const allCols = new Set<string>();
-      for (const row of sampleData) {
-        for (const k of Object.keys(row as Record<string, unknown>)) allCols.add(k);
+    try {
+      const { data: colData } = await supabase.rpc('get_text_columns', { p_table_name: collection.table_name });
+      if (colData) {
+        textCols = (colData as { column_name: string }[])
+          .map((c) => c.column_name)
+          .filter((c) => !systemCols.has(c));
       }
-
-      // For each column, determine if it holds text (by finding any non-null value that is a string)
-      for (const col of allCols) {
-        if (systemCols.has(col)) continue;
-        let isText = false;
-        let sawNonNull = false;
-        for (const row of sampleData) {
-          const val = (row as Record<string, unknown>)[col];
-          if (val !== null && val !== undefined) {
-            sawNonNull = true;
-            if (typeof val === 'string') isText = true;
-            break;
-          }
-        }
-        // Include if we saw text, or never saw anything (all-null column — might be text)
-        if (isText || !sawNonNull) textCols.push(col);
-      }
+    } catch {
+      // RPC may not exist yet
     }
 
-    // Fall back to configured columns if nothing detected
+    // Fallback to configured columns
     if (textCols.length === 0) {
       textCols = [...new Set([
         ...(collection.display_columns || []),
         ...(collection.search_columns || []),
-      ])];
+      ])].filter((c) => !systemCols.has(c));
     }
 
     if (textCols.length > 0) {

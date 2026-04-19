@@ -71,36 +71,23 @@ export async function GET(request: NextRequest) {
       const allSearchCols = [...new Set(cols.flatMap((c) => c.search_columns))];
       const allDisplayCols = [...new Set(cols.flatMap((c) => c.display_columns))];
 
-      // Detect text-only columns by fetching a sample and checking types
+      // Get text-only columns from database schema via RPC
       const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
-      const { data: sample } = await supabase.from(tableName).select('*').limit(10);
-
-      const textCols = new Set<string>();
-      if (sample && sample.length > 0) {
-        const allKeys = new Set<string>();
-        for (const row of sample) {
-          for (const k of Object.keys(row as Record<string, unknown>)) allKeys.add(k);
+      let textCols: string[] = [];
+      try {
+        const { data: colData } = await supabase.rpc('get_text_columns', { p_table_name: tableName });
+        if (colData) {
+          textCols = (colData as { column_name: string }[])
+            .map((c) => c.column_name)
+            .filter((c) => !systemCols.has(c));
         }
-        for (const col of allKeys) {
-          if (systemCols.has(col)) continue;
-          let isText = false;
-          let sawNonNull = false;
-          for (const row of sample) {
-            const val = (row as Record<string, unknown>)[col];
-            if (val !== null && val !== undefined) {
-              sawNonNull = true;
-              if (typeof val === 'string') isText = true;
-              break;
-            }
-          }
-          if (isText || !sawNonNull) textCols.add(col);
-        }
+      } catch {
+        // RPC may not exist
       }
 
-      // Fall back if nothing detected
-      const expandedSearchCols = textCols.size > 0
-        ? Array.from(textCols)
-        : [...new Set([...allSearchCols, ...allDisplayCols])];
+      const expandedSearchCols = textCols.length > 0
+        ? textCols
+        : [...new Set([...allSearchCols, ...allDisplayCols])].filter((c) => !systemCols.has(c));
 
       // Build select columns
       const selectCols = [
