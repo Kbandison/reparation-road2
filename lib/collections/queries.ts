@@ -90,11 +90,33 @@ export async function getCollectionRecords(
     query = query.ilike(collection.discriminator_column, collection.discriminator_value);
   }
 
-  if (search && collection.search_columns?.length > 0) {
-    const orFilter = collection.search_columns
-      .map((col) => `${col}.ilike.%${search}%`)
-      .join(',');
-    query = query.or(orFilter);
+  if (search) {
+    // Fetch all columns from a sample row so we can search every text field
+    const { data: sampleData } = await supabase
+      .from(collection.table_name)
+      .select('*')
+      .limit(1);
+
+    const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'image_path', 'image_url']);
+    let searchCols: string[] = [];
+
+    if (sampleData && sampleData.length > 0) {
+      // Use all non-system columns that hold text-like values
+      searchCols = Object.entries(sampleData[0])
+        .filter(([key, val]) => !systemCols.has(key) && (typeof val === 'string' || val === null))
+        .map(([key]) => key);
+    }
+
+    // Fall back to configured search_columns if we couldn't infer anything
+    if (searchCols.length === 0 && collection.search_columns?.length > 0) {
+      searchCols = collection.search_columns;
+    }
+
+    if (searchCols.length > 0) {
+      const escaped = search.replace(/[%_,()]/g, '\\$&');
+      const orFilter = searchCols.map((col) => `${col}.ilike.%${escaped}%`).join(',');
+      query = query.or(orFilter);
+    }
   }
 
   if (sortBy) {
