@@ -91,16 +91,51 @@ export async function getCollectionRecords(
   }
 
   if (search) {
-    // Union of display_columns + search_columns — these are all known text fields
-    const searchCols = [...new Set([
-      ...(collection.display_columns || []),
-      ...(collection.search_columns || []),
-    ])];
+    // Fetch a handful of rows to reliably detect column types across rows with some nulls
+    const { data: sampleData } = await supabase
+      .from(collection.table_name)
+      .select('*')
+      .limit(10);
 
-    if (searchCols.length > 0) {
-      // Escape commas only (PostgREST filter separator). LIKE wildcards % and _ pass through.
+    const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
+    let textCols: string[] = [];
+
+    if (sampleData && sampleData.length > 0) {
+      // Collect all column names
+      const allCols = new Set<string>();
+      for (const row of sampleData) {
+        for (const k of Object.keys(row as Record<string, unknown>)) allCols.add(k);
+      }
+
+      // For each column, determine if it holds text (by finding any non-null value that is a string)
+      for (const col of allCols) {
+        if (systemCols.has(col)) continue;
+        let isText = false;
+        let sawNonNull = false;
+        for (const row of sampleData) {
+          const val = (row as Record<string, unknown>)[col];
+          if (val !== null && val !== undefined) {
+            sawNonNull = true;
+            if (typeof val === 'string') isText = true;
+            break;
+          }
+        }
+        // Include if we saw text, or never saw anything (all-null column — might be text)
+        if (isText || !sawNonNull) textCols.push(col);
+      }
+    }
+
+    // Fall back to configured columns if nothing detected
+    if (textCols.length === 0) {
+      textCols = [...new Set([
+        ...(collection.display_columns || []),
+        ...(collection.search_columns || []),
+      ])];
+    }
+
+    if (textCols.length > 0) {
       const safe = search.replace(/,/g, '');
-      const orFilter = searchCols.map((col) => `${col}.ilike.%${safe}%`).join(',');
+      const orFilter = textCols.map((col) => `${col}.ilike.%${safe}%`).join(',');
       query = query.or(orFilter);
     }
   }

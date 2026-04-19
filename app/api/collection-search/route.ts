@@ -71,8 +71,36 @@ export async function GET(request: NextRequest) {
       const allSearchCols = [...new Set(cols.flatMap((c) => c.search_columns))];
       const allDisplayCols = [...new Set(cols.flatMap((c) => c.display_columns))];
 
-      // Search across union of configured search_columns + display_columns
-      const expandedSearchCols = [...new Set([...allSearchCols, ...allDisplayCols])];
+      // Detect text-only columns by fetching a sample and checking types
+      const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
+      const { data: sample } = await supabase.from(tableName).select('*').limit(10);
+
+      const textCols = new Set<string>();
+      if (sample && sample.length > 0) {
+        const allKeys = new Set<string>();
+        for (const row of sample) {
+          for (const k of Object.keys(row as Record<string, unknown>)) allKeys.add(k);
+        }
+        for (const col of allKeys) {
+          if (systemCols.has(col)) continue;
+          let isText = false;
+          let sawNonNull = false;
+          for (const row of sample) {
+            const val = (row as Record<string, unknown>)[col];
+            if (val !== null && val !== undefined) {
+              sawNonNull = true;
+              if (typeof val === 'string') isText = true;
+              break;
+            }
+          }
+          if (isText || !sawNonNull) textCols.add(col);
+        }
+      }
+
+      // Fall back if nothing detected
+      const expandedSearchCols = textCols.size > 0
+        ? Array.from(textCols)
+        : [...new Set([...allSearchCols, ...allDisplayCols])];
 
       // Build select columns
       const selectCols = [
