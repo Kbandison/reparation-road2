@@ -117,24 +117,27 @@ export function AdminRecordEditModal({
     });
 
     if (isNew) {
-      const { error: insertError } = await supabase
-        .from(collection.table_name)
-        .insert(payload);
-
-      if (insertError) {
-        setError(insertError.message);
+      const res = await fetch('/api/admin/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tableName: collection.table_name, payload }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Insert failed');
         setSaving(false);
         return;
       }
     } else {
       if (Object.keys(payload).length > 0) {
-        const { error: updateError } = await supabase
-          .from(collection.table_name)
-          .update(payload)
-          .eq('id', record.id);
-
-        if (updateError) {
-          setError(updateError.message);
+        const res = await fetch('/api/admin/records', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tableName: collection.table_name, id: record.id, payload }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || 'Update failed');
           setSaving(false);
           return;
         }

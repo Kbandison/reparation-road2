@@ -40,13 +40,15 @@ export function AdminRecordsTable({ collection, records }: AdminRecordsTableProp
     if (!collection.table_name) return;
     if (!confirm('Delete this record? This cannot be undone.')) return;
 
-    const { error } = await supabase
-      .from(collection.table_name)
-      .delete()
-      .eq('id', recordId);
+    const res = await fetch('/api/admin/records', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableName: collection.table_name, id: recordId }),
+    });
 
-    if (error) {
-      console.error('Failed to delete record:', error.message);
+    if (!res.ok) {
+      const data = await res.json();
+      console.error('Failed to delete record:', data.error);
     } else {
       router.refresh();
     }
