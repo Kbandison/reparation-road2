@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,8 +19,6 @@ export function AdminCollectionEditModal({
   onClose,
   onSaved,
 }: AdminCollectionEditModalProps) {
-  const supabase = createClient();
-
   const [name, setName] = useState(collection.name);
   const [shortDescription, setShortDescription] = useState(collection.short_description || '');
   const [longDescription, setLongDescription] = useState(collection.long_description || '');
@@ -84,25 +81,34 @@ export function AdminCollectionEditModal({
     }
     setSaving(true);
     const parsedSort = parseInt(sortOrder, 10);
-    const { error } = await supabase
-      .from('collections')
-      .update({
-        name: name.trim(),
-        short_description: shortDescription.trim() || null,
-        long_description: longDescription.trim() || null,
-        sort_order: Number.isFinite(parsedSort) ? parsedSort : collection.sort_order,
-      })
-      .eq('id', collection.id);
+    const updates = {
+      name: name.trim(),
+      short_description: shortDescription.trim() || null,
+      long_description: longDescription.trim() || null,
+      sort_order: Number.isFinite(parsedSort) ? parsedSort : collection.sort_order,
+    };
 
-    if (error) {
-      toast.error(error.message || 'Failed to save');
+    try {
+      const res = await fetch(`/api/admin/collections/${collection.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error('[collection-edit] update failed', data);
+        toast.error(data.error || 'Failed to save');
+        setSaving(false);
+        return;
+      }
+      toast.success('Collection updated');
       setSaving(false);
-      return;
+      onSaved();
+    } catch (err) {
+      console.error('[collection-edit] network error', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to save');
+      setSaving(false);
     }
-
-    toast.success('Collection updated');
-    setSaving(false);
-    onSaved();
   };
 
   return (

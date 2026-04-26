@@ -2,7 +2,6 @@
 
 import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import {
   ChevronRight,
   ChevronDown,
@@ -22,11 +21,24 @@ interface AdminCollectionsTableProps {
 
 export function AdminCollectionsTable({ collections }: AdminCollectionsTableProps) {
   const router = useRouter();
-  const supabase = createClient();
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
   const [editing, setEditing] = useState<Collection | null>(null);
+
+  async function patchCollection(id: string, updates: Record<string, unknown>) {
+    const res = await fetch(`/api/admin/collections/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      toast.error(data.error || 'Update failed');
+      return false;
+    }
+    return true;
+  }
 
   async function syncCounts() {
     setSyncing(true);
@@ -75,22 +87,16 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
   };
 
   const togglePublished = async (col: Collection) => {
-    await supabase
-      .from('collections')
-      .update({ is_published: !col.is_published })
-      .eq('id', col.id);
-    router.refresh();
+    const ok = await patchCollection(col.id, { is_published: !col.is_published });
+    if (ok) router.refresh();
   };
 
   const cycleAccessTier = async (col: Collection) => {
     const tiers: Array<'free' | 'explorer' | 'scholar'> = ['free', 'explorer', 'scholar'];
     const currentIdx = tiers.indexOf(col.access_tier);
     const nextTier = tiers[(currentIdx + 1) % tiers.length];
-    await supabase
-      .from('collections')
-      .update({ access_tier: nextTier })
-      .eq('id', col.id);
-    router.refresh();
+    const ok = await patchCollection(col.id, { access_tier: nextTier });
+    if (ok) router.refresh();
   };
 
   const renderRow = (col: Collection, depth: number = 0) => {
