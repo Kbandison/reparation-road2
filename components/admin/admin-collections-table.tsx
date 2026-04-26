@@ -9,10 +9,12 @@ import {
   FolderOpen,
   FileText,
   RefreshCw,
+  Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { snakeCaseToTitleCase, formatNumber } from '@/lib/utils/format';
 import type { Collection } from '@/lib/types';
+import { AdminCollectionEditModal } from './admin-collection-edit-modal';
 
 interface AdminCollectionsTableProps {
   collections: Collection[];
@@ -24,6 +26,7 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
+  const [editing, setEditing] = useState<Collection | null>(null);
 
   async function syncCounts() {
     setSyncing(true);
@@ -173,6 +176,17 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
         <td className="py-3 px-4 text-xs text-brand-muted capitalize">
           {col.display_type}
         </td>
+
+        {/* Edit */}
+        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => setEditing(col)}
+            aria-label={`Edit ${col.name}`}
+            className="p-1.5 rounded-lg text-brand-muted hover:text-brand-gold hover:bg-brand-card-hover/50 transition-colors"
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+        </td>
       </tr>
     );
   };
@@ -211,6 +225,9 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
             <th className="text-left py-3 px-4 text-xs font-semibold tracking-wide uppercase text-brand-muted">
               Type
             </th>
+            <th className="py-3 px-4">
+              <span className="sr-only">Edit</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -233,6 +250,17 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
         </tbody>
       </table>
     </div>
+
+    {editing && (
+      <AdminCollectionEditModal
+        collection={editing}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          router.refresh();
+        }}
+      />
+    )}
     </>
   );
 }
