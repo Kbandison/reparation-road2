@@ -35,7 +35,7 @@ const SYSTEM_COLS = new Set([
   'image_url',
 ]);
 
-const PER_COLLECTION_LIMIT = 50;
+const PER_COLLECTION_LIMIT = 10;
 
 // Score a record match so we can sort by relevance within a collection.
 // Higher is better. Tuned for genealogical search patterns: name fields beat

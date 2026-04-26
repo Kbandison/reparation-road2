@@ -429,24 +429,32 @@ export function GlobalCollectionSearch({ children, filters }: Props) {
                         </div>
 
                         {remaining > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => loadMore(group)}
-                            disabled={loadingMore === group.collectionSlug}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs text-brand-gold border border-brand-gold/15 hover:border-brand-gold/40 hover:bg-brand-gold/5 rounded-xl transition-colors disabled:opacity-60"
-                          >
-                            {loadingMore === group.collectionSlug ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                Loading…
-                              </>
-                            ) : (
-                              <>
-                                <ChevronDown className="w-3.5 h-3.5" />
-                                Show {remaining} more in {group.collectionName}
-                              </>
-                            )}
-                          </button>
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => loadMore(group)}
+                              disabled={loadingMore === group.collectionSlug}
+                              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs text-brand-gold border border-brand-gold/15 hover:border-brand-gold/40 hover:bg-brand-gold/5 rounded-xl transition-colors disabled:opacity-60"
+                            >
+                              {loadingMore === group.collectionSlug ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  Loading…
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                  Show {Math.min(10, remaining)} more
+                                </>
+                              )}
+                            </button>
+                            <Link
+                              href={`/collection/${group.collectionSlug}?search=${encodeURIComponent(query.trim())}`}
+                              className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs text-brand-muted hover:text-brand-gold transition-colors"
+                            >
+                              View all {group.total} in {group.collectionName} →
+                            </Link>
+                          </div>
                         )}
                       </div>
                     );
