@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -90,11 +90,12 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
     router.refresh();
   };
 
-  const renderRow = (col: Collection, indent: boolean = false) => {
+  const renderRow = (col: Collection, depth: number = 0) => {
     const children = childrenMap.get(col.slug);
-    const isParent = !col.table_name;
     const isExpanded = expanded.has(col.slug);
-    const hasChildren = children && children.length > 0;
+    const hasChildren = !!(children && children.length > 0);
+    // Anything with children acts like a folder (regardless of whether it has its own table).
+    const isFolder = hasChildren || !col.table_name;
 
     return (
       <tr
@@ -104,8 +105,11 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
       >
         {/* Name */}
         <td className="py-3 px-4 text-sm text-brand-cream font-medium">
-          <div className={`flex items-center gap-2 ${indent ? 'pl-8' : ''}`}>
-            {isParent && hasChildren ? (
+          <div
+            className="flex items-center gap-2"
+            style={{ paddingLeft: depth * 24 }}
+          >
+            {hasChildren ? (
               <span className="p-0.5">
                 {isExpanded ? (
                   <ChevronDown className="w-4 h-4 text-brand-muted" />
@@ -116,7 +120,7 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
             ) : (
               <span className="w-5" />
             )}
-            {isParent ? (
+            {isFolder ? (
               <FolderOpen className="w-4 h-4 text-brand-gold flex-shrink-0" />
             ) : (
               <FileText className="w-4 h-4 text-brand-muted flex-shrink-0" />
@@ -210,17 +214,22 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
           </tr>
         </thead>
         <tbody>
-          {parents.map((parent) => {
-            const children = childrenMap.get(parent.slug) || [];
-            const isExpanded = expanded.has(parent.slug);
+          {(() => {
+            const renderTree = (col: Collection, depth: number): ReactNode[] => {
+              const rows: ReactNode[] = [renderRow(col, depth)];
+              if (expanded.has(col.slug)) {
+                const children = childrenMap.get(col.slug) || [];
+                for (const child of children) {
+                  rows.push(...renderTree(child, depth + 1));
+                }
+              }
+              return rows;
+            };
             return [
-              renderRow(parent),
-              ...(isExpanded
-                ? children.map((child) => renderRow(child, true))
-                : []),
+              ...parents.flatMap((p) => renderTree(p, 0)),
+              ...standalone.flatMap((c) => renderTree(c, 0)),
             ];
-          })}
-          {standalone.map((col) => renderRow(col))}
+          })()}
         </tbody>
       </table>
     </div>

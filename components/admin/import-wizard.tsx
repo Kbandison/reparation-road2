@@ -101,6 +101,8 @@ export function ImportWizard({ collections }: ImportWizardProps) {
   const [imageMapping, setImageMapping] = useState<Record<string, string>>({});
   const [imageColumn, setImageColumn] = useState('');
   const [browsingStorage, setBrowsingStorage] = useState(false);
+  const [availableBuckets, setAvailableBuckets] = useState<{ name: string; public: boolean }[]>([]);
+  const [loadingBuckets, setLoadingBuckets] = useState(false);
 
   // Import progress
   const [importing, setImporting] = useState(false);
@@ -108,7 +110,21 @@ export function ImportWizard({ collections }: ImportWizardProps) {
   const [uploading, setUploading] = useState(false);
 
   const selectedCollection = collections.find((c) => c.slug === selectedSlug);
-  const parentCollections = collections.filter((c) => !c.parent_slug);
+  // Any published collection can be a parent; render with a hierarchy hint so
+  // nested groupings (Native American Records → Cherokee Agency Records → ...) are clear.
+  const parentCollections = [...collections].sort((a, b) => {
+    const aRoot = a.parent_slug || a.slug;
+    const bRoot = b.parent_slug || b.slug;
+    return aRoot === bRoot
+      ? (a.parent_slug ? 1 : 0) - (b.parent_slug ? 1 : 0) || a.name.localeCompare(b.name)
+      : aRoot.localeCompare(bRoot);
+  });
+  const collectionBySlug = new Map(collections.map((c) => [c.slug, c]));
+  const parentLabel = (c: CollectionInfo): string => {
+    if (!c.parent_slug) return c.name;
+    const parent = collectionBySlug.get(c.parent_slug);
+    return parent ? `${parent.name} → ${c.name}` : c.name;
+  };
 
   // Step: Upload file
   const handleFileUpload = useCallback(async (file: File) => {
@@ -203,15 +219,34 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     try {
       const res = await fetch(`/api/admin/import?action=storage-files&bucket=${encodeURIComponent(bucket)}&folder=${encodeURIComponent(folder)}`);
       const data = await res.json();
-      if (data.items) {
-        setStorageFiles(data.items);
+      if (!res.ok) {
+        toast.error(data.error || `Failed to load ${bucket}`);
+        setStorageFiles([]);
+      } else {
+        setStorageFiles(data.items || []);
         setStorageFolder(folder);
       }
-    } catch {
-      toast.error('Failed to browse storage');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to browse storage');
     }
     setBrowsingStorage(false);
   };
+
+  const loadBuckets = useCallback(async () => {
+    setLoadingBuckets(true);
+    try {
+      const res = await fetch('/api/admin/import?action=storage-buckets');
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to load buckets');
+      } else {
+        setAvailableBuckets(data.buckets || []);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load buckets');
+    }
+    setLoadingBuckets(false);
+  }, []);
 
   // Auto-match image names to storage files
   const autoMatchImages = useCallback(() => {
@@ -262,9 +297,15 @@ export function ImportWizard({ collections }: ImportWizardProps) {
         return;
       }
 
-      // Create collection metadata
-      const displayCols = Object.values(columnMapping).filter(Boolean).slice(0, 7);
-      const searchCols = Object.values(columnMapping).filter(Boolean).slice(0, 3);
+      // Create collection metadata. Exclude system columns from display/search —
+      // image_path renders inside the record modal, not as a table column;
+      // ocr_text and slug aren't useful in either view.
+      const RESERVED_DISPLAY = new Set(['image_path', 'ocr_text', 'slug', 'id', 'created_at']);
+      const userMappedCols = Object.values(columnMapping)
+        .filter(Boolean)
+        .filter((c) => !RESERVED_DISPLAY.has(c));
+      const displayCols = userMappedCols.slice(0, 7);
+      const searchCols = userMappedCols.slice(0, 3);
 
       await fetch('/api/admin/import', {
         method: 'POST',
@@ -454,7 +495,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                 className="w-full px-3 py-2 bg-brand-card border border-brand-gold/[0.08] rounded-xl text-sm text-brand-cream"
               >
                 <option value="">None (top-level)</option>
-                {parentCollections.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
+                {parentCollections.map((c) => <option key={c.slug} value={c.slug}>{parentLabel(c)}</option>)}
               </select>
             </div>
             <div className="space-y-2">
@@ -629,7 +670,14 @@ export function ImportWizard({ collections }: ImportWizardProps) {
               <ArrowLeft className="w-4 h-4 mr-1" /> Back
             </Button>
             <Button
-              onClick={() => setStep(hasImageColumn ? 'images' : 'preview')}
+              onClick={() => {
+                if (hasImageColumn) {
+                  if (availableBuckets.length === 0 && !loadingBuckets) loadBuckets();
+                  setStep('images');
+                } else {
+                  setStep('preview');
+                }
+              }}
               disabled={Object.values(columnMapping).filter(Boolean).length === 0}
               className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
             >
@@ -651,7 +699,15 @@ export function ImportWizard({ collections }: ImportWizardProps) {
             <Label>Which column contains image names?</Label>
             <select
               value={imageColumn}
-              onChange={(e) => setImageColumn(e.target.value)}
+              onChange={(e) => {
+                const col = e.target.value;
+                setImageColumn(col);
+                // Picking a column as the image source forces it to map to image_path
+                // so no redundant DB column gets created from the original header name.
+                if (col) {
+                  setColumnMapping((prev) => ({ ...prev, [col]: 'image_path' }));
+                }
+              }}
               className="w-full px-3 py-2 bg-brand-card border border-brand-gold/[0.08] rounded-xl text-sm text-brand-cream"
             >
               <option value="">Select column...</option>
@@ -659,26 +715,55 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                 <option key={h} value={h}>{h}</option>
               ))}
             </select>
+            <p className="text-[11px] text-brand-muted">
+              The selected column will be stored as <span className="font-mono text-brand-cream">image_path</span> — no separate column is created for it.
+            </p>
           </div>
 
           {/* Storage browser */}
           <div className="space-y-2">
-            <Label>Storage Bucket</Label>
-            <div className="flex gap-2">
-              <Input
-                value={storageBucket}
-                onChange={(e) => setStorageBucket(e.target.value)}
-                placeholder="e.g. collection-images"
-                className="bg-brand-card border-brand-gold/[0.15] flex-1"
-              />
-              <Button
-                onClick={() => browseStorage(storageBucket, '')}
-                disabled={!storageBucket || browsingStorage}
-                className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
+            <div className="flex items-center justify-between">
+              <Label>Storage Bucket</Label>
+              <button
+                type="button"
+                onClick={loadBuckets}
+                disabled={loadingBuckets}
+                className="text-xs text-brand-gold hover:text-brand-gold-light disabled:opacity-50"
               >
-                {browsingStorage ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderOpen className="w-4 h-4" />}
-              </Button>
+                {loadingBuckets ? 'Loading…' : 'Refresh'}
+              </button>
             </div>
+            <select
+              value={storageBucket}
+              onChange={(e) => {
+                const bucket = e.target.value;
+                setStorageBucket(bucket);
+                setStorageFiles([]);
+                setStorageFolder('');
+                if (bucket) browseStorage(bucket, '');
+              }}
+              disabled={loadingBuckets || availableBuckets.length === 0}
+              className="w-full px-3 py-2 bg-brand-card border border-brand-gold/[0.08] rounded-xl text-sm text-brand-cream disabled:opacity-50"
+            >
+              <option value="">
+                {loadingBuckets
+                  ? 'Loading buckets...'
+                  : availableBuckets.length === 0
+                  ? 'No buckets found'
+                  : 'Select a bucket...'}
+              </option>
+              {availableBuckets.map((b) => (
+                <option key={b.name} value={b.name}>
+                  {b.name}
+                  {b.public ? '' : ' (private)'}
+                </option>
+              ))}
+            </select>
+            {browsingStorage && (
+              <p className="text-xs text-brand-muted flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" /> Loading folder…
+              </p>
+            )}
           </div>
 
           {/* Folder contents */}

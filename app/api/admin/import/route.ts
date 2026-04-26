@@ -51,6 +51,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ columns });
   }
 
+  if (action === 'storage-buckets') {
+    const { data, error } = await supabase.storage.listBuckets();
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    const buckets = (data || []).map((b) => ({ name: b.name, public: b.public }));
+    return NextResponse.json({ buckets });
+  }
+
   if (action === 'storage-files') {
     const bucket = searchParams.get('bucket');
     const folder = searchParams.get('folder') || '';
@@ -169,12 +176,18 @@ export async function POST(request: NextRequest) {
 
       DROP POLICY IF EXISTS "Allow public read" ON public."${safeName}";
       CREATE POLICY "Allow public read" ON public."${safeName}" FOR SELECT USING (true);
+
+      NOTIFY pgrst, 'reload schema';
     `;
 
     const { error } = await supabase.rpc('exec_sql', { sql_text: sql });
     if (error) {
       return NextResponse.json({ error: `Table creation failed: ${error.message}` }, { status: 400 });
     }
+
+    // PostgREST processes the schema reload asynchronously. Without this delay,
+    // the immediately-following insert can hit the old schema cache and fail.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     return NextResponse.json({ success: true, tableName: safeName });
   }
@@ -344,11 +357,35 @@ Rules:
 
     for (let i = 0; i < mapped.length; i += batchSize) {
       const batch = mapped.slice(i, i + batchSize);
+      const batchNum = Math.floor(i / batchSize) + 1;
       const { error } = await supabase.from(tableName).insert(batch);
       if (error) {
-        const detail = error.message || error.details || error.hint || error.code || JSON.stringify(error);
-        console.error(`[import] Batch ${Math.floor(i / batchSize) + 1} insert failed`, { tableName, error, sampleRecord: batch[0] });
-        errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${detail}`);
+        // Error instances have non-enumerable .message (so JSON.stringify yields "{}").
+        // Walk every own-property to see what's actually there.
+        const errAny = error as unknown as Record<string, unknown>;
+        const allProps: Record<string, unknown> = {};
+        try {
+          for (const key of Object.getOwnPropertyNames(errAny)) {
+            allProps[key] = errAny[key];
+          }
+        } catch {}
+        const detail =
+          (errAny.message as string) ||
+          (errAny.details as string) ||
+          (errAny.hint as string) ||
+          (errAny.code as string) ||
+          (errAny.error as string) ||
+          (errAny.statusText as string) ||
+          (allProps.message as string) ||
+          'unknown error (see server log)';
+        console.error(`[import] Batch ${batchNum} insert failed`, {
+          tableName,
+          errorType: error?.constructor?.name,
+          allProps,
+          recordKeys: Object.keys(batch[0] || {}),
+          sampleRecord: batch[0],
+        });
+        errors.push(`Batch ${batchNum}: ${detail}`);
       } else {
         inserted += batch.length;
       }
