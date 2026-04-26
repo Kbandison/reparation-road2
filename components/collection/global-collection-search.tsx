@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, Library, FolderOpen, FileText, X } from 'lucide-react';
+import { Search, Loader2, Library, FolderOpen, FileText, X, ChevronDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { RecordModal } from '@/components/collection/record-modal';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
@@ -38,12 +38,22 @@ interface RecordResult {
   matchField: string;
   matchValue: string;
   displayFields: Record<string, string>;
+  score: number;
+}
+
+interface CollectionRecordGroup {
+  collectionSlug: string;
+  collectionName: string;
+  parentSlug: string | null;
+  parentName: string | null;
+  total: number;
+  records: RecordResult[];
 }
 
 interface SearchResults {
   collections: CollectionResult[];
   subcollections: SubcollectionResult[];
-  records: RecordResult[];
+  records: CollectionRecordGroup[];
 }
 
 function HighlightMatch({ text, query }: { text: string; query: string }) {
@@ -82,6 +92,7 @@ export function GlobalCollectionSearch({ children, filters }: Props) {
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [loadingMore, setLoadingMore] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   // Modal state
@@ -129,6 +140,34 @@ export function GlobalCollectionSearch({ children, filters }: Props) {
     setHasSearched(false);
   }
 
+  async function loadMore(group: CollectionRecordGroup) {
+    if (!results) return;
+    setLoadingMore(group.collectionSlug);
+    try {
+      const res = await fetch(
+        `/api/collection-search?q=${encodeURIComponent(query.trim())}&collection=${encodeURIComponent(group.collectionSlug)}&offset=${group.records.length}`,
+      );
+      const data = await res.json();
+      const more: CollectionRecordGroup | undefined = data.records?.[0];
+      if (more && more.records?.length) {
+        setResults((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            records: prev.records.map((g) =>
+              g.collectionSlug === group.collectionSlug
+                ? { ...g, records: [...g.records, ...more.records] }
+                : g,
+            ),
+          };
+        });
+      }
+    } catch {
+      // user can retry
+    }
+    setLoadingMore(null);
+  }
+
   async function openRecordModal(r: RecordResult) {
     setModalLoading(true);
     try {
@@ -163,7 +202,9 @@ export function GlobalCollectionSearch({ children, filters }: Props) {
     };
   }, []);
 
-  const totalResults =
+  const totalRecords = results?.records.reduce((acc, g) => acc + g.total, 0) || 0;
+  const totalShown = results?.records.reduce((acc, g) => acc + g.records.length, 0) || 0;
+  const totalGroups =
     (results?.collections.length || 0) +
     (results?.subcollections.length || 0) +
     (results?.records.length || 0);
@@ -203,7 +244,7 @@ export function GlobalCollectionSearch({ children, filters }: Props) {
             <div className="flex justify-center py-16">
               <Loader2 className="w-6 h-6 animate-spin text-brand-gold" />
             </div>
-          ) : results && totalResults === 0 ? (
+          ) : results && totalGroups === 0 ? (
             <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-8 text-center">
               <Search className="w-8 h-8 text-brand-muted mx-auto mb-3" />
               <p className="text-brand-cream font-display text-lg font-semibold mb-1">No results found</p>
@@ -218,7 +259,26 @@ export function GlobalCollectionSearch({ children, filters }: Props) {
           ) : results && (
             <div className="space-y-8">
               <p className="text-sm text-brand-muted">
-                Found {totalResults} result{totalResults !== 1 ? 's' : ''} for &ldquo;{query}&rdquo;
+                {totalRecords > 0 ? (
+                  <>
+                    Found {totalRecords} record match{totalRecords !== 1 ? 'es' : ''}
+                    {totalShown < totalRecords && <> (showing {totalShown})</>}
+                    {results.collections.length + results.subcollections.length > 0 && (
+                      <>
+                        {' '}plus{' '}
+                        {results.collections.length + results.subcollections.length} collection match
+                        {results.collections.length + results.subcollections.length !== 1 ? 'es' : ''}
+                      </>
+                    )}
+                    {' for '}&ldquo;{query}&rdquo;
+                  </>
+                ) : (
+                  <>
+                    Found {results.collections.length + results.subcollections.length} collection match
+                    {results.collections.length + results.subcollections.length !== 1 ? 'es' : ''}
+                    {' for '}&ldquo;{query}&rdquo;
+                  </>
+                )}
               </p>
 
               {/* Collections */}
@@ -302,52 +362,95 @@ export function GlobalCollectionSearch({ children, filters }: Props) {
                 </section>
               )}
 
-              {/* Records */}
+              {/* Records, grouped by collection */}
               {results.records.length > 0 && (
-                <section>
-                  <div className="flex items-center gap-2 mb-4">
+                <section className="space-y-6">
+                  <div className="flex items-center gap-2">
                     <FileText className="w-4 h-4 text-brand-burgundy-light" />
                     <h3 className="font-display text-sm font-semibold text-brand-cream uppercase tracking-wide">
-                      Records ({results.records.length})
+                      Records ({totalRecords})
                     </h3>
                   </div>
-                  <div className="grid gap-3">
-                    {results.records.map((r) => (
-                      <button
-                        key={`${r.collectionSlug}-${r.id}`}
-                        onClick={() => openRecordModal(r)}
-                        className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-5 hover:border-brand-gold/25 transition-all hover:-translate-y-0.5 block w-full text-left group"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                              {Object.entries(r.displayFields).map(([key, val]) => (
-                                <span key={key} className="text-sm">
-                                  <span className="text-brand-muted text-xs mr-1">
-                                    {snakeCaseToTitleCase(key)}:
-                                  </span>
-                                  <span className="text-brand-cream font-medium group-hover:text-brand-gold transition-colors">
-                                    <HighlightMatch text={val} query={query} />
-                                  </span>
-                                </span>
-                              ))}
-                            </div>
-                            {!r.displayFields[r.matchField] && (
-                              <p className="text-xs text-brand-muted mt-2 line-clamp-2">
-                                <span className="text-brand-muted/70">
-                                  {snakeCaseToTitleCase(r.matchField)}:{' '}
-                                </span>
-                                <HighlightMatch text={r.matchValue} query={query} />
-                              </p>
+
+                  {results.records.map((group) => {
+                    const remaining = group.total - group.records.length;
+                    return (
+                      <div key={group.collectionSlug} className="space-y-3">
+                        <div className="flex items-baseline justify-between gap-3 border-b border-brand-gold/[0.08] pb-2">
+                          <div className="min-w-0">
+                            <Link
+                              href={`/collection/${group.collectionSlug}`}
+                              className="font-display text-sm font-semibold text-brand-cream hover:text-brand-gold transition-colors"
+                            >
+                              {group.collectionName}
+                            </Link>
+                            {group.parentName && (
+                              <span className="text-xs text-brand-muted ml-2">in {group.parentName}</span>
                             )}
                           </div>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-card-hover text-brand-muted whitespace-nowrap flex-shrink-0">
-                            {r.collectionName}
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-brand-card-hover text-brand-muted whitespace-nowrap flex-shrink-0">
+                            {group.records.length} of {group.total}
                           </span>
                         </div>
-                      </button>
-                    ))}
-                  </div>
+
+                        <div className="grid gap-3">
+                          {group.records.map((r) => (
+                            <button
+                              key={`${r.collectionSlug}-${r.id}`}
+                              onClick={() => openRecordModal(r)}
+                              className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-5 hover:border-brand-gold/25 transition-all hover:-translate-y-0.5 block w-full text-left group"
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                    {Object.entries(r.displayFields || {}).map(([key, val]) => (
+                                      <span key={key} className="text-sm">
+                                        <span className="text-brand-muted text-xs mr-1">
+                                          {snakeCaseToTitleCase(key)}:
+                                        </span>
+                                        <span className="text-brand-cream font-medium group-hover:text-brand-gold transition-colors">
+                                          <HighlightMatch text={val} query={query} />
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                  {!r.displayFields?.[r.matchField] && (
+                                    <p className="text-xs text-brand-muted mt-2 line-clamp-2">
+                                      <span className="text-brand-muted/70">
+                                        {snakeCaseToTitleCase(r.matchField)}:{' '}
+                                      </span>
+                                      <HighlightMatch text={r.matchValue} query={query} />
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+
+                        {remaining > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => loadMore(group)}
+                            disabled={loadingMore === group.collectionSlug}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs text-brand-gold border border-brand-gold/15 hover:border-brand-gold/40 hover:bg-brand-gold/5 rounded-xl transition-colors disabled:opacity-60"
+                          >
+                            {loadingMore === group.collectionSlug ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                Loading…
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="w-3.5 h-3.5" />
+                                Show {remaining} more in {group.collectionName}
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </section>
               )}
             </div>
