@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, Library, FolderOpen, FileText } from 'lucide-react';
+import { Search, Loader2, Library, FolderOpen, FileText, ChevronDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordModal } from '@/components/collection/record-modal';
@@ -40,12 +40,22 @@ interface RecordResult {
   matchField: string;
   matchValue: string;
   displayFields: Record<string, string>;
+  score: number;
+}
+
+interface CollectionRecordGroup {
+  collectionSlug: string;
+  collectionName: string;
+  parentSlug: string | null;
+  parentName: string | null;
+  total: number;
+  records: RecordResult[];
 }
 
 interface SearchResults {
   collections: CollectionResult[];
   subcollections: SubcollectionResult[];
-  records: RecordResult[];
+  records: CollectionRecordGroup[];
 }
 
 function HighlightMatch({ text, query }: { text: string; query: string }) {
@@ -75,6 +85,7 @@ export default function SearchPage() {
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [loadingMore, setLoadingMore] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   // Modal state
@@ -114,11 +125,39 @@ export default function SearchPage() {
     debounceRef.current = setTimeout(() => search(value), 400);
   }
 
+  async function loadMore(group: CollectionRecordGroup) {
+    if (!results) return;
+    setLoadingMore(group.collectionSlug);
+    try {
+      const res = await fetch(
+        `/api/collection-search?q=${encodeURIComponent(query.trim())}&collection=${encodeURIComponent(group.collectionSlug)}&offset=${group.records.length}`,
+      );
+      const data = await res.json();
+      const more: CollectionRecordGroup | undefined = data.records?.[0];
+      if (more && more.records?.length) {
+        setResults((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            records: prev.records.map((g) =>
+              g.collectionSlug === group.collectionSlug
+                ? { ...g, records: [...g.records, ...more.records] }
+                : g,
+            ),
+          };
+        });
+      }
+    } catch {
+      // no-op; user can try again
+    }
+    setLoadingMore(null);
+  }
+
   async function openRecordModal(r: RecordResult) {
     setModalLoading(true);
     try {
       const res = await fetch(
-        `/api/collection-search/record?collection=${encodeURIComponent(r.collectionSlug)}&id=${encodeURIComponent(r.id)}`
+        `/api/collection-search/record?collection=${encodeURIComponent(r.collectionSlug)}&id=${encodeURIComponent(r.id)}`,
       );
       const data = await res.json();
       if (data.collection && data.record) {
@@ -130,7 +169,7 @@ export default function SearchPage() {
           name: String(
             data.collection.display_columns?.[0]
               ? data.record[data.collection.display_columns[0]] ?? r.id
-              : r.id
+              : r.id,
           ),
           collectionSlug: r.collectionSlug,
           collectionName: r.collectionName,
@@ -142,7 +181,9 @@ export default function SearchPage() {
     setModalLoading(false);
   }
 
-  const totalResults =
+  const totalRecords = results?.records.reduce((acc, g) => acc + g.total, 0) || 0;
+  const totalShown = results?.records.reduce((acc, g) => acc + g.records.length, 0) || 0;
+  const totalGroups =
     (results?.collections.length || 0) +
     (results?.subcollections.length || 0) +
     (results?.records.length || 0);
@@ -176,7 +217,7 @@ export default function SearchPage() {
         </div>
       )}
 
-      {!loading && searched && totalResults === 0 && (
+      {!loading && searched && totalGroups === 0 && (
         <EmptyState
           icon={Search}
           title="No Results Found"
@@ -184,10 +225,25 @@ export default function SearchPage() {
         />
       )}
 
-      {!loading && results && totalResults > 0 && (
+      {!loading && results && totalGroups > 0 && (
         <div className="space-y-8">
           <p className="text-sm text-brand-muted">
-            Found {totalResults} result{totalResults !== 1 ? 's' : ''} for &ldquo;{query}&rdquo;
+            {totalRecords > 0 ? (
+              <>
+                Found {totalRecords} record match{totalRecords !== 1 ? 'es' : ''}
+                {totalShown < totalRecords && <> (showing {totalShown})</>}
+                {' '}plus{' '}
+                {results.collections.length + results.subcollections.length} collection match
+                {results.collections.length + results.subcollections.length !== 1 ? 'es' : ''}
+                {' for '}&ldquo;{query}&rdquo;
+              </>
+            ) : (
+              <>
+                Found {results.collections.length + results.subcollections.length} collection match
+                {results.collections.length + results.subcollections.length !== 1 ? 'es' : ''}
+                {' for '}&ldquo;{query}&rdquo;
+              </>
+            )}
           </p>
 
           {/* Collections */}
@@ -221,11 +277,13 @@ export default function SearchPage() {
                         <span className="text-xs px-2 py-0.5 rounded-full bg-brand-muted/10 text-brand-muted">
                           {c.recordCount} records
                         </span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          c.accessTier === 'free'
-                            ? 'bg-brand-sage/10 text-brand-sage'
-                            : 'bg-brand-gold/10 text-brand-gold'
-                        }`}>
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${
+                            c.accessTier === 'free'
+                              ? 'bg-brand-sage/10 text-brand-sage'
+                              : 'bg-brand-gold/10 text-brand-gold'
+                          }`}
+                        >
                           {c.accessTier === 'free' ? 'Free' : 'Premium'}
                         </span>
                       </div>
@@ -257,9 +315,7 @@ export default function SearchPage() {
                         <p className="font-display text-base font-semibold text-brand-cream group-hover:text-brand-gold transition-colors">
                           <HighlightMatch text={c.name} query={query} />
                         </p>
-                        <p className="text-xs text-brand-muted mt-0.5">
-                          in {c.parentName}
-                        </p>
+                        <p className="text-xs text-brand-muted mt-0.5">in {c.parentName}</p>
                       </div>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-brand-muted/10 text-brand-muted flex-shrink-0">
                         {c.recordCount} records
@@ -271,52 +327,95 @@ export default function SearchPage() {
             </section>
           )}
 
-          {/* Records */}
+          {/* Records, grouped by collection */}
           {results.records.length > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-4">
+            <section className="space-y-6">
+              <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-brand-burgundy-light" />
                 <h3 className="font-display text-sm font-semibold text-brand-cream uppercase tracking-wide">
-                  Records ({results.records.length})
+                  Records ({totalRecords})
                 </h3>
               </div>
-              <div className="grid gap-3">
-                {results.records.map((r) => (
-                  <button
-                    key={`${r.collectionSlug}-${r.id}`}
-                    onClick={() => openRecordModal(r)}
-                    className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-5 hover:border-brand-gold/25 transition-all hover:-translate-y-0.5 block w-full text-left group"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                          {Object.entries(r.displayFields).map(([key, val]) => (
-                            <span key={key} className="text-sm">
-                              <span className="text-brand-muted text-xs mr-1">
-                                {snakeCaseToTitleCase(key)}:
-                              </span>
-                              <span className="text-brand-cream font-medium group-hover:text-brand-gold transition-colors">
-                                <HighlightMatch text={val} query={query} />
-                              </span>
-                            </span>
-                          ))}
-                        </div>
-                        {!r.displayFields[r.matchField] && (
-                          <p className="text-xs text-brand-muted mt-2 line-clamp-2">
-                            <span className="text-brand-muted/70">
-                              {snakeCaseToTitleCase(r.matchField)}:{' '}
-                            </span>
-                            <HighlightMatch text={r.matchValue} query={query} />
-                          </p>
+
+              {results.records.map((group) => {
+                const remaining = group.total - group.records.length;
+                return (
+                  <div key={group.collectionSlug} className="space-y-3">
+                    <div className="flex items-baseline justify-between gap-3 border-b border-brand-gold/[0.08] pb-2">
+                      <div className="min-w-0">
+                        <Link
+                          href={`/collection/${group.collectionSlug}`}
+                          className="font-display text-sm font-semibold text-brand-cream hover:text-brand-gold transition-colors"
+                        >
+                          {group.collectionName}
+                        </Link>
+                        {group.parentName && (
+                          <span className="text-xs text-brand-muted ml-2">in {group.parentName}</span>
                         )}
                       </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-card-hover text-brand-muted whitespace-nowrap flex-shrink-0">
-                        {r.collectionName}
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-brand-card-hover text-brand-muted whitespace-nowrap flex-shrink-0">
+                        {group.records.length} of {group.total}
                       </span>
                     </div>
-                  </button>
-                ))}
-              </div>
+
+                    <div className="grid gap-3">
+                      {group.records.map((r) => (
+                        <button
+                          key={`${r.collectionSlug}-${r.id}`}
+                          onClick={() => openRecordModal(r)}
+                          className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-5 hover:border-brand-gold/25 transition-all hover:-translate-y-0.5 block w-full text-left group"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                {Object.entries(r.displayFields).map(([key, val]) => (
+                                  <span key={key} className="text-sm">
+                                    <span className="text-brand-muted text-xs mr-1">
+                                      {snakeCaseToTitleCase(key)}:
+                                    </span>
+                                    <span className="text-brand-cream font-medium group-hover:text-brand-gold transition-colors">
+                                      <HighlightMatch text={val} query={query} />
+                                    </span>
+                                  </span>
+                                ))}
+                              </div>
+                              {!r.displayFields[r.matchField] && (
+                                <p className="text-xs text-brand-muted mt-2 line-clamp-2">
+                                  <span className="text-brand-muted/70">
+                                    {snakeCaseToTitleCase(r.matchField)}:{' '}
+                                  </span>
+                                  <HighlightMatch text={r.matchValue} query={query} />
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    {remaining > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => loadMore(group)}
+                        disabled={loadingMore === group.collectionSlug}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs text-brand-gold border border-brand-gold/15 hover:border-brand-gold/40 hover:bg-brand-gold/5 rounded-xl transition-colors disabled:opacity-60"
+                      >
+                        {loadingMore === group.collectionSlug ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Loading…
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-3.5 h-3.5" />
+                            Show {remaining} more in {group.collectionName}
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </section>
           )}
         </div>

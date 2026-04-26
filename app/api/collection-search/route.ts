@@ -11,11 +11,277 @@ interface RecordResult {
   matchField: string;
   matchValue: string;
   displayFields: Record<string, string>;
+  score: number;
+}
+
+interface CollectionRecordGroup {
+  collectionSlug: string;
+  collectionName: string;
+  parentSlug: string | null;
+  parentName: string | null;
+  total: number;
+  records: RecordResult[];
+}
+
+const SYSTEM_COLS = new Set([
+  'id',
+  'slug',
+  'created_at',
+  'updated_at',
+  'embedding',
+  'tsv',
+  'collection_tag',
+  'image_path',
+  'image_url',
+]);
+
+const PER_COLLECTION_LIMIT = 50;
+
+// Score a record match so we can sort by relevance within a collection.
+// Higher is better. Tuned for genealogical search patterns: name fields beat
+// remarks/notes, prefix matches beat mid-string matches, exact matches win.
+function scoreMatch(
+  matchField: string,
+  matchValue: string,
+  searchColumns: string[],
+  lowerQuery: string,
+): number {
+  let score = 0;
+
+  // Field importance
+  if (matchField === 'name' || matchField.endsWith('_name') || matchField === 'head_of_family') {
+    score += 100;
+  } else if (searchColumns.includes(matchField)) {
+    score += 60;
+  } else {
+    score += 20;
+  }
+
+  const lowerVal = matchValue.toLowerCase();
+  const pos = lowerVal.indexOf(lowerQuery);
+
+  // Position bonus
+  if (pos === 0) score += 30;
+  else if (pos < 20) score += 10;
+
+  // Whole-field exact match
+  if (lowerVal === lowerQuery) score += 25;
+
+  // Word-boundary match (e.g. " cherokee " vs "cherokeeville")
+  if (pos > 0) {
+    const prevChar = lowerVal[pos - 1];
+    if (/\s|[.,;:()\-/]/.test(prevChar)) score += 8;
+  }
+
+  // Length penalty for huge OCR-style values where the query was incidental.
+  if (matchValue.length > 500) score -= 10;
+  else if (matchValue.length < 80) score += 5;
+
+  return score;
+}
+
+async function countCollectionMatches(
+  supabase: ReturnType<typeof createAdminClient>,
+  tableName: string,
+  col: Collection,
+  expandedSearchCols: string[],
+  query: string,
+): Promise<number> {
+  const safe = query.replace(/,/g, '');
+  const orFilter = expandedSearchCols.map((c) => `${c}.ilike.%${safe}%`).join(',');
+
+  let q = supabase
+    .from(tableName)
+    .select('id', { count: 'exact', head: true })
+    .or(orFilter);
+
+  if (col.discriminator_column && col.discriminator_value) {
+    q = q.eq(col.discriminator_column, col.discriminator_value);
+  }
+
+  try {
+    const { count } = await q;
+    return count || 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function searchTable(
+  supabase: ReturnType<typeof createAdminClient>,
+  tableName: string,
+  cols: Collection[],
+  query: string,
+  lowerQuery: string,
+  perCollectionLimit: number,
+  offset: number,
+  filterCollectionSlug: string | null,
+) {
+  // Pull every text column from the table for both search and display.
+  let textCols: string[] = [];
+  try {
+    const { data: colData } = await supabase.rpc('get_text_columns', { p_table_name: tableName });
+    if (colData) {
+      textCols = (colData as { column_name: string }[])
+        .map((c) => c.column_name)
+        .filter((c) => !SYSTEM_COLS.has(c));
+    }
+  } catch {
+    // RPC may not exist
+  }
+
+  const allSearchCols = [...new Set(cols.flatMap((c) => c.search_columns))];
+  const allDisplayCols = [...new Set(cols.flatMap((c) => c.display_columns))];
+
+  const expandedSearchCols = textCols.length > 0
+    ? textCols
+    : [...new Set([...allSearchCols, ...allDisplayCols])].filter((c) => !SYSTEM_COLS.has(c));
+
+  if (expandedSearchCols.length === 0) {
+    return { groups: [] as CollectionRecordGroup[] };
+  }
+
+  // Always include id and slug, plus any discriminator columns so we can
+  // route shared-table rows back to the right sub-collection.
+  const discriminatorCols = cols
+    .filter((c) => c.discriminator_column)
+    .map((c) => c.discriminator_column!);
+  const selectColsSet = new Set<string>(['id', 'slug', ...expandedSearchCols, ...allDisplayCols, ...discriminatorCols]);
+  const uniqueSelect = [...selectColsSet].join(',');
+
+  const safe = query.replace(/,/g, '');
+  const orFilter = expandedSearchCols.map((col) => `${col}.ilike.%${safe}%`).join(',');
+
+  // Fetch generously above per-collection limit so the JS-side bucketing per
+  // sub-collection still has plenty to choose from for shared-table cases.
+  // When paginating a single collection, fetch deep enough to reach the
+  // requested offset window even on collections with thousands of hits.
+  const fetchLimit = filterCollectionSlug
+    ? Math.max(offset + perCollectionLimit * 4, 1000)
+    : Math.max(perCollectionLimit * Math.max(cols.length, 1) * 3, 200);
+
+  type RawRow = Record<string, unknown> & { id: string; slug?: string };
+  let rows: RawRow[] = [];
+
+  // Per-collection count queries run in parallel with the data query.
+  const countPromises = cols.map(async (col) => {
+    if (filterCollectionSlug && col.slug !== filterCollectionSlug) return [col.slug, 0] as const;
+    const total = await countCollectionMatches(supabase, tableName, col, expandedSearchCols, query);
+    return [col.slug, total] as const;
+  });
+
+  const [dataResp, countEntries] = await Promise.all([
+    (async () => {
+      try {
+        return await supabase
+          .from(tableName)
+          .select(uniqueSelect)
+          .or(orFilter)
+          .limit(fetchLimit);
+      } catch {
+        return { data: null, error: { message: 'query failed' } };
+      }
+    })(),
+    Promise.all(countPromises),
+  ]);
+
+  if (dataResp.error || !dataResp.data) return { groups: [] as CollectionRecordGroup[] };
+  rows = dataResp.data as unknown as RawRow[];
+  const totalsBySlug = new Map(countEntries);
+
+  // Bucket rows by which collection they belong to (via discriminator) and
+  // build relevance-scored RecordResults.
+  const buckets = new Map<string, RecordResult[]>();
+  for (const col of cols) buckets.set(col.slug, []);
+
+  for (const row of rows) {
+    // Pick the collection this row belongs to
+    let matchCol = cols[0];
+    for (const c of cols) {
+      if (
+        c.discriminator_column &&
+        c.discriminator_value &&
+        String(row[c.discriminator_column]).toLowerCase() === c.discriminator_value.toLowerCase()
+      ) {
+        matchCol = c;
+        break;
+      }
+      if (!c.discriminator_column) {
+        matchCol = c;
+      }
+    }
+
+    if (filterCollectionSlug && matchCol.slug !== filterCollectionSlug) continue;
+
+    // Find first matching column (priority: configured search_columns first,
+    // then any other queried column). Picking from search_columns first means
+    // a row that matches on `name` is reported as a name match even if it
+    // also happens to mention the term in `ocr_text`.
+    const orderedCols = [
+      ...matchCol.search_columns.filter((c) => expandedSearchCols.includes(c)),
+      ...expandedSearchCols.filter((c) => !matchCol.search_columns.includes(c)),
+    ];
+    let matchField = '';
+    let matchValue = '';
+    for (const col of orderedCols) {
+      const val = row[col];
+      if (val && typeof val === 'string' && val.toLowerCase().includes(lowerQuery)) {
+        matchField = col;
+        matchValue = val;
+        break;
+      }
+    }
+    if (!matchField) continue;
+
+    const displayFields: Record<string, string> = {};
+    for (const col of matchCol.display_columns.slice(0, 4)) {
+      const val = row[col];
+      if (val !== undefined && val !== null) {
+        displayFields[col] = String(val);
+      }
+    }
+
+    const score = scoreMatch(matchField, matchValue, matchCol.search_columns, lowerQuery);
+
+    buckets.get(matchCol.slug)!.push({
+      id: row.id,
+      slug: row.slug || row.id,
+      collectionSlug: matchCol.slug,
+      collectionName: matchCol.name,
+      parentSlug: matchCol.parent_slug,
+      matchField,
+      matchValue,
+      displayFields,
+      score,
+    });
+  }
+
+  // Sort each bucket by score, then slice for pagination.
+  const groups: CollectionRecordGroup[] = [];
+  for (const col of cols) {
+    if (filterCollectionSlug && col.slug !== filterCollectionSlug) continue;
+    const matched = buckets.get(col.slug) || [];
+    matched.sort((a, b) => b.score - a.score);
+    const total = totalsBySlug.get(col.slug) ?? matched.length;
+    if (total === 0 && matched.length === 0) continue;
+    groups.push({
+      collectionSlug: col.slug,
+      collectionName: col.name,
+      parentSlug: col.parent_slug,
+      parentName: null, // filled in by caller from collections list
+      total,
+      records: matched.slice(offset, offset + perCollectionLimit),
+    });
+  }
+
+  return { groups };
 }
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q')?.trim();
+  const filterCollectionSlug = searchParams.get('collection');
+  const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0);
 
   if (!query || query.length < 2) {
     return NextResponse.json({ collections: [], subcollections: [], records: [] });
@@ -31,161 +297,72 @@ export async function GET(request: NextRequest) {
     .order('sort_order');
 
   const collections = (allCollections || []) as Collection[];
+  const collectionByslug = new Map(collections.map((c) => [c.slug, c]));
 
-  // 2. Search collection/subcollection names
   const lowerQuery = query.toLowerCase();
-  const matchingCollections = collections.filter(
-    (c) =>
-      !c.parent_slug &&
-      (c.name.toLowerCase().includes(lowerQuery) ||
-        c.short_description?.toLowerCase().includes(lowerQuery) ||
-        c.category.toLowerCase().includes(lowerQuery))
-  );
 
-  const matchingSubcollections = collections.filter(
-    (c) =>
-      c.parent_slug &&
-      (c.name.toLowerCase().includes(lowerQuery) ||
-        c.short_description?.toLowerCase().includes(lowerQuery))
-  );
+  // 2. Search collection/subcollection names — only on initial (unfiltered) calls.
+  const matchingCollections = filterCollectionSlug
+    ? []
+    : collections.filter(
+        (c) =>
+          !c.parent_slug &&
+          (c.name.toLowerCase().includes(lowerQuery) ||
+            c.short_description?.toLowerCase().includes(lowerQuery) ||
+            c.category.toLowerCase().includes(lowerQuery))
+      );
 
-  // 3. Search records across all data collections (those with table_name and search_columns)
+  const matchingSubcollections = filterCollectionSlug
+    ? []
+    : collections.filter(
+        (c) =>
+          c.parent_slug &&
+          (c.name.toLowerCase().includes(lowerQuery) ||
+            c.short_description?.toLowerCase().includes(lowerQuery))
+      );
+
+  // 3. Search records across data collections
   const dataCollections = collections.filter(
-    (c) => c.table_name && c.search_columns && c.search_columns.length > 0
+    (c) => c.table_name && c.search_columns && c.search_columns.length > 0,
   );
 
-  // Group by table_name to avoid duplicate queries on the same table
   const tableGroups = new Map<string, Collection[]>();
   for (const col of dataCollections) {
+    if (filterCollectionSlug && col.slug !== filterCollectionSlug) continue;
     const existing = tableGroups.get(col.table_name!) || [];
     existing.push(col);
     tableGroups.set(col.table_name!, existing);
   }
 
-  const recordResults: RecordResult[] = [];
-  const maxRecordsPerTable = 50;
-  const maxRecordsTotal = 200;
+  const allGroups: CollectionRecordGroup[] = [];
 
-  const searchPromises = Array.from(tableGroups.entries()).map(
-    async ([tableName, cols]) => {
-      // Collect all unique search columns across collections sharing this table
-      const allSearchCols = [...new Set(cols.flatMap((c) => c.search_columns))];
-      const allDisplayCols = [...new Set(cols.flatMap((c) => c.display_columns))];
-
-      // Get text-only columns from database schema via RPC
-      const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
-      let textCols: string[] = [];
-      try {
-        const { data: colData } = await supabase.rpc('get_text_columns', { p_table_name: tableName });
-        if (colData) {
-          textCols = (colData as { column_name: string }[])
-            .map((c) => c.column_name)
-            .filter((c) => !systemCols.has(c));
-        }
-      } catch {
-        // RPC may not exist
+  await Promise.all(
+    Array.from(tableGroups.entries()).map(async ([tableName, cols]) => {
+      const { groups } = await searchTable(
+        supabase,
+        tableName,
+        cols,
+        query,
+        lowerQuery,
+        PER_COLLECTION_LIMIT,
+        filterCollectionSlug ? offset : 0,
+        filterCollectionSlug,
+      );
+      for (const g of groups) {
+        const parent = g.parentSlug ? collectionByslug.get(g.parentSlug) : null;
+        g.parentName = parent ? parent.name : null;
+        allGroups.push(g);
       }
-
-      const expandedSearchCols = textCols.length > 0
-        ? textCols
-        : [...new Set([...allSearchCols, ...allDisplayCols])].filter((c) => !systemCols.has(c));
-
-      // Build select columns
-      const selectCols = [
-        'id',
-        'slug',
-        ...new Set([...expandedSearchCols, ...allDisplayCols]),
-      ];
-
-      // Add discriminator columns
-      const discriminatorCols = cols
-        .filter((c) => c.discriminator_column)
-        .map((c) => c.discriminator_column!);
-      discriminatorCols.forEach((dc) => selectCols.push(dc));
-
-      const uniqueSelect = [...new Set(selectCols)].join(',');
-
-      const safe = query.replace(/,/g, '');
-      const orFilter = expandedSearchCols
-        .map((col) => `${col}.ilike.%${safe}%`)
-        .join(',');
-
-      try {
-        const { data, error } = await supabase
-          .from(tableName)
-          .select(uniqueSelect)
-          .or(orFilter)
-          .limit(maxRecordsPerTable * cols.length);
-
-        if (error || !data) return;
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for (const row of data as any[]) {
-          // Determine which collection this row belongs to
-          let matchCol = cols[0];
-          for (const c of cols) {
-            if (
-              c.discriminator_column &&
-              c.discriminator_value &&
-              String(row[c.discriminator_column]).toLowerCase() === c.discriminator_value.toLowerCase()
-            ) {
-              matchCol = c;
-              break;
-            }
-            if (!c.discriminator_column) {
-              matchCol = c;
-            }
-          }
-
-          // Find which field matched. Search across every column we queried (not
-          // just the configured search_columns) — otherwise a row that matched on
-          // remarks/ocr_text gets silently dropped here even though SQL returned it.
-          let matchField = '';
-          let matchValue = '';
-          for (const col of expandedSearchCols) {
-            const val = row[col];
-            if (
-              val &&
-              typeof val === 'string' &&
-              val.toLowerCase().includes(lowerQuery)
-            ) {
-              matchField = col;
-              matchValue = val;
-              break;
-            }
-          }
-
-          if (!matchField) continue;
-
-          // Build display fields
-          const displayFields: Record<string, string> = {};
-          for (const col of matchCol.display_columns.slice(0, 4)) {
-            if (row[col] !== undefined && row[col] !== null) {
-              displayFields[col] = String(row[col]);
-            }
-          }
-
-          recordResults.push({
-            id: row.id,
-            slug: row.slug || row.id,
-            collectionSlug: matchCol.slug,
-            collectionName: matchCol.name,
-            parentSlug: matchCol.parent_slug,
-            matchField,
-            matchValue,
-            displayFields,
-          });
-        }
-      } catch {
-        // Skip tables that error
-      }
-    }
+    }),
   );
 
-  await Promise.all(searchPromises);
-
-  // Limit total records returned
-  const limitedRecords = recordResults.slice(0, maxRecordsTotal);
+  // Sort groups: by collection sort_order so users see results in a stable
+  // hierarchy-like order rather than whichever query returned first.
+  allGroups.sort((a, b) => {
+    const ca = collectionByslug.get(a.collectionSlug)?.sort_order ?? 999;
+    const cb = collectionByslug.get(b.collectionSlug)?.sort_order ?? 999;
+    return ca - cb;
+  });
 
   return NextResponse.json({
     collections: matchingCollections.map((c) => ({
@@ -206,6 +383,6 @@ export async function GET(request: NextRequest) {
       recordCount: c.record_count,
       accessTier: c.access_tier,
     })),
-    records: limitedRecords,
+    records: allGroups,
   });
 }
