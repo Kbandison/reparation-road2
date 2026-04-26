@@ -167,6 +167,7 @@ export async function POST(request: NextRequest) {
 
       ALTER TABLE public."${safeName}" ENABLE ROW LEVEL SECURITY;
 
+      DROP POLICY IF EXISTS "Allow public read" ON public."${safeName}";
       CREATE POLICY "Allow public read" ON public."${safeName}" FOR SELECT USING (true);
     `;
 
@@ -255,7 +256,9 @@ export async function POST(request: NextRequest) {
       const batch = mapped.slice(i, i + batchSize);
       const { error } = await supabase.from(tableName).insert(batch);
       if (error) {
-        errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${error.message}`);
+        const detail = error.message || error.details || error.hint || error.code || JSON.stringify(error);
+        console.error(`[import] Batch ${Math.floor(i / batchSize) + 1} insert failed`, { tableName, error, sampleRecord: batch[0] });
+        errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${detail}`);
       } else {
         inserted += batch.length;
       }
