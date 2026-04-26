@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   AlertCircle,
   CheckCircle,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,7 +78,9 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     name: '', slug: '', category: 'legal', era: '', region: '',
     parentSlug: '', displayType: 'table', accessTier: 'explorer',
     hasImages: false, hasOcr: false,
+    shortDescription: '', longDescription: '',
   });
+  const [generating, setGenerating] = useState(false);
 
   // File data
   const [fileHeaders, setFileHeaders] = useState<string[]>([]);
@@ -156,6 +159,44 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     setUploading(false);
   }, [mode, selectedCollection, newCollection.slug]);
 
+  // Generate descriptions with AI
+  const generateDescriptions = async () => {
+    if (!newCollection.name) {
+      toast.error('Enter a name first');
+      return;
+    }
+    setGenerating(true);
+    try {
+      const res = await fetch('/api/admin/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate-descriptions',
+          name: newCollection.name,
+          category: newCollection.category,
+          era: newCollection.era,
+          region: newCollection.region,
+          headers: fileHeaders,
+          sampleRows: sampleRows.slice(0, 3),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to generate');
+      } else {
+        setNewCollection((prev) => ({
+          ...prev,
+          shortDescription: data.shortDescription || prev.shortDescription,
+          longDescription: data.longDescription || prev.longDescription,
+        }));
+        toast.success('Descriptions generated');
+      }
+    } catch {
+      toast.error('Failed to generate descriptions');
+    }
+    setGenerating(false);
+  };
+
   // Step: Browse storage for images
   const browseStorage = async (bucket: string, folder: string) => {
     setBrowsingStorage(true);
@@ -232,7 +273,8 @@ export function ImportWizard({ collections }: ImportWizardProps) {
           action: 'create-collection',
           slug: newCollection.slug,
           name: newCollection.name,
-          shortDescription: '',
+          shortDescription: newCollection.shortDescription,
+          longDescription: newCollection.longDescription,
           category: newCollection.category,
           era: newCollection.era || null,
           region: newCollection.region || null,
@@ -449,6 +491,46 @@ export function ImportWizard({ collections }: ImportWizardProps) {
               <input type="checkbox" checked={newCollection.hasOcr} onChange={(e) => setNewCollection({ ...newCollection, hasOcr: e.target.checked })} className="w-4 h-4 rounded" />
               <span className="text-sm text-brand-cream">Has OCR Text</span>
             </label>
+          </div>
+
+          <div className="space-y-3 border-t border-brand-gold/[0.08] pt-4">
+            <div className="flex items-center justify-between">
+              <Label>Descriptions</Label>
+              <Button
+                onClick={generateDescriptions}
+                disabled={!newCollection.name || generating}
+                variant="outline"
+                className="border-brand-gold/20 text-brand-gold hover:text-brand-gold-light rounded-xl text-xs h-8"
+              >
+                {generating ? (
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                Generate with AI
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs text-brand-muted">Short Description (one line)</Label>
+              <Input
+                value={newCollection.shortDescription}
+                onChange={(e) => setNewCollection({ ...newCollection, shortDescription: e.target.value })}
+                placeholder="One-sentence summary shown on collection cards"
+                className="bg-brand-card border-brand-gold/[0.15]"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs text-brand-muted">Long Description (paragraph)</Label>
+              <textarea
+                value={newCollection.longDescription}
+                onChange={(e) => setNewCollection({ ...newCollection, longDescription: e.target.value })}
+                placeholder="Several sentences describing the collection's contents, scope, and provenance"
+                rows={4}
+                className="w-full px-3 py-2 bg-brand-card border border-brand-gold/[0.15] rounded-xl text-sm text-brand-cream focus:outline-none focus:border-brand-gold/25 resize-y"
+              />
+            </div>
           </div>
 
           <div className="flex gap-3">

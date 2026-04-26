@@ -180,12 +180,13 @@ export async function POST(request: NextRequest) {
   }
 
   if (body.action === 'create-collection') {
-    const { slug, name, shortDescription, category, era, region, tableName, parentSlug, displayType, accessTier, displayColumns, searchColumns, hasImages, hasOcr, discriminatorColumn, discriminatorValue } = body;
+    const { slug, name, shortDescription, longDescription, category, era, region, tableName, parentSlug, displayType, accessTier, displayColumns, searchColumns, hasImages, hasOcr, discriminatorColumn, discriminatorValue } = body;
 
     const { error } = await supabase.from('collections').insert({
       slug,
       name,
       short_description: shortDescription || null,
+      long_description: longDescription || null,
       category: category || 'legal',
       era: era || null,
       region: region || null,
@@ -207,6 +208,95 @@ export async function POST(request: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ success: true });
+  }
+
+  if (body.action === 'generate-descriptions') {
+    const { name, category, era, region, headers, sampleRows } = body as {
+      name: string;
+      category?: string;
+      era?: string;
+      region?: string;
+      headers?: string[];
+      sampleRows?: Record<string, unknown>[];
+    };
+
+    if (!name) {
+      return NextResponse.json({ error: 'name is required' }, { status: 400 });
+    }
+    if (!process.env.FIREWORKS_API_KEY) {
+      return NextResponse.json({ error: 'FIREWORKS_API_KEY is not configured' }, { status: 500 });
+    }
+
+    const sampleText = sampleRows && sampleRows.length > 0
+      ? `\nSample rows:\n${sampleRows.slice(0, 3).map((r) => JSON.stringify(r)).join('\n')}`
+      : '';
+    const headerText = headers && headers.length > 0
+      ? `\nColumns: ${headers.join(', ')}`
+      : '';
+
+    const prompt = `You are an archivist writing descriptions for a Black history digital archive. Generate two descriptions for a record collection.
+
+Collection name: ${name}
+Category: ${category || 'unspecified'}
+Era: ${era || 'unspecified'}
+Region: ${region || 'unspecified'}${headerText}${sampleText}
+
+Return ONLY valid JSON with this exact shape, no preamble or trailing text:
+{"short_description": "...", "long_description": "..."}
+
+Rules:
+- short_description: one sentence, ~100-140 characters, describes what the collection contains.
+- long_description: 2-4 sentences, ~250-500 characters, describes contents, time period, and what fields each record typically captures. Sober archival tone. No marketing language.
+- Do not invent provenance, authors, or publication facts that are not implied by the inputs.`;
+
+    try {
+      const aiRes = await fetch('https://api.fireworks.ai/inference/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.FIREWORKS_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'accounts/fireworks/models/llama-v3p3-70b-instruct',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.4,
+          max_tokens: 600,
+          response_format: { type: 'json_object' },
+        }),
+      });
+
+      if (!aiRes.ok) {
+        const errText = await aiRes.text();
+        console.error('[generate-descriptions] Fireworks error', aiRes.status, errText);
+        return NextResponse.json({ error: `AI request failed (${aiRes.status})` }, { status: 502 });
+      }
+
+      const aiData = await aiRes.json();
+      const content = aiData?.choices?.[0]?.message?.content;
+      if (!content) {
+        return NextResponse.json({ error: 'AI returned empty response' }, { status: 502 });
+      }
+
+      let parsed: { short_description?: string; long_description?: string };
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        // Try to extract JSON object from the content
+        const match = content.match(/\{[\s\S]*\}/);
+        if (!match) {
+          return NextResponse.json({ error: 'AI response was not valid JSON' }, { status: 502 });
+        }
+        parsed = JSON.parse(match[0]);
+      }
+
+      return NextResponse.json({
+        shortDescription: parsed.short_description || '',
+        longDescription: parsed.long_description || '',
+      });
+    } catch (err) {
+      console.error('[generate-descriptions] error', err);
+      return NextResponse.json({ error: 'Failed to call AI service' }, { status: 500 });
+    }
   }
 
   if (body.action === 'insert-records') {
