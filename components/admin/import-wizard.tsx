@@ -43,6 +43,14 @@ function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+// Detect headers that look like an image-name column (e.g. "passbook_image",
+// "claim_image", "scan_id", "image_path"). Such columns always route to
+// image_path so no redundant DB column is created.
+const IMAGE_HEADER_RE = /(^|_)(image|img|scan|photo|picture|thumbnail)(_|$)/i;
+function looksLikeImageColumn(col: string): boolean {
+  return IMAGE_HEADER_RE.test(col);
+}
+
 function fuzzyMatch(imageName: string, files: StorageFile[]): StorageFile | null {
   const norm = normalize(imageName);
   if (!norm) return null;
@@ -149,9 +157,13 @@ export function ImportWizard({ collections }: ImportWizardProps) {
         const schemaData = await schemaRes.json();
         if (schemaData.columns) {
           setDbColumns(schemaData.columns);
-          // Auto-map by matching names
+          // Auto-map by matching names; image-like headers route to image_path
           const mapping: Record<string, string> = {};
           for (const header of data.headers) {
+            if (looksLikeImageColumn(header)) {
+              mapping[header] = 'image_path';
+              continue;
+            }
             const normHeader = normalize(header);
             const match = schemaData.columns.find((c: string) => normalize(c) === normHeader);
             if (match) mapping[header] = match;
@@ -163,7 +175,10 @@ export function ImportWizard({ collections }: ImportWizardProps) {
         const cols = data.headers.map((h: string) => h.replace(/[^a-z0-9_ ]/gi, '').replace(/\s+/g, '_').toLowerCase());
         setDbColumns(cols);
         const mapping: Record<string, string> = {};
-        data.headers.forEach((h: string, i: number) => { mapping[h] = cols[i]; });
+        data.headers.forEach((h: string, i: number) => {
+          // Image-like columns always go to image_path so no redundant DB column is created.
+          mapping[h] = looksLikeImageColumn(cols[i]) ? 'image_path' : cols[i];
+        });
         setColumnMapping(mapping);
         setNewTableName(newCollection.slug.replace(/-/g, '_') || 'new_table');
       }

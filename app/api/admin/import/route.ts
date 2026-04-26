@@ -195,6 +195,25 @@ export async function POST(request: NextRequest) {
   if (body.action === 'create-collection') {
     const { slug, name, shortDescription, longDescription, category, era, region, tableName, parentSlug, displayType, accessTier, displayColumns, searchColumns, hasImages, hasOcr, discriminatorColumn, discriminatorValue } = body;
 
+    // Auto-assign sort_order = max(sort_order) + 1 within the same parent group,
+    // so new collections land at the end of their siblings instead of all
+    // piling up at the default of 99.
+    let nextSortOrder = 1;
+    {
+      const siblingsQuery = supabase
+        .from('collections')
+        .select('sort_order')
+        .order('sort_order', { ascending: false })
+        .limit(1);
+      const { data: maxRows } = parentSlug
+        ? await siblingsQuery.eq('parent_slug', parentSlug)
+        : await siblingsQuery.is('parent_slug', null);
+      const currentMax = maxRows?.[0]?.sort_order;
+      if (typeof currentMax === 'number') {
+        nextSortOrder = currentMax + 1;
+      }
+    }
+
     const { error } = await supabase.from('collections').insert({
       slug,
       name,
@@ -215,7 +234,7 @@ export async function POST(request: NextRequest) {
       discriminator_column: discriminatorColumn || null,
       discriminator_value: discriminatorValue || null,
       record_count: 0,
-      sort_order: 99,
+      sort_order: nextSortOrder,
       is_published: true,
     });
 
