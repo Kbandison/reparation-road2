@@ -63,7 +63,8 @@ export async function GET(request: NextRequest) {
   }
 
   const recordResults: RecordResult[] = [];
-  const maxRecordsPerTable = 5;
+  const maxRecordsPerTable = 50;
+  const maxRecordsTotal = 200;
 
   const searchPromises = Array.from(tableGroups.entries()).map(
     async ([tableName, cols]) => {
@@ -136,10 +137,12 @@ export async function GET(request: NextRequest) {
             }
           }
 
-          // Find which field matched
+          // Find which field matched. Search across every column we queried (not
+          // just the configured search_columns) — otherwise a row that matched on
+          // remarks/ocr_text gets silently dropped here even though SQL returned it.
           let matchField = '';
           let matchValue = '';
-          for (const col of matchCol.search_columns) {
+          for (const col of expandedSearchCols) {
             const val = row[col];
             if (
               val &&
@@ -182,7 +185,7 @@ export async function GET(request: NextRequest) {
   await Promise.all(searchPromises);
 
   // Limit total records returned
-  const limitedRecords = recordResults.slice(0, 30);
+  const limitedRecords = recordResults.slice(0, maxRecordsTotal);
 
   return NextResponse.json({
     collections: matchingCollections.map((c) => ({
