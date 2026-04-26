@@ -32,6 +32,7 @@ const ALLOWED_FIELDS = new Set([
   'has_transcription',
   'display_columns',
   'search_columns',
+  'title_columns',
 ]);
 
 export async function PATCH(

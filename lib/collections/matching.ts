@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Collection, CollectionRecord } from '@/lib/types';
+import { getRecordTitle } from '@/lib/collections/helpers';
 
 // Reuse nameFields from helpers.ts concept
 const NAME_FIELDS = [
@@ -37,6 +38,19 @@ export function getDefaultConfig(): MatchingConfig {
   };
 }
 
+// Common name suffixes/prefixes that aren't useful for matching on their own.
+// "Sr/Jr/II/III" tend to dilute results when used as standalone tokens.
+const NAME_STOP_TOKENS = new Set(['jr', 'sr', 'i', 'ii', 'iii', 'iv', 'v', 'mr', 'mrs', 'ms', 'dr', 'esqr', 'esq']);
+
+function tokenizeName(s: string): string[] {
+  return s
+    .trim()
+    // Split on whitespace and common punctuation so "Smith, John P." -> ["Smith", "John", "P"].
+    .split(/[\s,.;()/\\-]+/)
+    .map((t) => t.replace(/[^\p{L}\p{N}'-]/gu, ''))
+    .filter((t) => t.length > 1 && !NAME_STOP_TOKENS.has(t.toLowerCase()));
+}
+
 export function extractMatchValues(
   record: CollectionRecord,
   collection: Collection
@@ -45,22 +59,21 @@ export function extractMatchValues(
   const locations: string[] = [];
   const dates: string[] = [];
 
-  // Extract name tokens
+  // Extract name tokens from every known name field; previously this was capped
+  // and tokens shorter than 3 chars were dropped, which silently hid valid
+  // surnames (e.g. "Wu", "Ng") and trimmed multi-part names down to first names.
   for (const field of NAME_FIELDS) {
     const val = record[field];
     if (val && typeof val === 'string' && val.trim()) {
-      // Split compound names into tokens (e.g. "John Smith" -> ["John", "Smith"])
-      const tokens = val.trim().split(/\s+/).filter((t) => t.length > 2);
-      nameTokens.push(...tokens);
+      nameTokens.push(...tokenizeName(val));
     }
   }
 
-  // Also check display columns for names
+  // Also check display columns for names if we still have nothing.
   if (nameTokens.length === 0 && collection.display_columns?.length) {
     const val = record[collection.display_columns[0]];
     if (val && typeof val === 'string' && val.trim()) {
-      const tokens = val.trim().split(/\s+/).filter((t) => t.length > 2);
-      nameTokens.push(...tokens);
+      nameTokens.push(...tokenizeName(val));
     }
   }
 
@@ -81,7 +94,7 @@ export function extractMatchValues(
   }
 
   return {
-    nameTokens: [...new Set(nameTokens)].slice(0, 5),
+    nameTokens: [...new Set(nameTokens.map((t) => t.toLowerCase()))],
     locations: [...new Set(locations)].slice(0, 3),
     dates: [...new Set(dates)].slice(0, 2),
   };
@@ -144,15 +157,15 @@ export async function searchCandidateCollection(
 
   if (searchCols.length === 0) return [];
 
-  // Build OR filter from name tokens and locations
+  // Build OR filter from every name token and a couple of locations. Using
+  // every token (not just the first 3) means a record with a matching last
+  // name in a longer source name still surfaces.
   const orParts: string[] = [];
-
-  for (const token of matchValues.nameTokens.slice(0, 3)) {
+  for (const token of matchValues.nameTokens) {
     for (const col of searchCols) {
       orParts.push(`${col}.ilike.%${token}%`);
     }
   }
-
   for (const loc of matchValues.locations.slice(0, 2)) {
     for (const col of searchCols) {
       orParts.push(`${col}.ilike.%${loc}%`);
@@ -170,8 +183,9 @@ export async function searchCandidateCollection(
     let query = supabase
       .from(candidate.table_name)
       .select(selectCols)
+      // Pull a generous pool to score from. Scoring then trims to maxResults.
       .or(orParts.join(','))
-      .limit(maxResults * 2);
+      .limit(Math.max(maxResults * 6, 50));
 
     if (candidate.discriminator_column && candidate.discriminator_value) {
       query = query.ilike(candidate.discriminator_column, candidate.discriminator_value);
@@ -180,26 +194,38 @@ export async function searchCandidateCollection(
     const { data, error } = await query;
     if (error || !data) return [];
 
-    // Score and format results
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (data as any[]).map((row) => {
       const reasons: string[] = [];
       let score = 0;
 
-      // Check name matches
+      // Count distinct name tokens that appeared in any searched column.
+      const tokenHits = new Set<string>();
       for (const token of matchValues.nameTokens) {
         for (const col of searchCols) {
           const val = row[col];
-          if (val && typeof val === 'string' && val.toLowerCase().includes(token.toLowerCase())) {
-            reasons.push(`Similar name`);
-            score += 3;
+          if (val && typeof val === 'string' && val.toLowerCase().includes(token)) {
+            tokenHits.add(token);
             break;
           }
         }
-        if (reasons.includes('Similar name')) break;
+      }
+      if (tokenHits.size > 0) {
+        // 3 points per matched token + 5-point bonus once 2+ tokens match
+        // (so a record matching first AND last name is clearly preferred over
+        // one that only shares a common first name).
+        score += tokenHits.size * 3;
+        if (tokenHits.size >= 2) score += 5;
+        reasons.push(
+          tokenHits.size >= matchValues.nameTokens.length && matchValues.nameTokens.length > 1
+            ? 'Full name match'
+            : tokenHits.size >= 2
+            ? 'Name match'
+            : 'Similar name',
+        );
       }
 
-      // Check location matches
+      // Location matches
       for (const loc of matchValues.locations) {
         for (const col of searchCols) {
           const val = row[col];
@@ -211,19 +237,12 @@ export async function searchCandidateCollection(
         }
       }
 
-      // Determine display name
-      let name = '';
-      for (const col of candidate.display_columns || searchCols) {
-        if (row[col] && typeof row[col] === 'string') {
-          name = row[col];
-          break;
-        }
-      }
+      const name = getRecordTitle(row, candidate);
 
       return {
         id: row.id,
         slug: row.slug || row.id,
-        name: name || row.id,
+        name,
         collectionSlug: candidate.slug,
         collectionName: candidate.name,
         tableName: candidate.table_name!,

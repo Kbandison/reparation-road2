@@ -7,6 +7,7 @@ import {
   searchCandidateCollection,
   getDefaultConfig,
 } from '@/lib/collections/matching';
+import { getRecordTitle } from '@/lib/collections/helpers';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -32,6 +33,66 @@ export async function GET(request: NextRequest) {
     .order('display_priority');
 
   const curated = (curatedRaw || []) as RelatedRecord[];
+
+  // Re-derive source/target names live from the actual records so historical
+  // relationships saved with bad titles (e.g. "austin_laurens" from a vessel
+  // column) display the right person now that getRecordTitle is smarter.
+  if (curated.length > 0) {
+    const fetches = new Map<string, Promise<Record<string, unknown> | null>>();
+    const collectionFetches = new Map<string, Promise<Collection | null>>();
+
+    const queueRow = (table: string, id: string) => {
+      const key = `${table}::${id}`;
+      if (!fetches.has(key)) {
+        fetches.set(
+          key,
+          (async () => {
+            const r = await supabase.from(table).select('*').eq('id', id).maybeSingle();
+            return (r.data as Record<string, unknown> | null) ?? null;
+          })(),
+        );
+      }
+    };
+    const queueCollection = (slug: string) => {
+      if (!collectionFetches.has(slug)) {
+        collectionFetches.set(
+          slug,
+          (async () => {
+            const r = await supabase.from('collections').select('*').eq('slug', slug).maybeSingle();
+            return (r.data as Collection | null) ?? null;
+          })(),
+        );
+      }
+    };
+
+    for (const rel of curated) {
+      if (rel.source_table && rel.source_record_id) queueRow(rel.source_table, rel.source_record_id);
+      if (rel.target_table && rel.target_record_id) queueRow(rel.target_table, rel.target_record_id);
+      if (rel.source_collection_slug) queueCollection(rel.source_collection_slug);
+      if (rel.target_collection_slug) queueCollection(rel.target_collection_slug);
+    }
+
+    const [rowEntries, collectionEntries] = await Promise.all([
+      Promise.all(
+        [...fetches.entries()].map(async ([k, p]) => [k, await p] as const),
+      ),
+      Promise.all(
+        [...collectionFetches.entries()].map(async ([k, p]) => [k, await p] as const),
+      ),
+    ]);
+    const rowMap = new Map(rowEntries);
+    const collectionMap = new Map(collectionEntries);
+
+    for (const rel of curated) {
+      const srcRow = rowMap.get(`${rel.source_table}::${rel.source_record_id}`);
+      const srcCol = collectionMap.get(rel.source_collection_slug);
+      if (srcRow && srcCol) rel.source_name = getRecordTitle(srcRow, srcCol);
+
+      const tgtRow = rowMap.get(`${rel.target_table}::${rel.target_record_id}`);
+      const tgtCol = collectionMap.get(rel.target_collection_slug);
+      if (tgtRow && tgtCol) rel.target_name = getRecordTitle(tgtRow, tgtCol);
+    }
+  }
 
   // Step 2: Get source collection metadata
   const { data: collectionData } = await supabase

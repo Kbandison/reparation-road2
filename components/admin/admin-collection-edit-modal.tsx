@@ -23,6 +23,9 @@ export function AdminCollectionEditModal({
   const [shortDescription, setShortDescription] = useState(collection.short_description || '');
   const [longDescription, setLongDescription] = useState(collection.long_description || '');
   const [sortOrder, setSortOrder] = useState<string>(String(collection.sort_order ?? 0));
+  const [titleColumnsRaw, setTitleColumnsRaw] = useState<string>(
+    (collection.title_columns || []).join(', '),
+  );
 
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -81,11 +84,16 @@ export function AdminCollectionEditModal({
     }
     setSaving(true);
     const parsedSort = parseInt(sortOrder, 10);
+    const titleColumns = titleColumnsRaw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     const updates = {
       name: name.trim(),
       short_description: shortDescription.trim() || null,
       long_description: longDescription.trim() || null,
       sort_order: Number.isFinite(parsedSort) ? parsedSort : collection.sort_order,
+      title_columns: titleColumns.length > 0 ? titleColumns : null,
     };
 
     try {
@@ -188,6 +196,22 @@ export function AdminCollectionEditModal({
                 className="w-full px-3 py-2 bg-brand-card border border-brand-gold/[0.15] rounded-xl text-sm text-brand-cream focus:outline-none focus:border-brand-gold/25 resize-y"
               />
             </div>
+          </div>
+
+          <div className="space-y-2 border-t border-brand-gold/[0.08] pt-4">
+            <Label>Title Columns</Label>
+            <Input
+              value={titleColumnsRaw}
+              onChange={(e) => setTitleColumnsRaw(e.target.value)}
+              placeholder="e.g. enslaved_person  or  last_name, first_name"
+              className="bg-brand-card border-brand-gold/[0.15]"
+            />
+            <p className="text-[11px] text-brand-muted">
+              Comma-separated column names used to build each record&apos;s display
+              title. Useful when the first display column isn&apos;t the person&apos;s
+              name (e.g. tables where a vessel/ship name is the first column).
+              Leave blank to use the default heuristic.
+            </p>
           </div>
 
           <div className="space-y-2 border-t border-brand-gold/[0.08] pt-4">

@@ -9,6 +9,7 @@ import { RecordModal } from '@/components/collection/record-modal';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
 import { trackActivity } from '@/lib/hooks/use-activity';
 import { EmptyState } from '@/components/shared/empty-state';
+import { HighlightMatch } from '@/components/shared/highlight-match';
 import type { Collection, CollectionRecord } from '@/lib/types';
 
 interface CollectionResult {
@@ -56,28 +57,6 @@ interface SearchResults {
   collections: CollectionResult[];
   subcollections: SubcollectionResult[];
   records: CollectionRecordGroup[];
-}
-
-function HighlightMatch({ text, query }: { text: string; query: string }) {
-  if (!query || query.length < 2) return <>{text}</>;
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  const idx = lowerText.indexOf(lowerQuery);
-  if (idx === -1) return <>{text}</>;
-
-  const matchEnd = idx + query.length;
-  const contextStart = Math.max(0, idx - 80);
-  const contextEnd = Math.min(text.length, matchEnd + 80);
-
-  return (
-    <>
-      {(contextStart > 0 ? '...' : '') + text.slice(contextStart, idx)}
-      <mark className="bg-brand-gold/30 text-brand-cream rounded px-0.5">
-        {text.slice(idx, matchEnd)}
-      </mark>
-      {text.slice(matchEnd, contextEnd) + (contextEnd < text.length ? '...' : '')}
-    </>
-  );
 }
 
 export default function SearchPage() {

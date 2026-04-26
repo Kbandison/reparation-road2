@@ -37,6 +37,25 @@ const SYSTEM_COLS = new Set([
 
 const PER_COLLECTION_LIMIT = 10;
 
+// Split a user-typed query into search tokens. Multi-token queries become
+// AND-of-OR filters: every token must appear in at least one searched column.
+// This lets "John Smith" match rows where the name is stored as
+// "Smith, John" or "John P. Smith" (different word order, extra middle data).
+function tokenizeQuery(q: string): string[] {
+  return q
+    .trim()
+    .split(/[\s,.;:()/\\-]+/)
+    .map((t) => t.replace(/[%,]/g, ''))
+    .filter((t) => t.length >= 2);
+}
+
+// Sanitize a value going into a PostgREST or() filter. ILIKE wildcards (%)
+// and the OR separator (,) need to be stripped so users typing them don't
+// break the query string.
+function safeForOr(s: string): string {
+  return s.replace(/[%,]/g, '');
+}
+
 // Score a record match so we can sort by relevance within a collection.
 // Higher is better. Tuned for genealogical search patterns: name fields beat
 // remarks/notes, prefix matches beat mid-string matches, exact matches win.
@@ -87,13 +106,19 @@ async function countCollectionMatches(
   expandedSearchCols: string[],
   query: string,
 ): Promise<number> {
-  const safe = query.replace(/,/g, '');
-  const orFilter = expandedSearchCols.map((c) => `${c}.ilike.%${safe}%`).join(',');
+  const tokens = tokenizeQuery(query);
+  const effectiveTokens = tokens.length > 0 ? tokens : [safeForOr(query.trim())];
 
   let q = supabase
     .from(tableName)
-    .select('id', { count: 'exact', head: true })
-    .or(orFilter);
+    .select('id', { count: 'exact', head: true });
+
+  // Each chained .or() AND's with the previous: every token must appear
+  // somewhere in the searched columns.
+  for (const token of effectiveTokens) {
+    const orFilter = expandedSearchCols.map((c) => `${c}.ilike.%${token}%`).join(',');
+    q = q.or(orFilter);
+  }
 
   if (col.discriminator_column && col.discriminator_value) {
     q = q.eq(col.discriminator_column, col.discriminator_value);
@@ -149,8 +174,8 @@ async function searchTable(
   const selectColsSet = new Set<string>(['id', 'slug', ...expandedSearchCols, ...allDisplayCols, ...discriminatorCols]);
   const uniqueSelect = [...selectColsSet].join(',');
 
-  const safe = query.replace(/,/g, '');
-  const orFilter = expandedSearchCols.map((col) => `${col}.ilike.%${safe}%`).join(',');
+  const tokens = tokenizeQuery(query);
+  const effectiveTokens = tokens.length > 0 ? tokens : [safeForOr(query.trim())];
 
   // Fetch generously above per-collection limit so the JS-side bucketing per
   // sub-collection still has plenty to choose from for shared-table cases.
@@ -173,11 +198,12 @@ async function searchTable(
   const [dataResp, countEntries] = await Promise.all([
     (async () => {
       try {
-        return await supabase
-          .from(tableName)
-          .select(uniqueSelect)
-          .or(orFilter)
-          .limit(fetchLimit);
+        let q = supabase.from(tableName).select(uniqueSelect);
+        for (const token of effectiveTokens) {
+          const orFilter = expandedSearchCols.map((c) => `${c}.ilike.%${token}%`).join(',');
+          q = q.or(orFilter);
+        }
+        return await q.limit(fetchLimit);
       } catch {
         return { data: null, error: { message: 'query failed' } };
       }
@@ -213,22 +239,28 @@ async function searchTable(
 
     if (filterCollectionSlug && matchCol.slug !== filterCollectionSlug) continue;
 
-    // Find first matching column (priority: configured search_columns first,
-    // then any other queried column). Picking from search_columns first means
-    // a row that matches on `name` is reported as a name match even if it
-    // also happens to mention the term in `ocr_text`.
+    // Find a column to use as the headline match. Priority: configured
+    // search_columns first (so a name match is reported as a name match
+    // even if the term also appears in ocr_text). For multi-token queries
+    // we prefer a column that contains the most tokens — that tends to be
+    // the actual name field rather than incidental remarks.
     const orderedCols = [
       ...matchCol.search_columns.filter((c) => expandedSearchCols.includes(c)),
       ...expandedSearchCols.filter((c) => !matchCol.search_columns.includes(c)),
     ];
     let matchField = '';
     let matchValue = '';
+    let matchTokenCount = 0;
     for (const col of orderedCols) {
       const val = row[col];
-      if (val && typeof val === 'string' && val.toLowerCase().includes(lowerQuery)) {
+      if (!val || typeof val !== 'string') continue;
+      const lowerVal = val.toLowerCase();
+      const hits = effectiveTokens.filter((t) => lowerVal.includes(t)).length;
+      if (hits > matchTokenCount) {
         matchField = col;
         matchValue = val;
-        break;
+        matchTokenCount = hits;
+        if (hits === effectiveTokens.length) break;
       }
     }
     if (!matchField) continue;
@@ -241,7 +273,29 @@ async function searchTable(
       }
     }
 
-    const score = scoreMatch(matchField, matchValue, matchCol.search_columns, lowerQuery);
+    // Count how many distinct tokens hit anywhere in the row, so a record
+    // matching "John AND Smith" beats one only matching "John".
+    let totalTokenHits = 0;
+    if (effectiveTokens.length > 1) {
+      for (const t of effectiveTokens) {
+        let found = false;
+        for (const col of orderedCols) {
+          const v = row[col];
+          if (v && typeof v === 'string' && v.toLowerCase().includes(t)) {
+            found = true;
+            break;
+          }
+        }
+        if (found) totalTokenHits++;
+      }
+    }
+
+    let score = scoreMatch(matchField, matchValue, matchCol.search_columns, lowerQuery);
+    if (totalTokenHits >= effectiveTokens.length && effectiveTokens.length > 1) {
+      score += 40; // every token covered — a strong, intentional match
+    } else if (totalTokenHits >= 2) {
+      score += 15;
+    }
 
     buckets.get(matchCol.slug)!.push({
       id: row.id,

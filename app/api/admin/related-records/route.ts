@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getRecordTitle } from '@/lib/collections/helpers';
 
 async function verifyAdmin() {
   const supabase = await createClient();
@@ -66,14 +67,11 @@ export async function GET(request: NextRequest) {
     const { data: records } = await query;
 
     return NextResponse.json({
-      records: (records || []).map((r: Record<string, unknown>) => {
-        // Find a display name
-        let name = '';
-        for (const c of col.display_columns || searchCols) {
-          if (r[c] && typeof r[c] === 'string') { name = r[c] as string; break; }
-        }
-        return { id: r.id, slug: r.slug || r.id, name: name || r.id };
-      }),
+      records: (records || []).map((r: Record<string, unknown>) => ({
+        id: r.id,
+        slug: r.slug || r.id,
+        name: getRecordTitle(r, col),
+      })),
     });
   }
 

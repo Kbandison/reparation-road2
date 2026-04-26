@@ -35,6 +35,7 @@ export interface Collection {
   thumbnail_url: string | null;
   display_columns: string[];
   search_columns: string[];
+  title_columns: string[] | null;
   sort_order: number;
   is_published: boolean;
   parent_slug: string | null;
