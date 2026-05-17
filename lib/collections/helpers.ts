@@ -40,6 +40,9 @@ export function buildImageUrl(
   const params = new URLSearchParams({
     width: String(options.width),
     quality: String(options.quality ?? 75),
+    // Without an explicit mode Supabase keeps the original height and crops
+    // the width to a strip — `contain` scales the whole image proportionally.
+    resize: 'contain',
   });
   return `${url.replace(OBJECT_SEGMENT, RENDER_SEGMENT)}?${params}`;
 }
