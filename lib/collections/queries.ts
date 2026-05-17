@@ -95,20 +95,23 @@ export async function getCollectionRecords(
   const orderColumn = naturalSort ? null : sortBy || collection.display_columns?.[0] || null;
   const ascending = sortOrder === 'asc';
 
-  // Resolve searchable text columns once — shared by every query below.
+  // Resolve the table's text columns once — used both for search and to
+  // decide whether the order column can be illegible-partitioned. ILIKE only
+  // works on text columns; running it on an integer/date column throws.
+  const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
+  let textColumns: string[] | null = null;
+  try {
+    const { data: colData } = await supabase.rpc('get_text_columns', { p_table_name: tableName });
+    if (colData) {
+      textColumns = (colData as { column_name: string }[]).map((c) => c.column_name);
+    }
+  } catch {
+    // RPC may not exist yet
+  }
+
   let searchCols: string[] = [];
   if (search) {
-    const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
-    try {
-      const { data: colData } = await supabase.rpc('get_text_columns', { p_table_name: tableName });
-      if (colData) {
-        searchCols = (colData as { column_name: string }[])
-          .map((c) => c.column_name)
-          .filter((c) => !systemCols.has(c));
-      }
-    } catch {
-      // RPC may not exist yet
-    }
+    searchCols = (textColumns ?? []).filter((c) => !systemCols.has(c));
     if (searchCols.length === 0) {
       searchCols = [...new Set([
         ...(collection.display_columns || []),
@@ -116,6 +119,11 @@ export async function getCollectionRecords(
       ])].filter((c) => !systemCols.has(c));
     }
   }
+
+  // The illegible-last partitioning uses ILIKE, so it only applies when the
+  // order column is text. Numeric/date columns fall back to a plain query.
+  const orderColumnIsText =
+    !!orderColumn && !!textColumns && textColumns.includes(orderColumn);
 
   // A fresh query carrying the discriminator + search filters. `head` returns
   // just the row count (no rows) for the partition-sizing queries.
@@ -147,7 +155,7 @@ export async function getCollectionRecords(
     rows = data || [];
     liveCount = count || 0;
     queryError = error;
-  } else if (orderColumn) {
+  } else if (orderColumn && orderColumnIsText) {
     // Records whose ordering column reads "[illegible]" — an unreadable name in
     // the source document — sort after every legible record, no matter which
     // page they land on. Done as two partitions so it survives pagination
@@ -184,6 +192,15 @@ export async function getCollectionRecords(
       if (res.error) queryError = queryError || res.error;
       if (res.data) rows = rows.concat(res.data);
     }
+  } else if (orderColumn) {
+    // Non-text order column (e.g. an integer like inspection_roll.book) —
+    // plain ordered query; ILIKE partitioning would error on a numeric column.
+    const { data, count, error } = await baseQuery()
+      .order(orderColumn, { ascending })
+      .range(from, to);
+    rows = data || [];
+    liveCount = count || 0;
+    queryError = error;
   } else {
     const { data, count, error } = await baseQuery().range(from, to);
     rows = data || [];

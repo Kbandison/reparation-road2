@@ -1,11 +1,47 @@
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
-export function buildImageUrl(imagePath: string | null | undefined): string | null {
+const OBJECT_SEGMENT = '/storage/v1/object/public/';
+const RENDER_SEGMENT = '/storage/v1/render/image/public/';
+
+interface ImageUrlOptions {
+  /** Cap the rendered width (px) via Supabase's image transform endpoint. */
+  width?: number;
+  /** Image quality 20-100 (default 75 when a width is set). */
+  quality?: number;
+}
+
+/**
+ * Resolves a record's `image_path` to a displayable URL. Passing a `width`
+ * routes through Supabase's on-the-fly image transform endpoint, which is
+ * essential for the archival scans — originals run 20-35 MB each, far too
+ * large to ship to the browser raw.
+ */
+export function buildImageUrl(
+  imagePath: string | null | undefined,
+  options?: ImageUrlOptions,
+): string | null {
   if (!imagePath) return null;
+
+  // Resolve to a Supabase storage object URL. External (non-Supabase) URLs
+  // can't be transformed, so they pass straight through.
+  let url: string;
   if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-    return imagePath;
+    if (!imagePath.includes(OBJECT_SEGMENT)) return imagePath;
+    url = imagePath;
+  } else {
+    // Encode each path segment so spaces / punctuation in scan filenames
+    // (e.g. "henderson 6.jpg") produce a valid URL.
+    const encoded = imagePath.split('/').map(encodeURIComponent).join('/');
+    url = `${SUPABASE_URL}${OBJECT_SEGMENT}${encoded}`;
   }
-  return `${SUPABASE_URL}/storage/v1/object/public/${imagePath}`;
+
+  if (!options?.width) return url;
+
+  const params = new URLSearchParams({
+    width: String(options.width),
+    quality: String(options.quality ?? 75),
+  });
+  return `${url.replace(OBJECT_SEGMENT, RENDER_SEGMENT)}?${params}`;
 }
 
 // Common per-record name fields, in priority order. The first one with a

@@ -6,7 +6,9 @@ const nextConfig: NextConfig = {
       {
         protocol: 'https',
         hostname: 'nviahrhrupqvwyglaxlj.supabase.co',
-        pathname: '/storage/v1/object/public/**',
+        // Covers both the object endpoint (/object/public) and the image
+        // transform endpoint (/render/image/public) used to width-cap scans.
+        pathname: '/storage/v1/**',
       },
     ],
   },

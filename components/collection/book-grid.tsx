@@ -36,7 +36,7 @@ export function BookGrid({ collection, records }: BookGridProps) {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {records.map((record, idx) => {
           const imagePath = (record.image_path as string) || (record.image_url as string);
-          const imageUrl = buildImageUrl(imagePath);
+          const imageUrl = buildImageUrl(imagePath, { width: 600 });
           const label = columns
             .map((col) => record[col])
             .filter(Boolean)

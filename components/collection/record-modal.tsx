@@ -45,7 +45,9 @@ export function RecordModal({
   const activeRecord = overrideData?.record ?? record;
 
   const imagePath = (activeRecord.image_path as string) || (activeRecord.image_url as string);
-  const imageUrl = buildImageUrl(imagePath);
+  // Archival scans are 20-35 MB raw — request width-capped transforms.
+  const imageUrl = buildImageUrl(imagePath, { width: 1400 });
+  const imageZoomUrl = buildImageUrl(imagePath, { width: 2400 });
   const ocrText = activeRecord.ocr_text as string | undefined;
   const hasImage = activeCollection.has_images && !!imageUrl;
 
@@ -306,7 +308,7 @@ export function RecordModal({
       </button>
       <div className="relative w-[90vw] h-[90vh]">
         <Image
-          src={imageUrl}
+          src={imageZoomUrl ?? imageUrl}
           alt={String(title)}
           fill
           className="object-contain"

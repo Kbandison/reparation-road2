@@ -208,7 +208,9 @@ export function AdminRecordEditModal({
     (c) => !SYSTEM_FIELDS.has(c) && !IMAGE_FIELDS.has(c)
   );
   const currentImageUrl =
-    imageField && values[imageField] ? buildImageUrl(values[imageField]) : null;
+    imageField && values[imageField]
+      ? buildImageUrl(values[imageField], { width: 1200 })
+      : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
