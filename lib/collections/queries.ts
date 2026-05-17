@@ -83,9 +83,16 @@ export async function getCollectionRecords(
   const tableName = collection.table_name;
   const { page = 1, pageSize = 25, search, sortBy, sortOrder = 'asc' } = options;
 
-  // The column the listing is ordered by — an explicit sort, else the first
-  // display column (the record's name/title for most collections).
-  const orderColumn = sortBy || collection.display_columns?.[0] || null;
+  // A collection may pin its records to a fixed natural order (the original
+  // document/spreadsheet order) via `sort_columns`. When set — and the request
+  // isn't an explicit column sort — records are returned in exactly that order
+  // with no illegible-last partitioning. Otherwise the listing is ordered by an
+  // explicit sortBy, else the first display column.
+  const naturalSort =
+    !sortBy && Array.isArray(collection.sort_columns) && collection.sort_columns.length > 0
+      ? collection.sort_columns
+      : null;
+  const orderColumn = naturalSort ? null : sortBy || collection.display_columns?.[0] || null;
   const ascending = sortOrder === 'asc';
 
   // Resolve searchable text columns once — shared by every query below.
@@ -131,7 +138,16 @@ export async function getCollectionRecords(
   let liveCount = 0;
   let queryError: { message: string } | null = null;
 
-  if (orderColumn) {
+  if (naturalSort) {
+    // Original document order — order by each sort column in sequence,
+    // ascending, with no illegible-last partitioning.
+    let q = baseQuery();
+    for (const col of naturalSort) q = q.order(col, { ascending: true });
+    const { data, count, error } = await q.range(from, to);
+    rows = data || [];
+    liveCount = count || 0;
+    queryError = error;
+  } else if (orderColumn) {
     // Records whose ordering column reads "[illegible]" — an unreadable name in
     // the source document — sort after every legible record, no matter which
     // page they land on. Done as two partitions so it survives pagination

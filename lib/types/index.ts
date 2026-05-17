@@ -36,6 +36,9 @@ export interface Collection {
   display_columns: string[];
   search_columns: string[];
   title_columns: string[] | null;
+  // When set, records are listed in this fixed column order (e.g. the original
+  // document order) instead of being sorted by the first display column.
+  sort_columns: string[] | null;
   sort_order: number;
   is_published: boolean;
   parent_slug: string | null;

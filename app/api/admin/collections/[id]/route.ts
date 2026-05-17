@@ -33,6 +33,7 @@ const ALLOWED_FIELDS = new Set([
   'display_columns',
   'search_columns',
   'title_columns',
+  'sort_columns',
 ]);
 
 export async function PATCH(
