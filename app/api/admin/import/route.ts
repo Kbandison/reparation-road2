@@ -154,12 +154,28 @@ export async function POST(request: NextRequest) {
     // Sanitize table name
     const safeName = tableName.replace(/[^a-z0-9_]/gi, '_').toLowerCase();
 
-    // Build column definitions
-    const colDefs = columns.map((c) => {
+    // Build column definitions (typed). Reused for both the CREATE TABLE
+    // body and the ADD COLUMN IF NOT EXISTS pass below.
+    const typedCols = columns.map((c) => {
       const safCol = c.name.replace(/[^a-z0-9_]/gi, '_').toLowerCase();
       const pgType = c.type === 'integer' ? 'integer' : c.type === 'boolean' ? 'boolean' : 'text';
-      return `"${safCol}" ${pgType}`;
+      return { safCol, pgType };
     });
+    const colDefs = typedCols.map((c) => `"${c.safCol}" ${c.pgType}`);
+
+    // If the table already exists from an earlier (possibly partial) run,
+    // CREATE TABLE IF NOT EXISTS is a no-op — so explicitly add any missing
+    // columns. This heals a schema mismatch on re-run instead of silently
+    // failing every insert against a stale table.
+    const alterDefs = [
+      `ALTER TABLE public."${safeName}" ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';`,
+      ...typedCols.map(
+        (c) => `ALTER TABLE public."${safeName}" ADD COLUMN IF NOT EXISTS "${c.safCol}" ${c.pgType};`,
+      ),
+      `ALTER TABLE public."${safeName}" ADD COLUMN IF NOT EXISTS image_path text DEFAULT '';`,
+      `ALTER TABLE public."${safeName}" ADD COLUMN IF NOT EXISTS ocr_text text DEFAULT '';`,
+      `ALTER TABLE public."${safeName}" ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();`,
+    ];
 
     const sql = `
       CREATE TABLE IF NOT EXISTS public."${safeName}" (
@@ -171,6 +187,8 @@ export async function POST(request: NextRequest) {
         created_at timestamptz DEFAULT now(),
         CONSTRAINT "${safeName}_pkey" PRIMARY KEY (id)
       );
+
+      ${alterDefs.join('\n      ')}
 
       ALTER TABLE public."${safeName}" ENABLE ROW LEVEL SECURITY;
 

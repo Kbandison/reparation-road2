@@ -80,65 +80,105 @@ export async function getCollectionRecords(
   options: RecordQueryOptions = {}
 ): Promise<{ data: CollectionRecord[]; count: number }> {
   if (!collection.table_name) return { data: [], count: 0 };
+  const tableName = collection.table_name;
   const { page = 1, pageSize = 25, search, sortBy, sortOrder = 'asc' } = options;
 
-  let query = supabase
-    .from(collection.table_name)
-    .select('*', { count: 'exact' });
+  // The column the listing is ordered by — an explicit sort, else the first
+  // display column (the record's name/title for most collections).
+  const orderColumn = sortBy || collection.display_columns?.[0] || null;
+  const ascending = sortOrder === 'asc';
 
-  if (collection.discriminator_column && collection.discriminator_value) {
-    query = query.ilike(collection.discriminator_column, collection.discriminator_value);
-  }
-
+  // Resolve searchable text columns once — shared by every query below.
+  let searchCols: string[] = [];
   if (search) {
-    // Get text-only columns from database schema
     const systemCols = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag', 'image_path', 'image_url']);
-    let textCols: string[] = [];
-
     try {
-      const { data: colData } = await supabase.rpc('get_text_columns', { p_table_name: collection.table_name });
+      const { data: colData } = await supabase.rpc('get_text_columns', { p_table_name: tableName });
       if (colData) {
-        textCols = (colData as { column_name: string }[])
+        searchCols = (colData as { column_name: string }[])
           .map((c) => c.column_name)
           .filter((c) => !systemCols.has(c));
       }
     } catch {
       // RPC may not exist yet
     }
-
-    // Fallback to configured columns
-    if (textCols.length === 0) {
-      textCols = [...new Set([
+    if (searchCols.length === 0) {
+      searchCols = [...new Set([
         ...(collection.display_columns || []),
         ...(collection.search_columns || []),
       ])].filter((c) => !systemCols.has(c));
     }
+  }
 
-    if (textCols.length > 0) {
-      const safe = search.replace(/,/g, '');
-      const orFilter = textCols.map((col) => `${col}.ilike.%${safe}%`).join(',');
-      query = query.or(orFilter);
+  // A fresh query carrying the discriminator + search filters. `head` returns
+  // just the row count (no rows) for the partition-sizing queries.
+  const baseQuery = (head = false) => {
+    let q = supabase.from(tableName).select('*', { count: 'exact', head });
+    if (collection.discriminator_column && collection.discriminator_value) {
+      q = q.ilike(collection.discriminator_column, collection.discriminator_value);
     }
-  }
-
-  if (sortBy) {
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-  } else if (collection.display_columns?.length > 0) {
-    query = query.order(collection.display_columns[0], { ascending: true });
-  }
+    if (search && searchCols.length > 0) {
+      const safe = search.replace(/,/g, '');
+      q = q.or(searchCols.map((col) => `${col}.ilike.%${safe}%`).join(','));
+    }
+    return q;
+  };
 
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
-  query = query.range(from, to);
 
-  const { data, count, error } = await query;
+  let rows: Record<string, unknown>[] = [];
+  let liveCount = 0;
+  let queryError: { message: string } | null = null;
 
-  if (error) {
-    console.error('Failed to fetch collection records:', error.message);
-    return { data: [], count: 0 };
+  if (orderColumn) {
+    // Records whose ordering column reads "[illegible]" — an unreadable name in
+    // the source document — sort after every legible record, no matter which
+    // page they land on. Done as two partitions so it survives pagination
+    // (PostgREST can't ORDER BY a CASE expression).
+    // Match on the "illeg" stem rather than the full word so transcription
+    // typos (e.g. "[Illegilbe]") are still pushed to the tail.
+    const ILLEGIBLE = '%illeg%';
+    const legiblePredicate = `${orderColumn}.not.ilike.${ILLEGIBLE},${orderColumn}.is.null`;
+
+    const [legibleCountRes, illegibleCountRes] = await Promise.all([
+      baseQuery(true).or(legiblePredicate),
+      baseQuery(true).ilike(orderColumn, ILLEGIBLE),
+    ]);
+    const legibleTotal = legibleCountRes.count || 0;
+    liveCount = legibleTotal + (illegibleCountRes.count || 0);
+    queryError = legibleCountRes.error || illegibleCountRes.error;
+
+    const dataQueries = [
+      ...(from < legibleTotal
+        ? [baseQuery()
+            .or(legiblePredicate)
+            .order(orderColumn, { ascending })
+            .range(from, Math.min(to, legibleTotal - 1))]
+        : []),
+      ...(to >= legibleTotal
+        ? [baseQuery()
+            .ilike(orderColumn, ILLEGIBLE)
+            .order(orderColumn, { ascending })
+            .range(Math.max(0, from - legibleTotal), to - legibleTotal)]
+        : []),
+    ];
+
+    for (const res of await Promise.all(dataQueries)) {
+      if (res.error) queryError = queryError || res.error;
+      if (res.data) rows = rows.concat(res.data);
+    }
+  } else {
+    const { data, count, error } = await baseQuery().range(from, to);
+    rows = data || [];
+    liveCount = count || 0;
+    queryError = error;
   }
 
-  const liveCount = count || 0;
+  if (queryError) {
+    console.error('Failed to fetch collection records:', queryError.message);
+    return { data: [], count: 0 };
+  }
 
   // Sync record_count if stale (fire-and-forget via admin client to bypass RLS)
   if (liveCount !== collection.record_count) {
@@ -152,7 +192,7 @@ export async function getCollectionRecords(
     } catch { /* ignore — admin client may not be available in all envs */ }
   }
 
-  return { data: (data || []) as unknown as CollectionRecord[], count: liveCount };
+  return { data: rows as unknown as CollectionRecord[], count: liveCount };
 }
 
 export async function getRecordBySlug(
