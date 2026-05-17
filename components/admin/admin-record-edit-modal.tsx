@@ -8,13 +8,12 @@ import {
   Loader2,
   Trash2,
   ImageIcon,
-  ChevronRight,
-  ArrowLeft,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { buildImageUrl } from '@/lib/collections/helpers';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
 import { Button } from '@/components/ui/button';
+import { StorageBrowser } from '@/components/admin/storage-browser';
 import type { Collection, CollectionRecord } from '@/lib/types';
 
 interface AdminRecordEditModalProps {
@@ -23,12 +22,6 @@ interface AdminRecordEditModalProps {
   columns: string[];
   onClose: () => void;
   onSaved: () => void;
-}
-
-interface StorageItem {
-  name: string;
-  isFolder: boolean;
-  fullPath: string;
 }
 
 const SYSTEM_FIELDS = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding', 'tsv', 'collection_tag']);
@@ -64,11 +57,7 @@ export function AdminRecordEditModal({
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  // Storage browser state
-  const [browsingStorage, setBrowsingStorage] = useState(false);
-  const [storageItems, setStorageItems] = useState<StorageItem[]>([]);
-  const [storageBucket, setStorageBucket] = useState<string>('');
-  const [storageFolder, setStorageFolder] = useState<string>('');
+  // Storage browser visibility
   const [storageOpen, setStorageOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -197,82 +186,6 @@ export function AdminRecordEditModal({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const listStorageFolder = async (bucket: string, folder: string) => {
-    setBrowsingStorage(true);
-    setError(null);
-
-    try {
-      const params = new URLSearchParams({ bucket });
-      if (folder) params.set('folder', folder);
-
-      const res = await fetch(`/api/admin/storage?${params}`);
-      const json = await res.json();
-
-      if (!res.ok) {
-        setError(`Could not browse storage: ${json.error}`);
-        setBrowsingStorage(false);
-        return;
-      }
-
-      setStorageItems(json.items as StorageItem[]);
-      setStorageBucket(json.bucket);
-      setStorageFolder(json.folder);
-      setBrowsingStorage(false);
-      setStorageOpen(true);
-    } catch {
-      setError('Failed to connect to storage API');
-      setBrowsingStorage(false);
-    }
-  };
-
-  const openStorageBrowser = async () => {
-    // 1. Try to detect bucket from current record's image path
-    let info = imageField && record?.[imageField]
-      ? parseBucketFromPath(String(record[imageField]))
-      : null;
-
-    // 2. If not found, query the collection table for any record with an image path
-    if (!info && collection.table_name && imageField) {
-      const { data } = await supabase
-        .from(collection.table_name)
-        .select(imageField)
-        .not(imageField, 'is', null)
-        .not(imageField, 'eq', '')
-        .limit(1)
-        .maybeSingle();
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const val = (data as any)?.[imageField];
-      if (val) {
-        info = parseBucketFromPath(String(val));
-      }
-    }
-
-    // 3. Fallback: convert table_name underscores to hyphens (common Supabase bucket naming)
-    const bucket = info?.bucket || collection.table_name?.replace(/_/g, '-') || 'collection-images';
-
-    // Start at bucket root so admin can navigate into subfolders
-    listStorageFolder(bucket, '');
-  };
-
-  const navigateToFolder = (folderPath: string) => {
-    listStorageFolder(storageBucket, folderPath);
-  };
-
-  const navigateUp = () => {
-    const parts = storageFolder.split('/').filter(Boolean);
-    parts.pop();
-    listStorageFolder(storageBucket, parts.join('/'));
-  };
-
-  const selectStorageFile = (path: string) => {
-    if (imageField) {
-      handleChange(imageField, path);
-      setStorageOpen(false);
-      setStorageItems([]);
-    }
-  };
-
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => {
@@ -283,12 +196,8 @@ export function AdminRecordEditModal({
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (storageOpen) {
-          setStorageOpen(false);
-          setStorageItems([]);
-        } else {
-          onClose();
-        }
+        if (storageOpen) setStorageOpen(false);
+        else onClose();
       }
     };
     document.addEventListener('keydown', handleKey);
@@ -377,111 +286,24 @@ export function AdminRecordEditModal({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={openStorageBrowser}
-                  disabled={browsingStorage}
+                  onClick={() => setStorageOpen((o) => !o)}
                   className="border-brand-gold/20 text-brand-cream"
                 >
-                  {browsingStorage ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <FolderOpen className="w-4 h-4 mr-2" />
-                  )}
-                  Browse Storage
+                  <FolderOpen className="w-4 h-4 mr-2" />
+                  {storageOpen ? 'Hide Storage' : 'Browse Storage'}
                 </Button>
               </div>
 
-              {/* Storage browser with folder navigation */}
-              {storageOpen && (
-                <div className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-3 max-h-80 overflow-y-auto">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2 text-xs text-brand-muted min-w-0">
-                      {storageFolder && (
-                        <button
-                          onClick={navigateUp}
-                          className="p-1 hover:bg-brand-card-hover rounded transition-colors flex-shrink-0"
-                          title="Go up"
-                        >
-                          <ArrowLeft className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      <span className="truncate font-mono">
-                        {storageBucket}
-                        {storageFolder ? `/${storageFolder}` : ''}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setStorageOpen(false);
-                        setStorageItems([]);
-                      }}
-                      className="text-xs text-brand-muted hover:text-brand-cream flex-shrink-0 ml-2"
-                    >
-                      Close
-                    </button>
-                  </div>
-                  {storageItems.length === 0 ? (
-                    <p className="text-xs text-brand-muted py-4 text-center">
-                      No files found in this folder.
-                    </p>
-                  ) : (
-                    <>
-                      {/* Folders as a list */}
-                      {storageItems.some((item) => item.isFolder) && (
-                        <div className="space-y-0.5 mb-3">
-                          {storageItems
-                            .filter((item) => item.isFolder)
-                            .map((item) => (
-                              <button
-                                key={item.fullPath}
-                                onClick={() => navigateToFolder(item.fullPath)}
-                                className="w-full text-left px-3 py-1.5 text-sm text-brand-cream hover:bg-brand-card-hover rounded-lg transition-colors truncate flex items-center gap-2"
-                              >
-                                <FolderOpen className="w-3.5 h-3.5 text-brand-gold flex-shrink-0" />
-                                {item.name}
-                                <ChevronRight className="w-3 h-3 text-brand-muted ml-auto flex-shrink-0" />
-                              </button>
-                            ))}
-                        </div>
-                      )}
-                      {/* Files as a thumbnail grid */}
-                      {storageItems.some((item) => !item.isFolder) && (
-                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                          {storageItems
-                            .filter((item) => !item.isFolder)
-                            .map((item) => {
-                              const isSelected =
-                                imageField && values[imageField] === item.fullPath;
-                              return (
-                                <button
-                                  key={item.fullPath}
-                                  onClick={() => selectStorageFile(item.fullPath)}
-                                  className={`group relative rounded-lg overflow-hidden border-2 transition-all ${
-                                    isSelected
-                                      ? 'border-brand-gold ring-1 ring-brand-gold/30'
-                                      : 'border-transparent hover:border-brand-gold/30'
-                                  }`}
-                                  title={item.name}
-                                >
-                                  <div className="aspect-square bg-brand-bg">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                      src={item.fullPath}
-                                      alt={item.name}
-                                      className="w-full h-full object-cover"
-                                      loading="lazy"
-                                    />
-                                  </div>
-                                  <p className="text-[10px] text-brand-muted truncate px-1 py-0.5 bg-brand-bg/80">
-                                    {item.name}
-                                  </p>
-                                </button>
-                              );
-                            })}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
+              {/* Storage browser — every bucket, navigate folders freely */}
+              {storageOpen && imageField && (
+                <StorageBrowser
+                  selectedValue={values[imageField] ?? ''}
+                  onPick={(path) => {
+                    handleChange(imageField, path);
+                    setStorageOpen(false);
+                  }}
+                  onClose={() => setStorageOpen(false)}
+                />
               )}
 
               <input

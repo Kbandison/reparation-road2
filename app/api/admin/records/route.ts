@@ -35,16 +35,46 @@ export async function PATCH(request: NextRequest) {
   const admin = await verifyAdmin();
   if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { tableName, id, payload } = await request.json();
-  if (!tableName || !id || !payload) {
-    return NextResponse.json({ error: 'tableName, id, and payload are required' }, { status: 400 });
+  const { tableName, id, ids, all, payload, discriminatorColumn, discriminatorValue } =
+    await request.json();
+  if (!tableName || !payload || typeof payload !== 'object') {
+    return NextResponse.json({ error: 'tableName and payload are required' }, { status: 400 });
   }
 
   const supabase = createAdminClient();
-  const { error } = await supabase.from(tableName).update(payload).eq('id', id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  return NextResponse.json({ success: true });
+  // Single-record update.
+  if (id) {
+    const { error } = await supabase.from(tableName).update(payload).eq('id', id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ success: true, updated: 1 });
+  }
+
+  // Bulk update of an explicit set of ids — batched so the request URL stays
+  // within PostgREST limits for large selections.
+  if (Array.isArray(ids) && ids.length > 0) {
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const { error } = await supabase.from(tableName).update(payload).in('id', chunk);
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ success: true, updated: ids.length });
+  }
+
+  // Bulk update of an entire collection. PostgREST refuses an unfiltered
+  // UPDATE, so scope by the discriminator when present, else an always-true
+  // filter (id is never null) to cover the whole table.
+  if (all) {
+    let query = supabase.from(tableName).update(payload);
+    query = discriminatorColumn && discriminatorValue
+      ? query.ilike(discriminatorColumn, discriminatorValue)
+      : query.not('id', 'is', null);
+    const { error } = await query;
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ success: true, updated: 'all' });
+  }
+
+  return NextResponse.json({ error: 'id, ids, or all is required' }, { status: 400 });
 }
 
 // DELETE - delete a record

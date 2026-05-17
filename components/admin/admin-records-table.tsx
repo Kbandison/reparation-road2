@@ -1,26 +1,30 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { Pencil, Trash2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
 import { AdminRecordEditModal } from '@/components/admin/admin-record-edit-modal';
+import { AdminBulkEditModal } from '@/components/admin/admin-bulk-edit-modal';
 import type { Collection, CollectionRecord } from '@/lib/types';
 
 interface AdminRecordsTableProps {
   collection: Collection;
   records: CollectionRecord[];
+  totalCount: number;
 }
 
 const SYSTEM_FIELDS = new Set(['id', 'slug', 'created_at', 'updated_at', 'embedding']);
 
-export function AdminRecordsTable({ collection, records }: AdminRecordsTableProps) {
+export function AdminRecordsTable({ collection, records, totalCount }: AdminRecordsTableProps) {
   const router = useRouter();
-  const supabase = createClient();
 
   const [editRecord, setEditRecord] = useState<CollectionRecord | null | 'new'>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectAll, setSelectAll] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const headerCbRef = useRef<HTMLInputElement>(null);
 
   // Get all columns from the first record, excluding system fields for display
   const allCols = records.length > 0
@@ -35,6 +39,46 @@ export function AdminRecordsTable({ collection, records }: AdminRecordsTableProp
 
   // Show first 5 columns in the table for quick identification
   const visibleCols = columns.slice(0, 5);
+
+  // Selection state. `selectAll` means the whole collection (across pages);
+  // otherwise `selectedIds` holds the explicitly checked rows.
+  const visibleIds = records.map((r) => r.id);
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+  const hasSelection = selectAll || selectedIds.size > 0;
+
+  useEffect(() => {
+    if (headerCbRef.current) {
+      headerCbRef.current.indeterminate =
+        !selectAll && !allVisibleSelected && someVisibleSelected;
+    }
+  }, [selectAll, allVisibleSelected, someVisibleSelected]);
+
+  const toggleRow = (id: string) => {
+    if (selectAll) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelectAll(false);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectAll(false);
+    setSelectedIds(new Set());
+  };
 
   const deleteRecord = async (recordId: string) => {
     if (!collection.table_name) return;
@@ -59,6 +103,12 @@ export function AdminRecordsTable({ collection, records }: AdminRecordsTableProp
     router.refresh();
   };
 
+  const handleBulkSaved = () => {
+    setBulkOpen(false);
+    clearSelection();
+    router.refresh();
+  };
+
   return (
     <>
       {/* Add Record button */}
@@ -72,6 +122,42 @@ export function AdminRecordsTable({ collection, records }: AdminRecordsTableProp
         </Button>
       </div>
 
+      {/* Selection toolbar */}
+      {hasSelection && (
+        <div className="flex flex-wrap items-center gap-3 mb-4 bg-brand-card border border-brand-gold/[0.15] rounded-xl px-4 py-3">
+          <span className="text-sm text-brand-cream font-medium">
+            {selectAll
+              ? `All ${totalCount.toLocaleString()} records selected`
+              : `${selectedIds.size.toLocaleString()} selected`}
+          </span>
+          {!selectAll && selectedIds.size < totalCount && (
+            <button
+              onClick={() => setSelectAll(true)}
+              className="text-xs text-brand-gold hover:text-brand-gold-light underline underline-offset-2"
+            >
+              Select all {totalCount.toLocaleString()} in collection
+            </button>
+          )}
+          <div className="flex-1" />
+          <Button
+            size="sm"
+            onClick={() => setBulkOpen(true)}
+            className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light"
+          >
+            <Pencil className="w-3.5 h-3.5 mr-1.5" />
+            Bulk Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={clearSelection}
+            className="text-brand-muted hover:text-brand-cream"
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
       {records.length === 0 ? (
         <div className="text-center py-12 text-brand-muted text-sm bg-brand-card border border-brand-gold/[0.08] rounded-2xl">
           No records found. Click &ldquo;Add Record&rdquo; to create one.
@@ -81,6 +167,16 @@ export function AdminRecordsTable({ collection, records }: AdminRecordsTableProp
           <table className="w-full">
             <thead>
               <tr className="border-b border-brand-gold/[0.08]">
+                <th className="w-10 py-3 px-4">
+                  <input
+                    ref={headerCbRef}
+                    type="checkbox"
+                    checked={selectAll || allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    className="w-4 h-4 rounded accent-brand-gold cursor-pointer align-middle"
+                    aria-label="Select all rows on this page"
+                  />
+                </th>
                 {visibleCols.map((col) => (
                   <th
                     key={col}
@@ -95,49 +191,67 @@ export function AdminRecordsTable({ collection, records }: AdminRecordsTableProp
               </tr>
             </thead>
             <tbody>
-              {records.map((record) => (
-                <tr
-                  key={record.id}
-                  className="border-b border-brand-gold/[0.04] hover:bg-brand-card-hover/50 transition-colors cursor-pointer"
-                  onClick={() => setEditRecord(record)}
-                >
-                  {visibleCols.map((col) => (
+              {records.map((record) => {
+                const checked = selectAll || selectedIds.has(record.id);
+                return (
+                  <tr
+                    key={record.id}
+                    className={`border-b border-brand-gold/[0.04] hover:bg-brand-card-hover/50 transition-colors cursor-pointer ${
+                      checked ? 'bg-brand-gold/[0.05]' : ''
+                    }`}
+                    onClick={() => setEditRecord(record)}
+                  >
                     <td
-                      key={col}
-                      className="py-2.5 px-4 text-sm text-brand-cream max-w-[220px]"
-                    >
-                      <span className="truncate block">
-                        {String(record[col] ?? '—')}
-                      </span>
-                    </td>
-                  ))}
-                  <td className="py-2.5 px-4 text-right">
-                    <div
-                      className="flex items-center justify-end gap-1"
+                      className="py-2.5 px-4"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditRecord(record)}
-                        className="h-7 w-7 p-0 text-brand-muted hover:text-brand-gold"
-                        title="Edit all fields"
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={selectAll}
+                        onChange={() => toggleRow(record.id)}
+                        className="w-4 h-4 rounded accent-brand-gold cursor-pointer align-middle disabled:cursor-not-allowed disabled:opacity-60"
+                        aria-label="Select record"
+                      />
+                    </td>
+                    {visibleCols.map((col) => (
+                      <td
+                        key={col}
+                        className="py-2.5 px-4 text-sm text-brand-cream max-w-[220px]"
                       >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deleteRecord(record.id)}
-                        className="h-7 w-7 p-0 text-brand-muted hover:text-brand-burgundy"
-                        title="Delete"
+                        <span className="truncate block">
+                          {String(record[col] ?? '—')}
+                        </span>
+                      </td>
+                    ))}
+                    <td className="py-2.5 px-4 text-right">
+                      <div
+                        className="flex items-center justify-end gap-1"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditRecord(record)}
+                          className="h-7 w-7 p-0 text-brand-muted hover:text-brand-gold"
+                          title="Edit all fields"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => deleteRecord(record.id)}
+                          className="h-7 w-7 p-0 text-brand-muted hover:text-brand-burgundy"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -151,6 +265,19 @@ export function AdminRecordsTable({ collection, records }: AdminRecordsTableProp
           columns={columns}
           onClose={() => setEditRecord(null)}
           onSaved={handleSaved}
+        />
+      )}
+
+      {/* Bulk Edit Modal */}
+      {bulkOpen && (
+        <AdminBulkEditModal
+          collection={collection}
+          columns={columns}
+          selectedIds={[...selectedIds]}
+          selectAll={selectAll}
+          totalCount={totalCount}
+          onClose={() => setBulkOpen(false)}
+          onSaved={handleBulkSaved}
         />
       )}
     </>

@@ -85,6 +85,7 @@ export default async function AdminCollectionRecordsPage({ params, searchParams 
       <AdminRecordsTable
         collection={collection}
         records={records}
+        totalCount={count}
       />
 
       {/* Pagination */}
