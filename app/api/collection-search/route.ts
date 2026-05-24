@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { Collection } from '@/lib/types';
+import { getRecordTitle } from '@/lib/collections/helpers';
 
 interface RecordResult {
   id: string;
@@ -8,6 +9,8 @@ interface RecordResult {
   collectionSlug: string;
   collectionName: string;
   parentSlug: string | null;
+  /** The record's canonical display title (via getRecordTitle). */
+  title: string;
   matchField: string;
   matchValue: string;
   displayFields: Record<string, string>;
@@ -265,10 +268,19 @@ async function searchTable(
     }
     if (!matchField) continue;
 
+    // Headline preview fields: cap to the first 6 display columns AND always
+    // include the column that produced the match, so the result card actually
+    // shows the matched value (and so the matched column is never below the
+    // fold for collections whose meaningful columns sit past position 4 —
+    // e.g. inspection_roll where `name` lives at index 4).
     const displayFields: Record<string, string> = {};
-    for (const col of matchCol.display_columns.slice(0, 4)) {
+    const colsForDisplay = new Set<string>([
+      ...matchCol.display_columns.slice(0, 6),
+      matchField,
+    ]);
+    for (const col of colsForDisplay) {
       const val = row[col];
-      if (val !== undefined && val !== null) {
+      if (val !== undefined && val !== null && val !== '') {
         displayFields[col] = String(val);
       }
     }
@@ -303,6 +315,7 @@ async function searchTable(
       collectionSlug: matchCol.slug,
       collectionName: matchCol.name,
       parentSlug: matchCol.parent_slug,
+      title: getRecordTitle(row as Record<string, unknown>, matchCol),
       matchField,
       matchValue,
       displayFields,

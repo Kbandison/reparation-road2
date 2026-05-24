@@ -333,6 +333,7 @@ export function buildAssistantTools(
               records: Array<{
                 id: string;
                 slug?: string;
+                title?: string;
                 matchField: string;
                 matchValue: string;
                 displayFields: Record<string, string>;
@@ -348,6 +349,9 @@ export function buildAssistantTools(
             records: g.records.slice(0, 5).map((r) => ({
               id: r.id,
               slug: r.slug ?? null,
+              // Canonical record title from the archive's name resolution —
+              // never blank even if the display columns are awkwardly ordered.
+              title: r.title ?? r.slug ?? r.id,
               detail_url: `/collection/${g.collectionSlug}/${r.slug ?? r.id}`,
               match_field: r.matchField,
               match_value: r.matchValue,
