@@ -322,7 +322,9 @@ function BookmarksList({ items }: { items: BookmarkItem[] }) {
   return (
     <div className="space-y-1.5">
       {shown.map((b, i) => {
-        const href = `/collection/${b.collection_slug}/${b.record_id}`;
+        // Open the record's modal on its collection page rather than a
+        // dedicated detail page — keeps surrounding records visible.
+        const href = `/collection/${b.collection_slug}?record=${encodeURIComponent(b.record_id)}`;
         return (
           <Link
             key={i}
@@ -375,7 +377,7 @@ function ActivityList({ items }: { items: ActivityItem[] }) {
       {shown.map((a, i) => {
         let href: string | null = null;
         if (a.type === 'record' && a.collection_slug) {
-          href = `/collection/${a.collection_slug}/${a.target_slug}`;
+          href = `/collection/${a.collection_slug}?record=${encodeURIComponent(a.target_slug)}`;
         } else if (a.type === 'collection' || a.type === 'subcollection') {
           href = `/collection/${a.target_slug}`;
         }

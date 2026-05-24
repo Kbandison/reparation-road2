@@ -19,12 +19,16 @@ function compactRecord(
   record: Record<string, unknown>,
   collection: Pick<Collection, 'display_columns' | 'slug' | 'has_images'>,
 ) {
+  // detail_url opens the record's modal on top of the collection's page —
+  // the page mounts BookmarkRecordOpener which watches ?record=<slug-or-id>
+  // and shows the RecordModal. Keeps the user's research context visible.
+  const recordKey = record.slug ?? record.id;
   const out: Record<string, unknown> = {
     id: record.id,
     slug: record.slug,
     collection_slug: collection.slug,
-    detail_url: record.slug
-      ? `/collection/${collection.slug}/${record.slug}`
+    detail_url: recordKey
+      ? `/collection/${collection.slug}?record=${encodeURIComponent(String(recordKey))}`
       : `/collection/${collection.slug}`,
   };
   // Keep display columns first (most informative), then any other non-reserved fields.
@@ -289,7 +293,7 @@ export function buildAssistantTools(
             relationship_type: r.relationship_type,
             relationship_note: r.relationship_note,
             detail_url: other.collection_slug && other.id
-              ? `/collection/${other.collection_slug}/${other.id}`
+              ? `/collection/${other.collection_slug}?record=${encodeURIComponent(other.id)}`
               : null,
           };
         });
@@ -352,7 +356,7 @@ export function buildAssistantTools(
               // Canonical record title from the archive's name resolution —
               // never blank even if the display columns are awkwardly ordered.
               title: r.title ?? r.slug ?? r.id,
-              detail_url: `/collection/${g.collectionSlug}/${r.slug ?? r.id}`,
+              detail_url: `/collection/${g.collectionSlug}?record=${encodeURIComponent(r.slug ?? r.id)}`,
               match_field: r.matchField,
               match_value: r.matchValue,
               ...r.displayFields,
