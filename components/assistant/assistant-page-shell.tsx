@@ -102,7 +102,7 @@ function ThreadRow({
 
   return (
     <div
-      className={`group relative rounded-lg ${
+      className={`group relative rounded-lg min-w-0 ${
         isActive ? 'bg-brand-gold/[0.08]' : 'hover:bg-brand-card-hover/50'
       }`}
     >
@@ -130,14 +130,16 @@ function ThreadRow({
           <Link
             href={`/assistant?t=${thread.id}`}
             onClick={onPick}
-            className={`block px-3 py-2 pr-16 text-sm rounded-lg truncate ${
+            className={`flex items-center px-3 py-2 pr-16 text-sm rounded-lg ${
               isActive
                 ? 'text-brand-cream font-medium'
                 : 'text-brand-cream-muted hover:text-brand-cream'
             }`}
             title={thread.title}
           >
-            {thread.title}
+            <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+              {thread.title}
+            </span>
           </Link>
           {canEdit && (
             <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -253,7 +255,7 @@ function EditableHeaderTitle({
       className="group flex items-center gap-1.5 min-w-0 text-left disabled:cursor-default"
       title={canEdit ? 'Click to rename' : undefined}
     >
-      <p className="font-display text-sm font-semibold text-brand-cream truncate">
+      <p className="min-w-0 flex-1 font-display text-sm font-semibold text-brand-cream overflow-hidden text-ellipsis whitespace-nowrap">
         {title}
       </p>
       {canEdit && (
@@ -402,7 +404,7 @@ export function AssistantPageShell({
         )}
 
         {/* Chat column */}
-        <div className="flex-1 flex flex-col bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden min-h-0">
+        <div className="flex-1 min-w-0 flex flex-col bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden min-h-0">
           <header className="flex items-center gap-2 px-4 py-3 border-b border-brand-gold/[0.08] flex-shrink-0">
             <MessageCircle className="w-4 h-4 text-brand-gold flex-shrink-0" />
             <div className="min-w-0 flex-1">
