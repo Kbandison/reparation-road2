@@ -1,9 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, Menu, X, MessageCircle, Loader2 } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  Menu,
+  X,
+  MessageCircle,
+  Loader2,
+  Pencil,
+} from 'lucide-react';
 import { AssistantChat } from '@/components/assistant/assistant-chat';
 import type { UIMessage } from 'ai';
 
@@ -20,6 +28,242 @@ interface AssistantPageShellProps {
   activeExists: boolean;
   initialMessages: UIMessage[];
 }
+
+async function renameThread(threadId: string, title: string): Promise<boolean> {
+  const res = await fetch(`/api/assistant/threads/${threadId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  return res.ok;
+}
+
+/* ----------------------- sidebar row ----------------------- */
+
+interface ThreadRowProps {
+  thread: ThreadSummary;
+  isActive: boolean;
+  canEdit: boolean;
+  onPick?: () => void;
+  onAfterRename: () => void;
+  onDelete: () => void;
+  deleting: boolean;
+}
+
+function ThreadRow({
+  thread,
+  isActive,
+  canEdit,
+  onPick,
+  onAfterRename,
+  onDelete,
+  deleting,
+}: ThreadRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(thread.title);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  useEffect(() => {
+    // Keep input in sync when the source title changes (e.g. after refresh).
+    if (!editing) setValue(thread.title);
+  }, [thread.title, editing]);
+
+  const commit = async () => {
+    const next = value.trim();
+    if (!next || next === thread.title) {
+      setEditing(false);
+      setValue(thread.title);
+      return;
+    }
+    setSaving(true);
+    const ok = await renameThread(thread.id, next);
+    setSaving(false);
+    if (ok) {
+      setEditing(false);
+      onAfterRename();
+    } else {
+      setValue(thread.title);
+      setEditing(false);
+    }
+  };
+
+  const cancel = () => {
+    setValue(thread.title);
+    setEditing(false);
+  };
+
+  return (
+    <div
+      className={`group relative rounded-lg ${
+        isActive ? 'bg-brand-gold/[0.08]' : 'hover:bg-brand-card-hover/50'
+      }`}
+    >
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commit();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              cancel();
+            }
+          }}
+          disabled={saving}
+          maxLength={120}
+          className="w-full bg-brand-bg border border-brand-gold/25 rounded-lg px-3 py-2 text-sm text-brand-cream focus:outline-none focus:border-brand-gold/50 disabled:opacity-60"
+        />
+      ) : (
+        <>
+          <Link
+            href={`/assistant?t=${thread.id}`}
+            onClick={onPick}
+            className={`block px-3 py-2 pr-16 text-sm rounded-lg truncate ${
+              isActive
+                ? 'text-brand-cream font-medium'
+                : 'text-brand-cream-muted hover:text-brand-cream'
+            }`}
+            title={thread.title}
+          >
+            {thread.title}
+          </Link>
+          {canEdit && (
+            <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="p-1.5 rounded-md text-brand-muted hover:bg-brand-card hover:text-brand-gold transition-colors"
+                title="Rename"
+                aria-label="Rename conversation"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={deleting}
+                className="p-1.5 rounded-md text-brand-muted hover:bg-brand-card hover:text-brand-burgundy transition-colors disabled:opacity-40"
+                title="Delete conversation"
+                aria-label="Delete conversation"
+              >
+                {deleting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ----------------------- page header title ----------------------- */
+
+interface EditableHeaderTitleProps {
+  threadId: string;
+  title: string;
+  canEdit: boolean;
+  onAfterRename: () => void;
+}
+
+function EditableHeaderTitle({
+  threadId,
+  title,
+  canEdit,
+  onAfterRename,
+}: EditableHeaderTitleProps) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  useEffect(() => {
+    if (!editing) setValue(title);
+  }, [title, editing]);
+
+  const commit = async () => {
+    const next = value.trim();
+    if (!next || next === title) {
+      setEditing(false);
+      setValue(title);
+      return;
+    }
+    setSaving(true);
+    const ok = await renameThread(threadId, next);
+    setSaving(false);
+    if (ok) {
+      setEditing(false);
+      onAfterRename();
+    } else {
+      setValue(title);
+      setEditing(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setValue(title);
+            setEditing(false);
+          }
+        }}
+        disabled={saving}
+        maxLength={120}
+        className="font-display text-sm font-semibold text-brand-cream bg-brand-bg border border-brand-gold/25 rounded-md px-2 py-0.5 focus:outline-none focus:border-brand-gold/50 w-full"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => canEdit && setEditing(true)}
+      disabled={!canEdit}
+      className="group flex items-center gap-1.5 min-w-0 text-left disabled:cursor-default"
+      title={canEdit ? 'Click to rename' : undefined}
+    >
+      <p className="font-display text-sm font-semibold text-brand-cream truncate">
+        {title}
+      </p>
+      {canEdit && (
+        <Pencil className="w-3 h-3 text-brand-muted opacity-0 group-hover:opacity-100 flex-shrink-0 transition-opacity" />
+      )}
+    </button>
+  );
+}
+
+/* ----------------------- main shell ----------------------- */
 
 export function AssistantPageShell({
   threads,
@@ -92,43 +336,16 @@ export function AssistantPageShell({
             const isActive = t.id === activeThreadId;
             const persisted = !(t.id === activeThreadId && !activeExists);
             return (
-              <div
+              <ThreadRow
                 key={t.id}
-                className={`group relative rounded-lg ${
-                  isActive
-                    ? 'bg-brand-gold/[0.08]'
-                    : 'hover:bg-brand-card-hover/50'
-                }`}
-              >
-                <Link
-                  href={`/assistant?t=${t.id}`}
-                  onClick={onPick}
-                  className={`block px-3 py-2 pr-9 text-sm rounded-lg truncate ${
-                    isActive
-                      ? 'text-brand-cream font-medium'
-                      : 'text-brand-cream-muted hover:text-brand-cream'
-                  }`}
-                  title={t.title}
-                >
-                  {t.title}
-                </Link>
-                {persisted && (
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(t.id)}
-                    disabled={deleting === t.id}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-brand-muted opacity-0 group-hover:opacity-100 hover:bg-brand-card hover:text-brand-burgundy transition-all disabled:opacity-40"
-                    title="Delete conversation"
-                    aria-label="Delete conversation"
-                  >
-                    {deleting === t.id ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                )}
-              </div>
+                thread={t}
+                isActive={isActive}
+                canEdit={persisted}
+                onPick={onPick}
+                onAfterRename={() => router.refresh()}
+                onDelete={() => handleDelete(t.id)}
+                deleting={deleting === t.id}
+              />
             );
           })
         )}
@@ -189,12 +406,13 @@ export function AssistantPageShell({
           <header className="flex items-center gap-2 px-4 py-3 border-b border-brand-gold/[0.08] flex-shrink-0">
             <MessageCircle className="w-4 h-4 text-brand-gold flex-shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="font-display text-sm font-semibold text-brand-cream truncate">
-                {activeTitle}
-              </p>
-              <p className="text-[11px] text-brand-muted">
-                Research Assistant
-              </p>
+              <EditableHeaderTitle
+                threadId={activeThreadId}
+                title={activeTitle}
+                canEdit={activeExists}
+                onAfterRename={() => router.refresh()}
+              />
+              <p className="text-[11px] text-brand-muted">Research Assistant</p>
             </div>
           </header>
           <AssistantChat

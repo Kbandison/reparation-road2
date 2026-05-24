@@ -23,6 +23,13 @@ import {
 } from 'lucide-react';
 import { ToolResult } from '@/components/assistant/tool-result';
 
+const STARTER_PROMPTS = [
+  'Find someone in the archive by name',
+  'What collections do you have?',
+  'What should I research next?',
+  'Show me my bookmarks',
+];
+
 const TOOL_LABELS: Record<string, string> = {
   search_collections: 'Searching collections',
   list_collections: 'Listing collections',
@@ -264,15 +271,31 @@ export function AssistantChat({
         className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3"
       >
         {messages.length === 0 ? (
-          <div className={compactEmpty ? 'text-center py-10 px-4' : 'text-center py-16 px-6'}>
+          <div className={compactEmpty ? 'text-center py-8 px-4' : 'text-center py-14 px-6'}>
             <MessageCircle className="w-7 h-7 text-brand-gold/40 mx-auto mb-3" />
-            <div className="text-xs text-brand-muted leading-relaxed">
+            <div className="text-xs text-brand-muted leading-relaxed mb-4">
               {emptyHint ?? (
                 <>
                   Ask anything about the archive — collections, records, how
                   to research a name, or how to use the site.
                 </>
               )}
+            </div>
+            <div className="flex flex-col gap-1.5 max-w-sm mx-auto">
+              {STARTER_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => {
+                    if (status !== 'ready') return;
+                    sendMessage({ text: prompt });
+                  }}
+                  disabled={status !== 'ready'}
+                  className="text-left text-xs text-brand-cream-muted hover:text-brand-cream bg-brand-card/60 hover:bg-brand-card border border-brand-gold/[0.08] hover:border-brand-gold/25 rounded-lg px-3 py-2 transition-colors disabled:opacity-50"
+                >
+                  {prompt}
+                </button>
+              ))}
             </div>
           </div>
         ) : (
