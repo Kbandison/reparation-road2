@@ -130,14 +130,24 @@ function ThreadRow({
           <Link
             href={`/assistant?t=${thread.id}`}
             onClick={onPick}
-            className={`flex items-center px-3 py-2 pr-16 text-sm rounded-lg ${
+            className={`block px-3 py-2 pr-16 text-sm rounded-lg ${
               isActive
                 ? 'text-brand-cream font-medium'
                 : 'text-brand-cream-muted hover:text-brand-cream'
             }`}
+            style={{ overflow: 'hidden' }}
             title={thread.title}
           >
-            <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+            {/* Inline styles guarantee the truncation works regardless of any
+                Tailwind purge / CSS specificity weirdness in the bundle. */}
+            <span
+              style={{
+                display: 'block',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
               {thread.title}
             </span>
           </Link>
