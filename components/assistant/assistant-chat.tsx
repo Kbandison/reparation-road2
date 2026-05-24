@@ -21,6 +21,7 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react';
+import { ToolResult } from '@/components/assistant/tool-result';
 
 const TOOL_LABELS: Record<string, string> = {
   search_collections: 'Searching collections',
@@ -50,20 +51,24 @@ function ToolCard({ part }: { part: ToolUIPart | DynamicToolUIPart }) {
   const state = part.state;
   const busy = state === 'input-streaming' || state === 'input-available';
   const failed = state === 'output-error';
+  const done = state === 'output-available';
   const summary = inputSummary(part.input);
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-brand-muted bg-brand-card/60 border border-brand-gold/[0.08] rounded-lg">
-      {busy ? (
-        <Loader2 className="w-3 h-3 animate-spin text-brand-gold flex-shrink-0" />
-      ) : failed ? (
-        <AlertCircle className="w-3 h-3 text-brand-burgundy flex-shrink-0" />
-      ) : (
-        <Check className="w-3 h-3 text-brand-gold flex-shrink-0" />
-      )}
-      <span className="truncate">
-        <span className="text-brand-cream-muted">{label}</span>
-        {summary && <span className="ml-1">{summary}</span>}
-      </span>
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-brand-muted bg-brand-card/60 border border-brand-gold/[0.08] rounded-lg">
+        {busy ? (
+          <Loader2 className="w-3 h-3 animate-spin text-brand-gold flex-shrink-0" />
+        ) : failed ? (
+          <AlertCircle className="w-3 h-3 text-brand-burgundy flex-shrink-0" />
+        ) : (
+          <Check className="w-3 h-3 text-brand-gold flex-shrink-0" />
+        )}
+        <span className="truncate">
+          <span className="text-brand-cream-muted">{label}</span>
+          {summary && <span className="ml-1">{summary}</span>}
+        </span>
+      </div>
+      {done && <ToolResult toolName={name} output={part.output} />}
     </div>
   );
 }

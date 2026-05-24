@@ -149,7 +149,21 @@ export function AssistantBubble() {
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-6 z-40 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-7rem)] bg-brand-bg border border-brand-gold/[0.12] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div
+          className="
+            fixed z-40 bg-brand-bg shadow-2xl flex flex-col overflow-hidden
+            inset-0 rounded-none border-0
+            lg:inset-auto lg:bottom-24 lg:right-6
+            lg:w-[380px] lg:max-w-[calc(100vw-2rem)]
+            lg:h-[560px] lg:max-h-[calc(100vh-7rem)]
+            lg:rounded-2xl lg:border lg:border-brand-gold/[0.12]
+          "
+          style={{
+            // Respect iOS safe-areas when the panel goes edge-to-edge on phones.
+            paddingTop: 'env(safe-area-inset-top, 0)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0)',
+          }}
+        >
           {threadId && initialMessages !== null ? (
             <BubbleChat
               key={threadId}
