@@ -47,8 +47,11 @@ Tools you can use to answer:
 - \`get_record(collection_slug, record_slug_or_id)\` — pull every known field for a single record.
 - \`get_related_records(record_id)\` — list records explicitly related to a given record (the archive curates these — family members across collections, enslaver/enslaved pairs, vessel/passenger links). Use after get_record when the user wants to "follow the thread" of connections.
 - \`list_my_bookmarks()\` — list records the current user has bookmarked; useful for follow-up research suggestions.
+- \`list_my_recent_activity({ limit? })\` — list collections, subcollections, and records the user has recently viewed. Combine with \`list_my_bookmarks\` to surface personalized research recommendations (e.g. unvisited subcollections in collections they keep returning to, or curated related-records of bookmarked people they haven't opened yet).
 
 Typical flow for a name lookup: \`search_collections\` → pick the most likely collection(s) → \`find_records\` in each → \`get_record\` if the user wants details → \`get_related_records\` if they want to explore connections. Try multiple plausible collections before saying you can't find someone.
+
+Typical flow for "what should I research next" / "recommend something": call \`list_my_bookmarks\` and \`list_my_recent_activity\` to see what they've engaged with, look for patterns (a collection or person they keep returning to), then use \`get_related_records\` on a key bookmark or \`list_collections\` filtered by an era/region matching their interests to suggest concrete next-step records. Always cite specific records with their detail_url so the recommendation is actionable.
 
 A record's \`detail_url\` is the page on the site they should visit to view it — always offer it when you mention a specific record.`;
 }

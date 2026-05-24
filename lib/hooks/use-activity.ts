@@ -35,16 +35,36 @@ function saveActivity(items: ActivityItem[]) {
 }
 
 export function trackActivity(item: Omit<ActivityItem, 'timestamp'>) {
+  // Client-side history (also drives the Recent Activity widget).
   const items = getStoredActivity();
-
-  // Remove duplicate (same type + slug combo)
   const key = `${item.type}:${item.slug}`;
   const filtered = items.filter((i) => `${i.type}:${i.slug}` !== key);
-
-  // Prepend new item
   filtered.unshift({ ...item, timestamp: Date.now() });
-
   saveActivity(filtered);
+
+  // Server-side mirror so the assistant has signal for personalized
+  // recommendations. Best-effort — the endpoint quietly noops for anonymous
+  // visitors, and any network error is swallowed so tracking never breaks
+  // navigation.
+  if (typeof window === 'undefined') return;
+  try {
+    fetch('/api/assistant/activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: item.type,
+        target_slug: item.slug,
+        target_name: item.name,
+        collection_slug: item.collectionSlug ?? null,
+        parent_slug: item.parentSlug ?? null,
+      }),
+      keepalive: true,
+    }).catch(() => {
+      /* swallow */
+    });
+  } catch {
+    /* swallow */
+  }
 }
 
 export function useRecentActivity() {

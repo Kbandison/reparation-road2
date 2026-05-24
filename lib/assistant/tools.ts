@@ -340,5 +340,35 @@ export function buildAssistantTools(supabase: SupabaseClient, user: User) {
         return { results: data ?? [] };
       },
     }),
+
+    list_my_recent_activity: tool({
+      description:
+        'List the records, collections, and searches the current user has recently engaged with on the site. Use alongside list_my_bookmarks to understand the user\'s active research interests and suggest follow-up directions (e.g. unvisited subcollections in collections they keep returning to, related records they haven\'t opened yet).',
+      inputSchema: z.object({
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(40)
+          .optional()
+          .describe('How many items to return (default 20)'),
+      }),
+      execute: async ({ limit }) => {
+        const { data, error } = await supabase
+          .from('user_activity')
+          .select(
+            'type, target_slug, target_name, collection_slug, parent_slug, occurred_at',
+          )
+          .eq('user_id', user.id)
+          .order('occurred_at', { ascending: false })
+          .limit(limit ?? 20);
+        if (error) {
+          // user_activity table may not be deployed yet — degrade gracefully.
+          if (error.code === '42P01') return { results: [], unavailable: true };
+          return { error: error.message, results: [] };
+        }
+        return { results: data ?? [] };
+      },
+    }),
   };
 }

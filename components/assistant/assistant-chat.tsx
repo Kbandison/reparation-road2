@@ -30,6 +30,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_record: 'Fetching record',
   get_related_records: 'Finding related records',
   list_my_bookmarks: 'Reading your bookmarks',
+  list_my_recent_activity: 'Reviewing your recent activity',
 };
 
 function inputSummary(input: unknown): string {
