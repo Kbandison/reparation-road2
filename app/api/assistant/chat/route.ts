@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server';
 import { anthropic } from '@ai-sdk/anthropic';
-import { convertToModelMessages, streamText, type UIMessage } from 'ai';
+import {
+  convertToModelMessages,
+  stepCountIs,
+  streamText,
+  type UIMessage,
+} from 'ai';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { buildSystemPrompt } from '@/lib/assistant/system-prompt';
+import { buildAssistantTools } from '@/lib/assistant/tools';
 import type { Profile } from '@/lib/types';
 
 // Allow up to ~60s for a streamed response to complete.
@@ -116,6 +122,10 @@ export async function POST(request: Request) {
     model: anthropic('claude-sonnet-4-6'),
     system: buildSystemPrompt({ profile }),
     messages: await convertToModelMessages(conversation),
+    tools: buildAssistantTools(supabase, user),
+    // Allow the model to chain a handful of tool calls per turn (e.g. search →
+    // find_records → get_record) without ballooning costs on a runaway loop.
+    stopWhen: stepCountIs(6),
   });
 
   return result.toUIMessageStreamResponse({

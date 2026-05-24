@@ -4,6 +4,8 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider } from '@/contexts/theme-context';
 import { MainNavServer } from '@/components/layout/main-nav-server';
+import { AssistantBubble } from '@/components/assistant/assistant-bubble';
+import { createClient } from '@/lib/supabase/server';
 import './globals.css';
 import { Analytics } from "@vercel/analytics/next"
 
@@ -53,11 +55,19 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Only mount the assistant for signed-in users — the bubble itself is client
+  // code, so we gate it at the server boundary to avoid shipping it at all to
+  // anonymous visitors.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   return (
     <html lang="en" className="light" suppressHydrationWarning>
       <head>
@@ -77,6 +87,7 @@ export default function RootLayout({
             {children}
           </TooltipProvider>
           <Toaster richColors position="top-right" />
+          {user && <AssistantBubble />}
         </ThemeProvider>
       </body>
     </html>

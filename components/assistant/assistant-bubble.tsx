@@ -2,33 +2,99 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport, type UIMessage } from 'ai';
-import { MessageCircle, X, Send, Plus, Loader2 } from 'lucide-react';
+import {
+  DefaultChatTransport,
+  isToolUIPart,
+  getToolName,
+  type UIMessage,
+  type ToolUIPart,
+  type DynamicToolUIPart,
+} from 'ai';
+import {
+  MessageCircle,
+  X,
+  Send,
+  Plus,
+  Loader2,
+  Check,
+  AlertCircle,
+} from 'lucide-react';
 
 const STORAGE_KEY = 'rr-assistant-thread-id';
 
-type TextPart = { type: 'text'; text: string };
+const TOOL_LABELS: Record<string, string> = {
+  search_collections: 'Searching collections',
+  get_collection_info: 'Looking up collection',
+  find_records: 'Searching records',
+  get_record: 'Fetching record',
+  list_my_bookmarks: 'Reading your bookmarks',
+};
 
-function messageText(message: UIMessage): string {
-  return (message.parts ?? [])
-    .filter((p): p is TextPart => p.type === 'text')
-    .map((p) => p.text)
-    .join('');
+function inputSummary(input: unknown): string {
+  if (!input || typeof input !== 'object') return '';
+  const values = Object.values(input as Record<string, unknown>)
+    .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    .slice(0, 2);
+  if (values.length === 0) return '';
+  return values.map((v) => `“${v.length > 30 ? v.slice(0, 27) + '…' : v}”`).join(' · ');
+}
+
+function ToolCard({ part }: { part: ToolUIPart | DynamicToolUIPart }) {
+  const name = getToolName(part);
+  const label = TOOL_LABELS[name] ?? name;
+  const state = part.state;
+  const busy = state === 'input-streaming' || state === 'input-available';
+  const failed = state === 'output-error';
+  const summary = inputSummary(part.input);
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-brand-muted bg-brand-card/60 border border-brand-gold/[0.08] rounded-lg">
+      {busy ? (
+        <Loader2 className="w-3 h-3 animate-spin text-brand-gold flex-shrink-0" />
+      ) : failed ? (
+        <AlertCircle className="w-3 h-3 text-brand-burgundy flex-shrink-0" />
+      ) : (
+        <Check className="w-3 h-3 text-brand-gold flex-shrink-0" />
+      )}
+      <span className="truncate">
+        <span className="text-brand-cream-muted">{label}</span>
+        {summary && <span className="ml-1">{summary}</span>}
+      </span>
+    </div>
+  );
 }
 
 function MessageBubble({ message }: { message: UIMessage }) {
   const isUser = message.role === 'user';
-  const text = messageText(message);
+  const parts = message.parts ?? [];
+  // Skip rendering an empty assistant message (no text or tool activity yet).
+  const renderable = parts.filter(
+    (p) =>
+      (p.type === 'text' && p.text.length > 0) || isToolUIPart(p),
+  );
+  if (renderable.length === 0) return null;
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words ${
-          isUser
-            ? 'bg-brand-gold/[0.12] text-brand-cream border border-brand-gold/20'
-            : 'bg-brand-card text-brand-cream border border-brand-gold/[0.06]'
-        }`}
-      >
-        {text || (isUser ? '' : '…')}
+      <div className="max-w-[85%] space-y-1.5">
+        {renderable.map((part, i) => {
+          if (part.type === 'text') {
+            return (
+              <div
+                key={i}
+                className={`rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                  isUser
+                    ? 'bg-brand-gold/[0.12] text-brand-cream border border-brand-gold/20'
+                    : 'bg-brand-card text-brand-cream border border-brand-gold/[0.06]'
+                }`}
+              >
+                {part.text}
+              </div>
+            );
+          }
+          if (isToolUIPart(part)) {
+            return <ToolCard key={i} part={part} />;
+          }
+          return null;
+        })}
       </div>
     </div>
   );
