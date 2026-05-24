@@ -4,6 +4,7 @@ import { UserProvider } from '@/contexts/user-context';
 import { PlatformSidebar } from '@/components/layout/platform-sidebar';
 import type { Profile } from '@/lib/types';
 import { CopyProtection } from '@/components/shared/copy-protection';
+import { AssistantBubble } from '@/components/assistant/assistant-bubble';
 
 export default async function PlatformLayout({
   children,
@@ -34,6 +35,7 @@ export default async function PlatformLayout({
           </div>
         </main>
       </div>
+      <AssistantBubble />
     </UserProvider>
   );
 }
