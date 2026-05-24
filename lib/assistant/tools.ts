@@ -217,6 +217,114 @@ export function buildAssistantTools(supabase: SupabaseClient, user: User) {
       },
     }),
 
+    get_related_records: tool({
+      description:
+        'List records that are explicitly related to a given record (the archive curates relationships — e.g. family members across collections, enslaver-and-enslaved pairs, vessel/passenger links). Use after get_record when the user asks "who else is connected to this person?" or wants to follow a thread.',
+      inputSchema: z.object({
+        record_id: z
+          .string()
+          .describe('UUID of the record (the `id` field) to find related records for'),
+      }),
+      execute: async ({ record_id }) => {
+        const { data: rels, error } = await supabase
+          .from('related_records')
+          .select(
+            'source_record_id, source_table, source_name, source_collection, source_collection_slug, target_record_id, target_table, target_name, target_collection, target_collection_slug, relationship_type, relationship_note, display_priority',
+          )
+          .or(
+            `source_record_id.eq.${record_id},target_record_id.eq.${record_id}`,
+          )
+          .order('display_priority')
+          .limit(25);
+        if (error) return { error: error.message, results: [] };
+        const results = (rels ?? []).map((r) => {
+          const isSource = r.source_record_id === record_id;
+          const other = isSource
+            ? {
+                id: r.target_record_id,
+                collection_slug: r.target_collection_slug,
+                collection_name: r.target_collection,
+                name: r.target_name,
+              }
+            : {
+                id: r.source_record_id,
+                collection_slug: r.source_collection_slug,
+                collection_name: r.source_collection,
+                name: r.source_name,
+              };
+          return {
+            related_id: other.id,
+            related_name: other.name,
+            related_collection_slug: other.collection_slug,
+            related_collection_name: other.collection_name,
+            relationship_type: r.relationship_type,
+            relationship_note: r.relationship_note,
+            detail_url: other.collection_slug && other.id
+              ? `/collection/${other.collection_slug}/${other.id}`
+              : null,
+          };
+        });
+        return { results };
+      },
+    }),
+
+    list_collections: tool({
+      description:
+        'List collections in the archive, optionally filtered by category, era, region, or restricted to top-level (parent) collections. Use for "what census collections do you have", "what\'s in the antebellum era", "list everything about Virginia" — any time the user wants a directory rather than a search.',
+      inputSchema: z.object({
+        category: z
+          .string()
+          .optional()
+          .describe(
+            'One of: census, church-records, military, slave-trade, legal, immigration, property',
+          ),
+        era: z
+          .string()
+          .optional()
+          .describe(
+            'One of: colonial, revolutionary, antebellum, civil-war, reconstruction',
+          ),
+        region: z
+          .string()
+          .optional()
+          .describe(
+            'One of: national, international, georgia, virginia, kentucky, alabama, southeast',
+          ),
+        top_level_only: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, return only parent collections (no subcollections)',
+          ),
+        query: z
+          .string()
+          .optional()
+          .describe(
+            'Optional keyword to also match against the collection name or description',
+          ),
+      }),
+      execute: async ({ category, era, region, top_level_only, query }) => {
+        let q = supabase
+          .from('collections')
+          .select(
+            'slug, name, short_description, category, era, region, parent_slug, record_count, has_images',
+          )
+          .eq('is_published', true)
+          .order('name');
+        if (category) q = q.eq('category', category);
+        if (era) q = q.eq('era', era);
+        if (region) q = q.eq('region', region);
+        if (top_level_only) q = q.is('parent_slug', null);
+        if (query) {
+          const safe = query.replace(/[,%]/g, '');
+          q = q.or(`name.ilike.%${safe}%,short_description.ilike.%${safe}%`);
+        }
+        const { data, error } = await q.limit(50);
+        if (error) return { error: error.message, results: [] };
+        return { results: data ?? [] };
+      },
+    }),
+
     list_my_bookmarks: tool({
       description:
         'List the records the current user has bookmarked. Use this when they ask about their saved items, want to revisit research, or want recommendations based on what they\'ve saved.',

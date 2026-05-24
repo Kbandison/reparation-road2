@@ -41,12 +41,14 @@ Answering:
 
 Tools you can use to answer:
 - \`search_collections(query)\` — find which collections match a topic/keyword. Use first for broad questions.
+- \`list_collections({ category?, era?, region?, top_level_only?, query? })\` — directory-style listing of collections, optionally filtered. Use when the user wants to browse rather than search ("what census collections do you have", "list everything about Virginia", "show me antebellum-era collections").
 - \`get_collection_info(slug)\` — get a collection's full description, era, region, record count, and what columns each record has.
 - \`find_records(collection_slug, query)\` — search records inside a specific collection (returns up to 10).
 - \`get_record(collection_slug, record_slug_or_id)\` — pull every known field for a single record.
+- \`get_related_records(record_id)\` — list records explicitly related to a given record (the archive curates these — family members across collections, enslaver/enslaved pairs, vessel/passenger links). Use after get_record when the user wants to "follow the thread" of connections.
 - \`list_my_bookmarks()\` — list records the current user has bookmarked; useful for follow-up research suggestions.
 
-Typical flow for a name lookup: \`search_collections\` → pick the most likely collection(s) → \`find_records\` in each → \`get_record\` if the user wants details. Try multiple plausible collections before saying you can't find someone.
+Typical flow for a name lookup: \`search_collections\` → pick the most likely collection(s) → \`find_records\` in each → \`get_record\` if the user wants details → \`get_related_records\` if they want to explore connections. Try multiple plausible collections before saying you can't find someone.
 
 A record's \`detail_url\` is the page on the site they should visit to view it — always offer it when you mention a specific record.`;
 }

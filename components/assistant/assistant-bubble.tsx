@@ -27,9 +27,11 @@ const STORAGE_KEY = 'rr-assistant-thread-id';
 
 const TOOL_LABELS: Record<string, string> = {
   search_collections: 'Searching collections',
+  list_collections: 'Listing collections',
   get_collection_info: 'Looking up collection',
   find_records: 'Searching records',
   get_record: 'Fetching record',
+  get_related_records: 'Finding related records',
   list_my_bookmarks: 'Reading your bookmarks',
 };
 
