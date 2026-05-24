@@ -299,16 +299,23 @@ export function buildAssistantTools(
 
     search_records_globally: tool({
       description:
-        'Search records ACROSS ALL collections in one call. Use this for "find anyone named X" or "are there people from <place>" — it hits every searchable collection at once, groups results by collection, and is far faster than running find_records on each collection one-by-one. Always try this first for a person/place lookup.',
+        'Search records by keyword using the archive\'s token-based matching. Pass `collection_slug` to scope to ONE collection — PREFERRED when the user names or implies a collection (e.g. "in inspection rolls", "in the Henderson Roll"). Omit `collection_slug` for a true cross-archive search ("is there anyone named X anywhere"). Returns matches grouped by collection.',
       inputSchema: z.object({
         query: z
           .string()
           .min(2)
           .describe('A name, place, keyword, or short phrase to look for'),
+        collection_slug: z
+          .string()
+          .optional()
+          .describe(
+            'Slug of a single collection to scope the search to (e.g. "inspection-roll-of-negroes"). Use whenever the user named/implied a collection. Leave undefined only for a true archive-wide search.',
+          ),
       }),
-      execute: async ({ query }) => {
+      execute: async ({ query, collection_slug }) => {
         try {
           const params = new URLSearchParams({ q: query });
+          if (collection_slug) params.set('collection', collection_slug);
           const res = await fetch(
             `${origin}/api/collection-search?${params}`,
           );
