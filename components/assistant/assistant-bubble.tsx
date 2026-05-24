@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useChat } from '@ai-sdk/react';
 import {
   DefaultChatTransport,
@@ -37,6 +40,82 @@ function inputSummary(input: unknown): string {
     .slice(0, 2);
   if (values.length === 0) return '';
   return values.map((v) => `“${v.length > 30 ? v.slice(0, 27) + '…' : v}”`).join(' · ');
+}
+
+function MarkdownText({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => (
+          <p className="leading-relaxed [&:not(:last-child)]:mb-2">{children}</p>
+        ),
+        a: ({ href, children }) => {
+          if (!href) return <>{children}</>;
+          const isInternal = href.startsWith('/') && !href.startsWith('//');
+          const className =
+            'text-brand-gold hover:text-brand-gold-light underline underline-offset-2 decoration-brand-gold/40 hover:decoration-brand-gold break-words';
+          return isInternal ? (
+            <Link href={href} className={className}>
+              {children}
+            </Link>
+          ) : (
+            <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+              {children}
+            </a>
+          );
+        },
+        ul: ({ children }) => (
+          <ul className="list-disc list-outside pl-5 space-y-1 [&:not(:last-child)]:mb-2">
+            {children}
+          </ul>
+        ),
+        ol: ({ children }) => (
+          <ol className="list-decimal list-outside pl-5 space-y-1 [&:not(:last-child)]:mb-2">
+            {children}
+          </ol>
+        ),
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        strong: ({ children }) => (
+          <strong className="font-semibold text-brand-cream">{children}</strong>
+        ),
+        em: ({ children }) => <em className="italic">{children}</em>,
+        h1: ({ children }) => (
+          <h3 className="font-display text-base font-semibold text-brand-cream mt-1 mb-1">
+            {children}
+          </h3>
+        ),
+        h2: ({ children }) => (
+          <h3 className="font-display text-sm font-semibold text-brand-cream mt-1 mb-1">
+            {children}
+          </h3>
+        ),
+        h3: ({ children }) => (
+          <h4 className="font-display text-sm font-semibold text-brand-cream mt-1 mb-1">
+            {children}
+          </h4>
+        ),
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-2 border-brand-gold/30 pl-3 text-brand-muted [&:not(:last-child)]:mb-2">
+            {children}
+          </blockquote>
+        ),
+        code: ({ children }) => (
+          <code className="bg-brand-bg/60 border border-brand-gold/[0.08] px-1 py-0.5 rounded text-[12px] font-mono">
+            {children}
+          </code>
+        ),
+        pre: ({ children }) => (
+          <pre className="bg-brand-bg/60 border border-brand-gold/[0.08] rounded-lg p-2 overflow-x-auto text-[12px] font-mono [&:not(:last-child)]:mb-2 [&_code]:bg-transparent [&_code]:border-0 [&_code]:p-0">
+            {children}
+          </pre>
+        ),
+        hr: () => <hr className="border-brand-gold/[0.08] my-2" />,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
 }
 
 function ToolCard({ part }: { part: ToolUIPart | DynamicToolUIPart }) {
@@ -80,13 +159,13 @@ function MessageBubble({ message }: { message: UIMessage }) {
             return (
               <div
                 key={i}
-                className={`rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                className={`rounded-2xl px-3 py-2 text-sm break-words ${
                   isUser
-                    ? 'bg-brand-gold/[0.12] text-brand-cream border border-brand-gold/20'
+                    ? 'bg-brand-gold/[0.12] text-brand-cream border border-brand-gold/20 leading-relaxed whitespace-pre-wrap'
                     : 'bg-brand-card text-brand-cream border border-brand-gold/[0.06]'
                 }`}
               >
-                {part.text}
+                {isUser ? part.text : <MarkdownText text={part.text} />}
               </div>
             );
           }
