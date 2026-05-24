@@ -47,9 +47,14 @@ function compactRecord(
 /**
  * Builds the assistant's tool set with the user's authenticated supabase
  * client captured in closure — so every query runs as that user and the
- * access-tier check honors their profile.
+ * access-tier check honors their profile. `origin` is used to call sibling
+ * Route Handlers (e.g. the global search endpoint).
  */
-export function buildAssistantTools(supabase: SupabaseClient, user: User) {
+export function buildAssistantTools(
+  supabase: SupabaseClient,
+  user: User,
+  origin: string,
+) {
   return {
     search_collections: tool({
       description:
@@ -134,14 +139,38 @@ export function buildAssistantTools(supabase: SupabaseClient, user: User) {
           };
         }
 
-        const searchCols = [
+        // ILIKE only works on text columns — running it on integers/dates
+        // throws "operator does not exist: <type> ~~* unknown". Ask Postgres
+        // which columns are text and intersect with the configured search
+        // and display columns before building the filter.
+        let textColumns: string[] | null = null;
+        try {
+          const { data: colData } = await supabase.rpc('get_text_columns', {
+            p_table_name: collection.table_name,
+          });
+          if (colData) {
+            textColumns = (colData as { column_name: string }[]).map(
+              (c) => c.column_name,
+            );
+          }
+        } catch {
+          // RPC may not exist — fall back to configured cols and hope they're text.
+        }
+
+        const configuredCols = [
           ...new Set([
             ...(collection.search_columns ?? []),
             ...(collection.display_columns ?? []),
           ]),
         ].filter((c) => !RESERVED_RECORD_FIELDS.has(c));
+        const searchCols = textColumns
+          ? configuredCols.filter((c) => textColumns!.includes(c))
+          : configuredCols;
         if (searchCols.length === 0) {
-          return { error: 'No searchable columns configured for this collection' };
+          return {
+            error:
+              'No searchable text columns available for this collection — try get_record by id instead.',
+          };
         }
 
         const safe = query.replace(/[,%]/g, '');
@@ -265,6 +294,73 @@ export function buildAssistantTools(supabase: SupabaseClient, user: User) {
           };
         });
         return { results };
+      },
+    }),
+
+    search_records_globally: tool({
+      description:
+        'Search records ACROSS ALL collections in one call. Use this for "find anyone named X" or "are there people from <place>" — it hits every searchable collection at once, groups results by collection, and is far faster than running find_records on each collection one-by-one. Always try this first for a person/place lookup.',
+      inputSchema: z.object({
+        query: z
+          .string()
+          .min(2)
+          .describe('A name, place, keyword, or short phrase to look for'),
+      }),
+      execute: async ({ query }) => {
+        try {
+          const params = new URLSearchParams({ q: query });
+          const res = await fetch(
+            `${origin}/api/collection-search?${params}`,
+          );
+          if (!res.ok) {
+            return { error: `Search failed (${res.status})`, groups: [] };
+          }
+          const data = (await res.json()) as {
+            collections?: Array<{ slug: string; name: string; shortDescription?: string | null }>;
+            subcollections?: Array<{ slug: string; name: string; parentName?: string }>;
+            records?: Array<{
+              collectionSlug: string;
+              collectionName: string;
+              parentName: string | null;
+              total: number;
+              records: Array<{
+                id: string;
+                slug?: string;
+                matchField: string;
+                matchValue: string;
+                displayFields: Record<string, string>;
+              }>;
+            }>;
+          };
+          // Compact for the model — limit each collection's record sample.
+          const groups = (data.records ?? []).map((g) => ({
+            collection_slug: g.collectionSlug,
+            collection_name: g.collectionName,
+            parent_name: g.parentName,
+            total: g.total,
+            records: g.records.slice(0, 5).map((r) => ({
+              id: r.id,
+              slug: r.slug ?? null,
+              detail_url: `/collection/${g.collectionSlug}/${r.slug ?? r.id}`,
+              match_field: r.matchField,
+              match_value: r.matchValue,
+              ...r.displayFields,
+            })),
+          }));
+          return {
+            query,
+            groups,
+            collection_matches: data.collections ?? [],
+            subcollection_matches: data.subcollections ?? [],
+            total_groups: groups.length,
+            total_records: groups.reduce((acc, g) => acc + g.total, 0),
+          };
+        } catch (e) {
+          return {
+            error: e instanceof Error ? e.message : 'Search failed',
+            groups: [],
+          };
+        }
       },
     }),
 

@@ -122,7 +122,7 @@ export async function POST(request: Request) {
     model: anthropic('claude-sonnet-4-6'),
     system: buildSystemPrompt({ profile }),
     messages: await convertToModelMessages(conversation),
-    tools: buildAssistantTools(supabase, user),
+    tools: buildAssistantTools(supabase, user, new URL(request.url).origin),
     // Allow the model to chain a handful of tool calls per turn (e.g. search →
     // find_records → get_record) without ballooning costs on a runaway loop.
     stopWhen: stepCountIs(6),

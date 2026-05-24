@@ -432,6 +432,84 @@ export function ToolResult({
   // Errors are already surfaced by the status pill — don't double-render.
   if (out && asString(out.error)) return null;
 
+  if (toolName === 'search_records_globally') {
+    if (!out) return null;
+    const groups = asArray(out.groups)
+      .map((g) => asObj(g))
+      .filter((x): x is Record<string, unknown> => x !== null);
+    if (groups.length === 0) {
+      return (
+        <p className="text-xs text-brand-muted px-3 py-1.5">
+          No records matched across the archive.
+        </p>
+      );
+    }
+    return (
+      <div className="space-y-2">
+        {groups.slice(0, 4).map((g, i) => {
+          const collectionName = asString(g.collection_name) ?? 'Collection';
+          const total = asNumber(g.total) ?? 0;
+          const records = asArray(g.records)
+            .map((r) => asObj(r))
+            .filter((x): x is Record<string, unknown> => x !== null);
+          return (
+            <div
+              key={i}
+              className="bg-brand-card/70 border border-brand-gold/[0.08] rounded-lg px-3 py-2"
+            >
+              <p className="text-[11px] text-brand-gold/80 mb-1.5">
+                {collectionName}
+                <span className="text-brand-muted/80">
+                  {' '}
+                  · {total.toLocaleString()} match{total === 1 ? '' : 'es'}
+                </span>
+              </p>
+              <div className="space-y-1">
+                {records.slice(0, 4).map((r, ri) => {
+                  const href = asString(r.detail_url);
+                  const title = recordTitle(r);
+                  const content = (
+                    <>
+                      <span className="text-sm text-brand-cream truncate flex-1">
+                        {title}
+                      </span>
+                      {href && (
+                        <ArrowRight className="w-3 h-3 text-brand-muted group-hover:text-brand-gold flex-shrink-0" />
+                      )}
+                    </>
+                  );
+                  return href ? (
+                    <Link
+                      key={ri}
+                      href={href}
+                      className="group flex items-center gap-2 px-1 py-0.5 rounded hover:bg-brand-card-hover/60 transition-colors"
+                    >
+                      {content}
+                    </Link>
+                  ) : (
+                    <div key={ri} className="flex items-center gap-2 px-1 py-0.5">
+                      {content}
+                    </div>
+                  );
+                })}
+                {records.length > 4 && (
+                  <p className="text-[10px] text-brand-muted/70 px-1">
+                    + {records.length - 4} more
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {groups.length > 4 && (
+          <p className="text-[11px] text-brand-muted px-3">
+            + {groups.length - 4} more collections
+          </p>
+        )}
+      </div>
+    );
+  }
+
   if (toolName === 'search_collections' || toolName === 'list_collections') {
     const items = asArray(out?.results)
       .map((r) => asObj(r))

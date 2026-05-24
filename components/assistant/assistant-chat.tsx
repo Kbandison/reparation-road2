@@ -31,6 +31,7 @@ const STARTER_PROMPTS = [
 ];
 
 const TOOL_LABELS: Record<string, string> = {
+  search_records_globally: 'Searching the whole archive',
   search_collections: 'Searching collections',
   list_collections: 'Listing collections',
   get_collection_info: 'Looking up collection',
