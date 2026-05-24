@@ -324,7 +324,7 @@ export function AssistantPageShell({
   };
 
   const renderThreadList = (onPick?: () => void) => (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex flex-col flex-1 min-h-0 min-w-0">
       <div className="px-3 py-3 border-b border-brand-gold/[0.08] flex-shrink-0">
         <button
           type="button"
@@ -338,7 +338,7 @@ export function AssistantPageShell({
           New conversation
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+      <div className="flex-1 min-w-0 overflow-y-auto px-2 py-2 space-y-0.5">
         {displayThreads.length === 0 ? (
           <p className="text-xs text-brand-muted text-center py-6 px-3">
             Your conversations will show up here.
