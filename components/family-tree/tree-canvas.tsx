@@ -68,14 +68,14 @@ function PersonCardInner({ p }: { p: TreeIndividual }) {
       <div className="flex items-center gap-2.5">
         <div
           className={cn(
-            'w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0',
+            'w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold shrink-0',
             sexClass
           )}
         >
           {initials(p)}
         </div>
         <div className="min-w-0">
-          <p className="text-[15px] leading-tight font-medium text-brand-cream truncate">
+          <p className="text-base leading-tight font-medium text-brand-cream truncate">
             {fullName(p) || 'Unnamed'}
           </p>
           {lifespan(p) && <p className="text-xs text-brand-muted truncate">{lifespan(p)}</p>}
