@@ -12,6 +12,7 @@ import {
   Link2,
   Upload,
   Sparkles,
+  Network,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -26,6 +27,7 @@ export const platformNavItems: NavItem[] = [
   { label: 'Collection', href: '/collection', icon: Library },
   { label: 'Search', href: '/search', icon: Search },
   { label: 'Assistant', href: '/assistant', icon: Sparkles },
+  { label: 'Family Tree', href: '/family-tree', icon: Network },
   { label: 'Bookmarks', href: '/dashboard/bookmarks', icon: Bookmark },
   { label: 'Forum', href: '/forum', icon: MessageSquare },
   { label: 'Booking', href: '/booking', icon: CalendarDays },

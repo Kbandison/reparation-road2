@@ -159,3 +159,73 @@ export interface RelatedRecordsResponse {
   curated: RelatedRecord[];
   algorithmic: AlgorithmicMatch[];
 }
+
+// ── Family tree ──────────────────────────────────────────────────────────
+
+export interface FamilyTree {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TreeIndividual {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  given_name: string | null;
+  surname: string | null;
+  sex: 'M' | 'F' | 'U' | null;
+  birth_date: string | null;
+  birth_place: string | null;
+  death_date: string | null;
+  death_place: string | null;
+  is_living: boolean;
+  occupation: string | null;
+  notes: string | null;
+  // Original @I123@ pointer when imported from a GEDCOM file.
+  gedcom_xref: string | null;
+  // Set when the individual is linked to a record in the archive.
+  archive_collection_slug: string | null;
+  archive_record_id: string | null;
+  archive_record_title: string | null;
+  pos_x: number;
+  pos_y: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type TreeRelationshipType = 'parent' | 'spouse';
+
+export interface TreeRelationship {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  type: TreeRelationshipType;
+  // 'parent': from_id = parent, to_id = child.
+  // 'spouse': from_id/to_id are partners (unordered).
+  from_id: string;
+  to_id: string;
+  created_at?: string;
+}
+
+// Full payload for rendering a tree on the canvas.
+export interface TreeGraph {
+  tree: FamilyTree;
+  individuals: TreeIndividual[];
+  relationships: TreeRelationship[];
+}
+
+// One candidate archive record matched against a tree individual.
+export interface ArchiveMatch {
+  id: string;
+  slug: string;
+  title: string;
+  collectionSlug: string;
+  collectionName: string;
+  matchReasons: string[];
+  score: number;
+  detailUrl: string;
+}
