@@ -98,6 +98,7 @@ const REL_ICON: Record<OffLineRelative['relation'], typeof Heart> = {
   spouse: Heart,
   child: Baby,
   parent: Users,
+  adoptive: Users,
   relative: Users,
 };
 

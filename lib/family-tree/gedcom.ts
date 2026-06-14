@@ -23,12 +23,28 @@ export interface ParsedIndividual {
   notes: string | null;
 }
 
+export type ParentType = 'adopted' | 'step' | 'foster' | null;
+
 export interface ParsedRelationship {
   type: 'parent' | 'spouse';
   // 'parent': from_xref = parent, to_xref = child.
   // 'spouse': partners (unordered).
   from_xref: string;
   to_xref: string;
+  // For parent edges: non-biological links (adopted/step/foster). Null means a
+  // biological or unspecified ("unknown") link.
+  parent_type?: ParentType;
+}
+
+// Map Ancestry's _FREL/_MREL (or standard PEDI) values to a parent-link type.
+// Natural / birth / unknown / blank all read as biological (null).
+function normalizeParentType(value: string | undefined | null): ParentType {
+  const s = value?.trim().toLowerCase();
+  if (!s) return null;
+  if (s.includes('adopt')) return 'adopted';
+  if (s.includes('step')) return 'step';
+  if (s.includes('foster')) return 'foster';
+  return null;
 }
 
 export interface ParsedGedcom {
@@ -166,8 +182,13 @@ function extractFamily(node: GNode, out: ParsedRelationship[]): void {
     const kid = clean(childNode.value);
     if (!kid) continue;
     const kidXref = normXref(kid);
-    if (husbXref) out.push({ type: 'parent', from_xref: husbXref, to_xref: kidXref });
-    if (wifeXref) out.push({ type: 'parent', from_xref: wifeXref, to_xref: kidXref });
+    // _FREL / _MREL qualify the child's link to father / mother; PEDI is the
+    // standard fallback applied to both.
+    const pedi = normalizeParentType(firstChild(childNode, 'PEDI')?.value);
+    const frel = normalizeParentType(firstChild(childNode, '_FREL')?.value) ?? pedi;
+    const mrel = normalizeParentType(firstChild(childNode, '_MREL')?.value) ?? pedi;
+    if (husbXref) out.push({ type: 'parent', from_xref: husbXref, to_xref: kidXref, parent_type: frel });
+    if (wifeXref) out.push({ type: 'parent', from_xref: wifeXref, to_xref: kidXref, parent_type: mrel });
   }
 }
 

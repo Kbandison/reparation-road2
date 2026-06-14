@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { parseGedcom } from '@/lib/family-tree/gedcom';
+import { parseGedcom, type ParentType } from '@/lib/family-tree/gedcom';
 import { computeLayout, type LayoutEdge } from '@/lib/family-tree/layout';
 
 export const maxDuration = 60;
@@ -122,9 +122,11 @@ export async function POST(
       from_id: xrefToId.get(r.from_xref),
       to_id: xrefToId.get(r.to_xref),
       type: r.type,
+      parent_type: r.parent_type ?? null,
     }))
-    .filter((r): r is { from_id: string; to_id: string; type: LayoutEdge['type'] } =>
-      Boolean(r.from_id && r.to_id)
+    .filter(
+      (r): r is { from_id: string; to_id: string; type: LayoutEdge['type']; parent_type: ParentType } =>
+        Boolean(r.from_id && r.to_id)
     )
     .map((r) => ({
       tree_id: treeId,
@@ -132,6 +134,7 @@ export async function POST(
       type: r.type,
       from_id: r.from_id,
       to_id: r.to_id,
+      parent_type: r.parent_type,
     }));
 
   for (const part of chunk(relRows, 500)) {

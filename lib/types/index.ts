@@ -210,6 +210,9 @@ export interface TreeRelationship {
   // 'spouse': from_id/to_id are partners (unordered).
   from_id: string;
   to_id: string;
+  // For parent edges: 'adopted' | 'step' | 'foster' for non-biological links;
+  // null/undefined means biological or unspecified.
+  parent_type?: string | null;
   created_at?: string;
 }
 

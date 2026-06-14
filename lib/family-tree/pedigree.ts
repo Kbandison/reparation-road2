@@ -12,7 +12,10 @@ export const PED_COL_X = 348; // horizontal gap between generations
 export const PED_ROW_Y = 134; // vertical gap between leaf ancestors
 export const DEFAULT_DEPTH = 5; // generations shown before the expand toggle
 
-export type RelationKind = 'spouse' | 'child' | 'parent' | 'relative';
+export type RelationKind = 'spouse' | 'child' | 'parent' | 'adoptive' | 'relative';
+
+// Parent links of these types are excluded from the bloodline pedigree.
+const NON_BIOLOGICAL = new Set(['adopted', 'step', 'foster']);
 
 export interface OffLineRelative {
   id: string;
@@ -32,32 +35,40 @@ export interface Pedigree {
 }
 
 interface Maps {
-  parents: Map<string, string[]>;
-  children: Map<string, string[]>;
+  parents: Map<string, string[]>; // biological / unspecified parents only
+  children: Map<string, string[]>; // biological children only
   spouses: Map<string, string[]>;
+  adoptiveParents: Map<string, string[]>; // adopted / step / foster parents
 }
 
 function buildMaps(individuals: TreeIndividual[], relationships: TreeRelationship[]): Maps {
   const parents = new Map<string, string[]>();
   const children = new Map<string, string[]>();
   const spouses = new Map<string, string[]>();
+  const adoptiveParents = new Map<string, string[]>();
   const ids = new Set(individuals.map((i) => i.id));
   for (const i of individuals) {
     parents.set(i.id, []);
     children.set(i.id, []);
     spouses.set(i.id, []);
+    adoptiveParents.set(i.id, []);
   }
   for (const r of relationships) {
     if (!ids.has(r.from_id) || !ids.has(r.to_id)) continue;
     if (r.type === 'parent') {
-      children.get(r.from_id)!.push(r.to_id);
-      parents.get(r.to_id)!.push(r.from_id);
+      if (NON_BIOLOGICAL.has(r.parent_type ?? '')) {
+        // Kept off the bloodline chart, surfaced in the card dropdown instead.
+        adoptiveParents.get(r.to_id)!.push(r.from_id);
+      } else {
+        children.get(r.from_id)!.push(r.to_id);
+        parents.get(r.to_id)!.push(r.from_id);
+      }
     } else {
       spouses.get(r.from_id)!.push(r.to_id);
       spouses.get(r.to_id)!.push(r.from_id);
     }
   }
-  return { parents, children, spouses };
+  return { parents, children, spouses, adoptiveParents };
 }
 
 // Default focal person: prefer a "leaf" descendant (no children in the tree)
@@ -117,7 +128,7 @@ export function buildPedigree(
   const idSet = new Set(individuals.map((i) => i.id));
   if (!focalId || !idSet.has(focalId)) return empty;
 
-  const { parents, children, spouses } = buildMaps(individuals, relationships);
+  const { parents, children, spouses, adoptiveParents } = buildMaps(individuals, relationships);
 
   // Reveal ancestors generation by generation. A node reveals its parents when
   // they sit within the base window, or when the node has been explicitly
@@ -156,6 +167,8 @@ export function buildPedigree(
     const rels: OffLineRelative[] = [];
     for (const sp of spouses.get(id) ?? []) if (!visible.has(sp)) rels.push({ id: sp, relation: 'spouse' });
     for (const ch of children.get(id) ?? []) if (!visible.has(ch)) rels.push({ id: ch, relation: 'child' });
+    // Adopted / step / foster parents are never drawn on the bloodline; list them here.
+    for (const ap of adoptiveParents.get(id) ?? []) rels.push({ id: ap, relation: 'adoptive' });
     const seen = new Set<string>();
     result.offLine[id] = rels.filter((r) => {
       if (seen.has(r.id)) return false;
