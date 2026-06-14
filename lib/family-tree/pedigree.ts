@@ -10,6 +10,9 @@ import { CARD_W, CARD_H } from './layout';
 
 export const PED_COL_X = 348; // horizontal gap between generations
 export const PED_ROW_Y = 134; // vertical gap between leaf ancestors
+// Extra gap applied at the two ends: between the home person and gen 1, and
+// into the oldest visible generation — so the extremes read as set apart.
+export const PED_END_STRETCH = 150;
 export const DEFAULT_DEPTH = 5; // generations shown before the expand toggle
 
 export type RelationKind = 'spouse' | 'child' | 'parent' | 'adoptive' | 'relative';
@@ -201,10 +204,18 @@ export function buildPedigree(
   }
   assignY(focalId, new Set());
 
+  // Cumulative x per generation, with extra room at the two ends.
+  const maxGen = genMap.size ? Math.max(...genMap.values()) : 0;
+  const genX: number[] = [0];
+  for (let g = 1; g <= maxGen; g++) {
+    const extra = g === 1 || g === maxGen ? PED_END_STRETCH : 0;
+    genX[g] = genX[g - 1] + PED_COL_X + extra;
+  }
+
   for (const id of visible) {
     const g = genMap.get(id)!;
     const y = yMemo.get(id) ?? (slot++ * PED_ROW_Y);
-    result.positions[id] = { x: g * PED_COL_X, y };
+    result.positions[id] = { x: genX[g], y };
   }
 
   return result;
