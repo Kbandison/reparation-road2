@@ -12,7 +12,7 @@ export const PED_COL_X = 348; // horizontal gap between generations
 export const PED_ROW_Y = 134; // vertical gap between leaf ancestors
 // Extra gap applied at the two ends: between the home person and gen 1, and
 // into the oldest visible generation — so the extremes read as set apart.
-export const PED_END_STRETCH = 150;
+export const PED_END_STRETCH = 360;
 export const DEFAULT_DEPTH = 5; // generations shown before the expand toggle
 
 export type RelationKind = 'spouse' | 'child' | 'parent' | 'adoptive' | 'relative';
