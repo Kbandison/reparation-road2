@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   Plus,
+  Minus,
   Upload,
   LayoutGrid,
   Maximize2,
@@ -10,6 +11,11 @@ import {
   ZoomOut,
   Link2,
   Users,
+  ChevronDown,
+  Home,
+  Target,
+  Heart,
+  Baby,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -19,6 +25,12 @@ import type {
   ArchiveMatch,
 } from '@/lib/types';
 import { CARD_W, CARD_H, computeLayout } from '@/lib/family-tree/layout';
+import {
+  buildPedigree,
+  pickDefaultFocal,
+  DEFAULT_DEPTH,
+  type OffLineRelative,
+} from '@/lib/family-tree/pedigree';
 import { fullName, initials, lifespan } from '@/lib/family-tree/display';
 import { PersonEditor } from './person-editor';
 import { ImportDialog } from './import-dialog';
@@ -35,11 +47,57 @@ interface View {
   scale: number;
 }
 
+type Mode = 'pedigree' | 'free';
+
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 2;
 const PAD = 90;
 
 const json = { 'Content-Type': 'application/json' };
+
+// Shared inner card content (avatar, name, dates, place, archive badge).
+function PersonCardInner({ p }: { p: TreeIndividual }) {
+  const sexClass =
+    p.sex === 'M'
+      ? 'bg-brand-sage/20 text-brand-sage'
+      : p.sex === 'F'
+        ? 'bg-brand-burgundy/25 text-brand-burgundy-light'
+        : 'bg-brand-gold/15 text-brand-gold';
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            'w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0',
+            sexClass
+          )}
+        >
+          {initials(p)}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-brand-cream truncate">{fullName(p) || 'Unnamed'}</p>
+          {lifespan(p) && <p className="text-[11px] text-brand-muted truncate">{lifespan(p)}</p>}
+        </div>
+      </div>
+      {p.birth_place && <p className="text-[11px] text-brand-muted truncate mt-1">{p.birth_place}</p>}
+      {p.archive_record_id && (
+        <span
+          className="absolute -top-2 -right-2 flex items-center justify-center w-5 h-5 rounded-full bg-brand-sage text-brand-bg"
+          title="Linked to an archive record"
+        >
+          <Link2 className="w-3 h-3" />
+        </span>
+      )}
+    </>
+  );
+}
+
+const REL_ICON: Record<OffLineRelative['relation'], typeof Heart> = {
+  spouse: Heart,
+  child: Baby,
+  parent: Users,
+  relative: Users,
+};
 
 export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: Props) {
   const [individuals, setIndividuals] = useState<TreeIndividual[]>(initialIndividuals);
@@ -48,13 +106,19 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
+  const [mode, setMode] = useState<Mode>('pedigree');
+  const [focalId, setFocalId] = useState<string | null>(() =>
+    pickDefaultFocal(initialIndividuals, initialRelationships)
+  );
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [openRelatives, setOpenRelatives] = useState<string | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef(view);
   viewRef.current = view;
   const indRef = useRef(individuals);
   indRef.current = individuals;
 
-  // Active gesture state (kept in refs so window listeners see fresh values).
   const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number } | null>(null);
   const panRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
   const movedRef = useRef(false);
@@ -66,6 +130,24 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
   }, [individuals]);
 
   const selected = selectedId ? byId.get(selectedId) ?? null : null;
+
+  const pedigree = useMemo(
+    () =>
+      mode === 'pedigree' && focalId
+        ? buildPedigree(individuals, relationships, { focalId, baseDepth: DEFAULT_DEPTH, expanded })
+        : null,
+    [mode, focalId, individuals, relationships, expanded]
+  );
+  const pedigreeRef = useRef(pedigree);
+  pedigreeRef.current = pedigree;
+
+  // Repair the focal person if it was deleted or never set (e.g. after import).
+  useEffect(() => {
+    if (mode !== 'pedigree') return;
+    if (!focalId || !byId.has(focalId)) {
+      setFocalId(pickDefaultFocal(indRef.current, relationships));
+    }
+  }, [mode, focalId, byId, relationships]);
 
   // ── viewport helpers ──────────────────────────────────────────────────
   const fitTo = useCallback((nodes: { x: number; y: number }[]) => {
@@ -95,19 +177,28 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     setView({ x: w / 2 - cx * scale, y: h / 2 - cy * scale, scale });
   }, []);
 
-  const fitView = useCallback(
-    () => fitTo(indRef.current.map((p) => ({ x: p.pos_x, y: p.pos_y }))),
-    [fitTo]
-  );
+  const fitCurrent = useCallback(() => {
+    const ped = pedigreeRef.current;
+    if (mode === 'pedigree' && ped) {
+      fitTo(ped.visibleIds.map((id) => ped.positions[id]).filter(Boolean));
+    } else {
+      fitTo(indRef.current.map((p) => ({ x: p.pos_x, y: p.pos_y })));
+    }
+  }, [mode, fitTo]);
 
-  // Fit once on mount.
+  // Fit on mount and whenever the view's framing should reset.
   const didFit = useRef(false);
   useEffect(() => {
     if (!didFit.current && containerRef.current) {
       didFit.current = true;
-      fitView();
+      fitCurrent();
     }
-  }, [fitView]);
+  }, [fitCurrent]);
+
+  useEffect(() => {
+    fitCurrent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, focalId, expanded]);
 
   // ── pointer drag / pan ────────────────────────────────────────────────
   useEffect(() => {
@@ -115,9 +206,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
       if (dragRef.current) {
         const d = dragRef.current;
         const scale = viewRef.current.scale;
-        if (Math.abs(e.clientX - d.sx) > 3 || Math.abs(e.clientY - d.sy) > 3) {
-          movedRef.current = true;
-        }
+        if (Math.abs(e.clientX - d.sx) > 3 || Math.abs(e.clientY - d.sy) > 3) movedRef.current = true;
         const dx = (e.clientX - d.sx) / scale;
         const dy = (e.clientY - d.sy) / scale;
         setIndividuals((prev) =>
@@ -138,7 +227,10 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
         else setSelectedId(id);
         dragRef.current = null;
       } else if (panRef.current) {
-        if (!movedRef.current) setSelectedId(null);
+        if (!movedRef.current) {
+          setSelectedId(null);
+          setOpenRelatives(null);
+        }
         panRef.current = null;
       }
     }
@@ -201,7 +293,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     }).catch(() => {});
   }
 
-  function onCardPointerDown(e: React.PointerEvent, id: string) {
+  function onFreeCardPointerDown(e: React.PointerEvent, id: string) {
     e.stopPropagation();
     const p = byId.get(id);
     if (!p) return;
@@ -214,6 +306,21 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     panRef.current = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
   }
 
+  function toggleExpand(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function setFocal(id: string) {
+    setFocalId(id);
+    setExpanded(new Set());
+    setOpenRelatives(null);
+  }
+
   async function addPerson() {
     const el = containerRef.current;
     const wx = el ? (el.clientWidth / 2 - view.x) / view.scale - CARD_W / 2 : 0;
@@ -221,17 +328,12 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     const res = await fetch('/api/family-tree/individuals', {
       method: 'POST',
       headers: json,
-      body: JSON.stringify({
-        tree_id: tree.id,
-        given_name: 'New',
-        surname: 'person',
-        pos_x: wx,
-        pos_y: wy,
-      }),
+      body: JSON.stringify({ tree_id: tree.id, given_name: 'New', surname: 'person', pos_x: wx, pos_y: wy }),
     });
     const data = await res.json();
     if (data.individual) {
       setIndividuals((p) => [...p, data.individual]);
+      if (!focalId) setFocalId(data.individual.id);
       setSelectedId(data.individual.id);
     }
   }
@@ -287,6 +389,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     setRelationships((r) => r.filter((e) => e.from_id !== id && e.to_id !== id));
     setIndividuals((p) => p.filter((x) => x.id !== id));
     setSelectedId(null);
+    if (focalId === id) setFocalId(null); // repair effect picks a new default
   }
 
   async function arrange() {
@@ -310,14 +413,16 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     const res = await fetch(`/api/family-tree/${tree.id}`);
     const data = await res.json();
     const inds: TreeIndividual[] = data.individuals ?? [];
+    const rels: TreeRelationship[] = data.relationships ?? [];
     setIndividuals(inds);
-    setRelationships(data.relationships ?? []);
+    setRelationships(rels);
     setSelectedId(null);
-    fitTo(inds.map((p) => ({ x: p.pos_x, y: p.pos_y })));
+    setExpanded(new Set());
+    setFocalId(pickDefaultFocal(inds, rels));
   }
 
   // ── connectors ────────────────────────────────────────────────────────
-  const edges = relationships.map((rel) => {
+  const freeEdges = relationships.map((rel) => {
     const a = byId.get(rel.from_id);
     const b = byId.get(rel.to_id);
     if (!a || !b) return null;
@@ -352,10 +457,36 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     );
   });
 
+  // Horizontal pedigree brackets: child (left) -> parent (right).
+  const pedEdges = pedigree
+    ? pedigree.links.map(({ childId, parentId }) => {
+        const c = pedigree.positions[childId];
+        const p = pedigree.positions[parentId];
+        if (!c || !p) return null;
+        const childRight = c.x + CARD_W;
+        const childMidY = c.y + CARD_H / 2;
+        const parentLeft = p.x;
+        const parentMidY = p.y + CARD_H / 2;
+        const midX = childRight + (parentLeft - childRight) / 2;
+        return (
+          <path
+            key={`${childId}-${parentId}`}
+            d={`M ${childRight} ${childMidY} H ${midX} V ${parentMidY} H ${parentLeft}`}
+            fill="none"
+            stroke="#C8956C"
+            strokeWidth={2}
+            strokeOpacity={0.55}
+          />
+        );
+      })
+    : null;
+
   const toolBtn =
     'inline-flex items-center gap-1.5 rounded-xl border border-brand-gold/20 bg-brand-card/90 px-3 py-1.5 text-xs text-brand-cream backdrop-blur hover:border-brand-gold/40 transition-colors';
   const iconBtn =
     'flex items-center justify-center w-9 h-9 rounded-xl border border-brand-gold/20 bg-brand-card/90 text-brand-cream backdrop-blur hover:border-brand-gold/40 transition-colors';
+
+  const showPedigree = mode === 'pedigree' && pedigree;
 
   return (
     <div
@@ -363,8 +494,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
       onPointerDown={onBackgroundPointerDown}
       className="relative w-full h-full overflow-hidden bg-brand-bg select-none touch-none"
       style={{
-        backgroundImage:
-          'radial-gradient(circle, rgba(200,149,108,0.10) 1px, transparent 1px)',
+        backgroundImage: 'radial-gradient(circle, rgba(200,149,108,0.10) 1px, transparent 1px)',
         backgroundSize: `${24 * view.scale}px ${24 * view.scale}px`,
         backgroundPosition: `${view.x}px ${view.y}px`,
         cursor: 'grab',
@@ -372,18 +502,34 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     >
       {/* Toolbar */}
       <div
-        className="absolute top-3 left-3 z-20 flex flex-wrap gap-2"
+        className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-2"
         onPointerDown={(e) => e.stopPropagation()}
       >
+        <div className="inline-flex rounded-xl border border-brand-gold/20 bg-brand-card/90 backdrop-blur overflow-hidden">
+          <button
+            className={cn('px-3 py-1.5 text-xs transition-colors', mode === 'pedigree' ? 'bg-brand-gold text-brand-bg' : 'text-brand-cream hover:text-brand-gold')}
+            onClick={() => setMode('pedigree')}
+          >
+            Pedigree
+          </button>
+          <button
+            className={cn('px-3 py-1.5 text-xs transition-colors', mode === 'free' ? 'bg-brand-gold text-brand-bg' : 'text-brand-cream hover:text-brand-gold')}
+            onClick={() => setMode('free')}
+          >
+            Free
+          </button>
+        </div>
         <button className={toolBtn} onClick={addPerson}>
           <Plus className="w-3.5 h-3.5" /> Add person
         </button>
         <button className={toolBtn} onClick={() => setImportOpen(true)}>
           <Upload className="w-3.5 h-3.5" /> Import GEDCOM
         </button>
-        <button className={toolBtn} onClick={arrange}>
-          <LayoutGrid className="w-3.5 h-3.5" /> Auto-arrange
-        </button>
+        {mode === 'free' && (
+          <button className={toolBtn} onClick={arrange}>
+            <LayoutGrid className="w-3.5 h-3.5" /> Auto-arrange
+          </button>
+        )}
       </div>
 
       {/* Zoom controls (bottom-left, clear of the floating assistant bubble) */}
@@ -397,7 +543,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
         <button className={iconBtn} onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out">
           <ZoomOut className="w-4 h-4" />
         </button>
-        <button className={iconBtn} onClick={fitView} aria-label="Fit to screen">
+        <button className={iconBtn} onClick={fitCurrent} aria-label="Fit to screen">
           <Maximize2 className="w-4 h-4" />
         </button>
       </div>
@@ -408,60 +554,130 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
         style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
       >
         <svg style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible' }} width={1} height={1}>
-          {edges}
+          {showPedigree ? pedEdges : freeEdges}
         </svg>
 
-        {individuals.map((p) => {
-          const sexClass =
-            p.sex === 'M'
-              ? 'bg-brand-sage/20 text-brand-sage'
-              : p.sex === 'F'
-                ? 'bg-brand-burgundy/25 text-brand-burgundy-light'
-                : 'bg-brand-gold/15 text-brand-gold';
-          return (
-            <div
-              key={p.id}
-              onPointerDown={(e) => onCardPointerDown(e, p.id)}
-              className={cn(
-                'absolute rounded-2xl border bg-brand-card px-3 py-2 shadow-sm cursor-grab active:cursor-grabbing transition-shadow',
-                selectedId === p.id
-                  ? 'border-brand-gold ring-2 ring-brand-gold/40'
-                  : 'border-brand-gold/[0.15] hover:border-brand-gold/35'
-              )}
-              style={{ left: p.pos_x, top: p.pos_y, width: CARD_W, minHeight: CARD_H }}
-            >
-              <div className="flex items-center gap-2">
+        {showPedigree
+          ? pedigree!.visibleIds.map((id) => {
+              const p = byId.get(id);
+              const pos = pedigree!.positions[id];
+              if (!p || !pos) return null;
+              const off = pedigree!.offLine[id] ?? [];
+              const canExpand = pedigree!.expandable[id];
+              const isExpanded = expanded.has(id);
+              const isFocal = id === focalId;
+              return (
                 <div
+                  key={id}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => setSelectedId(id)}
                   className={cn(
-                    'w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0',
-                    sexClass
+                    'absolute rounded-2xl border bg-brand-card px-3 py-2 shadow-sm cursor-pointer transition-shadow',
+                    selectedId === id
+                      ? 'border-brand-gold ring-2 ring-brand-gold/40'
+                      : isFocal
+                        ? 'border-brand-sage/60'
+                        : 'border-brand-gold/[0.15] hover:border-brand-gold/35'
                   )}
+                  style={{ left: pos.x, top: pos.y, width: CARD_W, minHeight: CARD_H, zIndex: openRelatives === id ? 40 : undefined }}
                 >
-                  {initials(p)}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-brand-cream truncate">
-                    {fullName(p) || 'Unnamed'}
-                  </p>
-                  {lifespan(p) && (
-                    <p className="text-[11px] text-brand-muted truncate">{lifespan(p)}</p>
+                  <PersonCardInner p={p} />
+
+                  {/* Home / set-focal control (top-left) */}
+                  {isFocal ? (
+                    <span className="absolute -top-2 -left-2 inline-flex items-center gap-1 rounded-full bg-brand-sage px-1.5 py-0.5 text-[10px] font-medium text-brand-bg">
+                      <Home className="w-2.5 h-2.5" /> Home
+                    </span>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFocal(id);
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="absolute -top-2 -left-2 flex items-center justify-center w-5 h-5 rounded-full bg-brand-card border border-brand-gold/30 text-brand-muted hover:text-brand-gold"
+                      title="Center the pedigree on this person"
+                    >
+                      <Target className="w-3 h-3" />
+                    </button>
+                  )}
+
+                  {/* Expand / collapse ancestors (right edge) */}
+                  {canExpand && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleExpand(id);
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="absolute top-1/2 -right-3 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full bg-brand-gold text-brand-bg shadow hover:bg-brand-gold-light"
+                      title={isExpanded ? 'Hide earlier generations' : 'Show earlier generations'}
+                    >
+                      {isExpanded ? <Minus className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
+
+                  {/* Off-line relatives dropdown */}
+                  {off.length > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenRelatives((o) => (o === id ? null : id));
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="absolute -bottom-2 right-3 inline-flex items-center gap-0.5 rounded-full bg-brand-card border border-brand-gold/30 px-1.5 py-0.5 text-[10px] text-brand-muted hover:text-brand-gold"
+                      title="Other relatives"
+                    >
+                      <ChevronDown className="w-3 h-3" /> {off.length}
+                    </button>
+                  )}
+
+                  {openRelatives === id && off.length > 0 && (
+                    <div
+                      className="absolute left-0 top-full mt-3 w-full rounded-xl border border-brand-gold/20 bg-brand-card shadow-lg p-1 z-50"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {off.map((r) => {
+                        const rel = byId.get(r.id);
+                        const Icon = REL_ICON[r.relation];
+                        return (
+                          <button
+                            key={r.id}
+                            onClick={() => {
+                              setSelectedId(r.id);
+                              setOpenRelatives(null);
+                            }}
+                            className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-brand-card-hover"
+                          >
+                            <Icon className="w-3 h-3 text-brand-gold shrink-0" />
+                            <span className="text-xs text-brand-cream truncate">
+                              {fullName(rel ?? ({} as TreeIndividual)) || 'Unnamed'}
+                            </span>
+                            <span className="text-[10px] text-brand-muted ml-auto capitalize">{r.relation}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
+              );
+            })
+          : individuals.map((p) => (
+              <div
+                key={p.id}
+                onPointerDown={(e) => onFreeCardPointerDown(e, p.id)}
+                className={cn(
+                  'absolute rounded-2xl border bg-brand-card px-3 py-2 shadow-sm cursor-grab active:cursor-grabbing transition-shadow',
+                  selectedId === p.id
+                    ? 'border-brand-gold ring-2 ring-brand-gold/40'
+                    : 'border-brand-gold/[0.15] hover:border-brand-gold/35'
+                )}
+                style={{ left: p.pos_x, top: p.pos_y, width: CARD_W, minHeight: CARD_H }}
+              >
+                <PersonCardInner p={p} />
               </div>
-              {p.birth_place && (
-                <p className="text-[11px] text-brand-muted truncate mt-1">{p.birth_place}</p>
-              )}
-              {p.archive_record_id && (
-                <span
-                  className="absolute -top-2 -right-2 flex items-center justify-center w-5 h-5 rounded-full bg-brand-sage text-brand-bg"
-                  title="Linked to an archive record"
-                >
-                  <Link2 className="w-3 h-3" />
-                </span>
-              )}
-            </div>
-          );
-        })}
+            ))}
       </div>
 
       {/* Empty state */}
