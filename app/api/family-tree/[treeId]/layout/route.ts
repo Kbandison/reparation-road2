@@ -38,7 +38,7 @@ export async function PATCH(
             Number.isFinite((p as PositionUpdate).x) &&
             Number.isFinite((p as PositionUpdate).y)
         )
-        .slice(0, 1000)
+        .slice(0, 5000)
     : [];
 
   if (positions.length === 0) return NextResponse.json({ ok: true, updated: 0 });

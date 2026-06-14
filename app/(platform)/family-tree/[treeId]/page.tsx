@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { TreeHeader } from '@/components/family-tree/tree-header';
 import { TreeCanvas } from '@/components/family-tree/tree-canvas';
+import { fetchAllRows } from '@/lib/family-tree/fetch-all';
 import type { FamilyTree, TreeIndividual, TreeRelationship } from '@/lib/types';
 
 export const metadata: Metadata = {
@@ -29,13 +30,9 @@ export default async function TreeBuilderPage({
 
   if (!tree) notFound();
 
-  const [{ data: individuals }, { data: relationships }] = await Promise.all([
-    supabase
-      .from('tree_individuals')
-      .select('*')
-      .eq('tree_id', treeId)
-      .order('created_at', { ascending: true }),
-    supabase.from('tree_relationships').select('*').eq('tree_id', treeId),
+  const [individuals, relationships] = await Promise.all([
+    fetchAllRows<TreeIndividual>(supabase, 'tree_individuals', { tree_id: treeId }, { orderBy: 'created_at' }),
+    fetchAllRows<TreeRelationship>(supabase, 'tree_relationships', { tree_id: treeId }),
   ]);
 
   return (
@@ -48,8 +45,8 @@ export default async function TreeBuilderPage({
       <div className="flex-1 min-h-0">
         <TreeCanvas
           tree={tree as FamilyTree}
-          initialIndividuals={(individuals as TreeIndividual[]) ?? []}
-          initialRelationships={(relationships as TreeRelationship[]) ?? []}
+          initialIndividuals={individuals}
+          initialRelationships={relationships}
         />
       </div>
     </div>

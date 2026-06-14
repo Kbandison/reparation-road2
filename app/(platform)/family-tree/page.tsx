@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/shared/page-header';
 import { TreeList, type TreeWithCount } from '@/components/family-tree/tree-list';
+import { fetchAllRows } from '@/lib/family-tree/fetch-all';
 import type { FamilyTree } from '@/lib/types';
 
 export const metadata: Metadata = {
@@ -20,14 +21,16 @@ export default async function FamilyTreePage() {
     .eq('user_id', user!.id)
     .order('updated_at', { ascending: false });
 
-  // One light query for per-tree people counts.
-  const { data: people } = await supabase
-    .from('tree_individuals')
-    .select('tree_id')
-    .eq('user_id', user!.id);
+  // Per-tree people counts (paged so trees over 1000 people count correctly).
+  const people = await fetchAllRows<{ tree_id: string }>(
+    supabase,
+    'tree_individuals',
+    { user_id: user!.id },
+    { select: 'tree_id' }
+  );
 
   const counts = new Map<string, number>();
-  for (const row of people ?? []) {
+  for (const row of people) {
     counts.set(row.tree_id, (counts.get(row.tree_id) ?? 0) + 1);
   }
 

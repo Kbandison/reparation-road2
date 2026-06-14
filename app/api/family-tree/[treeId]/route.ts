@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { fetchAllRows } from '@/lib/family-tree/fetch-all';
+import type { TreeIndividual, TreeRelationship } from '@/lib/types';
 
 // GET — the full graph for one tree (tree + individuals + relationships).
 export async function GET(
@@ -23,20 +25,12 @@ export async function GET(
     .maybeSingle();
   if (!tree) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const [{ data: individuals }, { data: relationships }] = await Promise.all([
-    supabase
-      .from('tree_individuals')
-      .select('*')
-      .eq('tree_id', treeId)
-      .order('created_at', { ascending: true }),
-    supabase.from('tree_relationships').select('*').eq('tree_id', treeId),
+  const [individuals, relationships] = await Promise.all([
+    fetchAllRows<TreeIndividual>(supabase, 'tree_individuals', { tree_id: treeId }, { orderBy: 'created_at' }),
+    fetchAllRows<TreeRelationship>(supabase, 'tree_relationships', { tree_id: treeId }),
   ]);
 
-  return NextResponse.json({
-    tree,
-    individuals: individuals ?? [],
-    relationships: relationships ?? [],
-  });
+  return NextResponse.json({ tree, individuals, relationships });
 }
 
 // PATCH — rename / re-describe a tree.
