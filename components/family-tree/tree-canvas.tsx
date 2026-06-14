@@ -188,19 +188,29 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     }
   }, [mode, fitTo]);
 
-  // Fit on mount and whenever the view's framing should reset.
-  const didFit = useRef(false);
+  // Frame the view on mount and when the focal person / mode changes. In
+  // pedigree mode we open at a readable zoom anchored on the home person
+  // (ancestors extend to the right) rather than zooming all the way out to fit
+  // everyone — the Fit button still does a full fit on demand.
   useEffect(() => {
-    if (!didFit.current && containerRef.current) {
-      didFit.current = true;
-      fitCurrent();
+    const el = containerRef.current;
+    if (!el) return;
+    if (mode === 'pedigree') {
+      const ped = pedigreeRef.current;
+      if (ped && focalId && ped.positions[focalId]) {
+        const scale = 0.9;
+        const fp = ped.positions[focalId];
+        setView({
+          scale,
+          x: el.clientWidth * 0.2 - fp.x * scale,
+          y: el.clientHeight / 2 - (fp.y + CARD_H / 2) * scale,
+        });
+        return;
+      }
     }
-  }, [fitCurrent]);
-
-  useEffect(() => {
     fitCurrent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, focalId, expanded]);
+  }, [mode, focalId]);
 
   // ── pointer drag / pan ────────────────────────────────────────────────
   useEffect(() => {

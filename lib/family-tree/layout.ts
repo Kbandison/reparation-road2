@@ -17,10 +17,10 @@ export interface Position {
 
 // Card footprint and the spacing between cards. Kept in one place so the canvas
 // renderer and the layout agree on geometry.
-export const CARD_W = 188;
+export const CARD_W = 200;
 export const CARD_H = 84;
-const COL_SPACING = 224;
-const ROW_SPACING = 168;
+const COL_SPACING = 256;
+const ROW_SPACING = 184;
 
 export function computeLayout(
   nodes: { id: string }[],
