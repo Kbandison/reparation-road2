@@ -23,7 +23,7 @@ export function TreeHeader({ tree }: { tree: FamilyTree }) {
   }
 
   return (
-    <div className="flex items-center gap-3 mb-4 min-w-0">
+    <div className="flex items-center gap-3 min-w-0">
       <Link
         href="/family-tree"
         className="inline-flex items-center gap-1 text-sm text-brand-muted hover:text-brand-cream transition-colors shrink-0"

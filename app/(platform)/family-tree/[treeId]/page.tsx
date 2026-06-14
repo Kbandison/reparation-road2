@@ -39,13 +39,19 @@ export default async function TreeBuilderPage({
   ]);
 
   return (
-    <>
-      <TreeHeader tree={tree as FamilyTree} />
-      <TreeCanvas
-        tree={tree as FamilyTree}
-        initialIndividuals={(individuals as TreeIndividual[]) ?? []}
-        initialRelationships={(relationships as TreeRelationship[]) ?? []}
-      />
-    </>
+    // Break out of the platform layout's centered, padded container so the
+    // canvas fills the whole area below the top nav and right of the sidebar.
+    <div className="fixed top-16 left-0 right-0 bottom-0 lg:left-[260px] flex flex-col bg-brand-bg">
+      <div className="shrink-0 border-b border-brand-gold/[0.08] px-4 md:px-6 py-3">
+        <TreeHeader tree={tree as FamilyTree} />
+      </div>
+      <div className="flex-1 min-h-0">
+        <TreeCanvas
+          tree={tree as FamilyTree}
+          initialIndividuals={(individuals as TreeIndividual[]) ?? []}
+          initialRelationships={(relationships as TreeRelationship[]) ?? []}
+        />
+      </div>
+    </div>
   );
 }

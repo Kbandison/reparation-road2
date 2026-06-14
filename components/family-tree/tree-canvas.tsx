@@ -361,10 +361,8 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     <div
       ref={containerRef}
       onPointerDown={onBackgroundPointerDown}
-      className="relative w-full overflow-hidden rounded-2xl border border-brand-gold/[0.1] bg-brand-bg select-none touch-none"
+      className="relative w-full h-full overflow-hidden bg-brand-bg select-none touch-none"
       style={{
-        height: 'calc(100vh - 230px)',
-        minHeight: 480,
         backgroundImage:
           'radial-gradient(circle, rgba(200,149,108,0.10) 1px, transparent 1px)',
         backgroundSize: `${24 * view.scale}px ${24 * view.scale}px`,
@@ -388,9 +386,9 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
         </button>
       </div>
 
-      {/* Zoom controls */}
+      {/* Zoom controls (bottom-left, clear of the floating assistant bubble) */}
       <div
-        className="absolute bottom-3 right-3 z-20 flex flex-col gap-2"
+        className="absolute bottom-3 left-3 z-20 flex flex-col gap-2"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <button className={iconBtn} onClick={() => zoomBy(1.2)} aria-label="Zoom in">
