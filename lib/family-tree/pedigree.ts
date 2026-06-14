@@ -8,8 +8,8 @@
 import type { TreeIndividual, TreeRelationship } from '@/lib/types';
 import { CARD_W, CARD_H } from './layout';
 
-export const PED_COL_X = 328; // horizontal gap between generations
-export const PED_ROW_Y = 132; // vertical gap between leaf ancestors
+export const PED_COL_X = 400; // horizontal gap between generations
+export const PED_ROW_Y = 164; // vertical gap between leaf ancestors
 export const DEFAULT_DEPTH = 5; // generations shown before the expand toggle
 
 export type RelationKind = 'spouse' | 'child' | 'parent' | 'relative';

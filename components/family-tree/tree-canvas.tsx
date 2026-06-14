@@ -65,21 +65,23 @@ function PersonCardInner({ p }: { p: TreeIndividual }) {
         : 'bg-brand-gold/15 text-brand-gold';
   return (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
         <div
           className={cn(
-            'w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0',
+            'w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0',
             sexClass
           )}
         >
           {initials(p)}
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-medium text-brand-cream truncate">{fullName(p) || 'Unnamed'}</p>
-          {lifespan(p) && <p className="text-[11px] text-brand-muted truncate">{lifespan(p)}</p>}
+          <p className="text-[15px] leading-tight font-medium text-brand-cream truncate">
+            {fullName(p) || 'Unnamed'}
+          </p>
+          {lifespan(p) && <p className="text-xs text-brand-muted truncate">{lifespan(p)}</p>}
         </div>
       </div>
-      {p.birth_place && <p className="text-[11px] text-brand-muted truncate mt-1">{p.birth_place}</p>}
+      {p.birth_place && <p className="text-xs text-brand-muted truncate mt-1.5">{p.birth_place}</p>}
       {p.archive_record_id && (
         <span
           className="absolute -top-2 -right-2 flex items-center justify-center w-5 h-5 rounded-full bg-brand-sage text-brand-bg"
@@ -198,7 +200,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     if (mode === 'pedigree') {
       const ped = pedigreeRef.current;
       if (ped && focalId && ped.positions[focalId]) {
-        const scale = 0.9;
+        const scale = 1;
         const fp = ped.positions[focalId];
         setView({
           scale,
@@ -594,7 +596,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => setSelectedId(id)}
                   className={cn(
-                    'absolute rounded-2xl border bg-brand-card px-3 py-2 shadow-sm cursor-pointer transition-shadow',
+                    'absolute rounded-2xl border bg-brand-card px-3.5 py-2.5 shadow-sm cursor-pointer transition-shadow',
                     selectedId === id
                       ? 'border-brand-gold ring-2 ring-brand-gold/40'
                       : isFocal
@@ -690,7 +692,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
                 key={p.id}
                 onPointerDown={(e) => onFreeCardPointerDown(e, p.id)}
                 className={cn(
-                  'absolute rounded-2xl border bg-brand-card px-3 py-2 shadow-sm cursor-grab active:cursor-grabbing transition-shadow',
+                  'absolute rounded-2xl border bg-brand-card px-3.5 py-2.5 shadow-sm cursor-grab active:cursor-grabbing transition-shadow',
                   selectedId === p.id
                     ? 'border-brand-gold ring-2 ring-brand-gold/40'
                     : 'border-brand-gold/[0.15] hover:border-brand-gold/35'
