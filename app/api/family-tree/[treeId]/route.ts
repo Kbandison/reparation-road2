@@ -59,6 +59,22 @@ export async function PATCH(
   if (typeof body.description === 'string') {
     updates.description = body.description.trim().slice(0, 500) || null;
   }
+  if ('home_person_id' in body) {
+    const hp = body.home_person_id;
+    if (hp === null) {
+      updates.home_person_id = null;
+    } else if (typeof hp === 'string') {
+      // Only accept a person who actually belongs to this tree.
+      const { data: person } = await supabase
+        .from('tree_individuals')
+        .select('id')
+        .eq('id', hp)
+        .eq('tree_id', treeId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (person) updates.home_person_id = hp;
+    }
+  }
 
   const { data, error } = await supabase
     .from('family_trees')

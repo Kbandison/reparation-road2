@@ -99,14 +99,21 @@ export async function POST(
   }));
 
   const xrefToId = new Map<string, string>();
+  const people: { id: string; given_name: string | null; surname: string | null; birth_date: string | null }[] = [];
   for (const part of chunk(rows, 500)) {
     const { data, error } = await supabase
       .from('tree_individuals')
       .insert(part)
-      .select('id, gedcom_xref');
+      .select('id, gedcom_xref, given_name, surname, birth_date');
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     for (const r of data ?? []) {
       if (r.gedcom_xref) xrefToId.set(r.gedcom_xref as string, r.id as string);
+      people.push({
+        id: r.id as string,
+        given_name: (r.given_name as string) ?? null,
+        surname: (r.surname as string) ?? null,
+        birth_date: (r.birth_date as string) ?? null,
+      });
     }
   }
 
@@ -143,5 +150,6 @@ export async function POST(
     added: rows.length,
     relationships: relRows.length,
     warnings: parsed.warnings,
+    people,
   });
 }

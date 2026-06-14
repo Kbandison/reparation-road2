@@ -107,9 +107,11 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
   const [importOpen, setImportOpen] = useState(false);
 
   const [mode, setMode] = useState<Mode>('pedigree');
-  const [focalId, setFocalId] = useState<string | null>(() =>
-    pickDefaultFocal(initialIndividuals, initialRelationships)
-  );
+  const [focalId, setFocalId] = useState<string | null>(() => {
+    const home = tree.home_person_id;
+    if (home && initialIndividuals.some((i) => i.id === home)) return home;
+    return pickDefaultFocal(initialIndividuals, initialRelationships);
+  });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openRelatives, setOpenRelatives] = useState<string | null>(null);
 
@@ -319,6 +321,12 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     setFocalId(id);
     setExpanded(new Set());
     setOpenRelatives(null);
+    // Remember the choice so it survives reloads and future sessions.
+    fetch(`/api/family-tree/${tree.id}`, {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ home_person_id: id }),
+    }).catch(() => {});
   }
 
   async function addPerson() {
@@ -409,7 +417,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     fitTo(Object.values(pos));
   }
 
-  async function reload() {
+  async function reload(homeId?: string) {
     const res = await fetch(`/api/family-tree/${tree.id}`);
     const data = await res.json();
     const inds: TreeIndividual[] = data.individuals ?? [];
@@ -418,7 +426,11 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     setRelationships(rels);
     setSelectedId(null);
     setExpanded(new Set());
-    setFocalId(pickDefaultFocal(inds, rels));
+    const persisted = data.tree?.home_person_id as string | null | undefined;
+    const home =
+      homeId ??
+      (persisted && inds.some((i) => i.id === persisted) ? persisted : pickDefaultFocal(inds, rels));
+    setFocalId(home);
   }
 
   // ── connectors ────────────────────────────────────────────────────────

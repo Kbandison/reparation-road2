@@ -167,6 +167,8 @@ export interface FamilyTree {
   user_id: string;
   name: string;
   description: string | null;
+  // The person the pedigree view centers on. Null falls back to an auto-pick.
+  home_person_id: string | null;
   created_at: string;
   updated_at: string;
 }
