@@ -56,8 +56,8 @@ export default async function CategoryPage({ params, searchParams }: Props) {
 
   // Fetch profiles and post counts separately for each thread
   const threadIds = (threads || []).map((t) => t.id);
-  let profilesMap: Record<string, { first_name: string | null; last_name: string | null }> = {};
-  let postCountMap: Record<string, number> = {};
+  const profilesMap: Record<string, { first_name: string | null; last_name: string | null }> = {};
+  const postCountMap: Record<string, number> = {};
 
   if (threadIds.length > 0) {
     // Fetch profiles for thread authors

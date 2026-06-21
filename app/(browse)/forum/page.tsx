@@ -110,6 +110,14 @@ export default async function ForumPage({ searchParams }: Props) {
             </Link>
           ))}
         </div>
+        {user && (
+          <Link
+            href="/forum/profile"
+            className="ml-auto text-xs text-brand-muted hover:text-brand-gold transition-colors"
+          >
+            My profile
+          </Link>
+        )}
       </div>
 
       {/* Category chips */}
