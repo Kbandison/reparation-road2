@@ -25,33 +25,53 @@ export function ModalRelatedRecords({
 }: ModalRelatedRecordsProps) {
   const [data, setData] = useState<RelatedResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refining, setRefining] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
-      setLoading(true);
-      setData(null);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const load = async (attempt: number) => {
+      if (attempt === 0) {
+        setLoading(true);
+        setRefining(false);
+        setData(null);
+      }
       try {
         const res = await fetch(
           `/api/related-records?recordId=${encodeURIComponent(recordId)}&tableName=${encodeURIComponent(tableName)}&collectionSlug=${encodeURIComponent(collectionSlug)}`,
         );
         const json = await res.json();
-        if (!cancelled) setData(json);
+        if (cancelled) return;
+        setData(json);
+        // 'pending' means AI is computing in the background; poll a few times so
+        // the matches appear without the user reopening the record.
+        if (json.source === 'pending' && attempt < 3) {
+          setRefining(true);
+          timer = setTimeout(() => load(attempt + 1), 9000);
+        } else {
+          setRefining(false);
+        }
       } catch {
-        if (!cancelled) setData({ curated: [], algorithmic: [] });
+        if (!cancelled) {
+          setData({ curated: [], algorithmic: [] });
+          setRefining(false);
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && attempt === 0) setLoading(false);
       }
     };
-    load();
+
+    load(0);
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [recordId, tableName, collectionSlug]);
 
-  // No results state
-  if (!loading && data && data.curated.length === 0 && data.algorithmic.length === 0) {
+  // No results state — but keep the section while AI is still computing.
+  if (!loading && !refining && data && data.curated.length === 0 && data.algorithmic.length === 0) {
     return null;
   }
 
@@ -75,6 +95,12 @@ export function ModalRelatedRecords({
               <span className="ml-1.5 text-brand-gold">({totalCount})</span>
             )}
           </p>
+          {refining && (
+            <span className="flex items-center gap-1 text-[10px] text-brand-gold/80">
+              <Sparkles className="w-3 h-3 animate-pulse" />
+              Finding more with AI…
+            </span>
+          )}
         </div>
       </button>
 

@@ -47,29 +47,37 @@ function tokenize(value: string): string[] {
   return value
     .split(/[\s,.;:()/\\[\]'"-]+/)
     .map((t) => t.replace(/[^\p{L}\p{N}]/gu, ''))
-    .filter((t) => t.length > 2 && !STOP_TOKENS.has(t.toLowerCase()));
+    // Drop short tokens, stop words, and pure numbers (years/counts are noise).
+    .filter((t) => t.length > 2 && !STOP_TOKENS.has(t.toLowerCase()) && !/^\d+$/.test(t));
 }
 
-// Pull the distinctive terms worth searching other collections for: the name
-// tokens plus any location-like values. Kept small — each term widens the OR.
+// Fields that never make useful search terms.
+const SKIP_TERM_FIELDS = new Set([
+  'id', 'slug', 'image_path', 'ocr_text', 'created_at', 'updated_at',
+  'embedding', 'tsv',
+]);
+
+// Pull the distinctive terms worth searching other collections for. Beyond the
+// name, this reads every SHORT identifier-like field (town, county,
+// head_of_family, occupation, etc.) — not long free-text like remarks, which
+// would over-broaden the search. So a record connected by town or another
+// field, not just its name, can still be found.
 function extractTerms(record: CollectionRecord, collection: Collection): string[] {
   const terms = new Set<string>();
 
   const title = getRecordTitle(record, collection);
   for (const t of tokenize(title)) terms.add(t);
 
-  const LOCATION_FIELDS = [
-    'county', 'state', 'city', 'parish', 'district', 'residence', 'place',
-    'birth_place', 'place_of_birth', 'location', 'region', 'port',
-  ];
-  for (const f of LOCATION_FIELDS) {
-    const v = record[f];
-    if (typeof v === 'string' && v.trim()) {
-      for (const t of tokenize(v)) terms.add(t);
-    }
+  for (const [key, value] of Object.entries(record)) {
+    if (SKIP_TERM_FIELDS.has(key)) continue;
+    if (typeof value !== 'string') continue;
+    const s = value.trim();
+    if (!s || s.length > 60) continue; // skip long free-text fields
+    for (const t of tokenize(s)) terms.add(t);
   }
 
-  return [...terms];
+  // Prefer the most distinctive (longest) terms when capping.
+  return [...terms].sort((a, b) => b.length - a.length);
 }
 
 // PostgREST OR values can't contain commas/parens unescaped — wrap unsafe
@@ -107,7 +115,7 @@ export async function retrieveCandidates(
   sourceRecord: CollectionRecord,
   opts: RetrievalOptions = {},
 ): Promise<RetrievalResult> {
-  const { perCollection = 6, maxCandidates = 60, maxTerms = 6 } = opts;
+  const { perCollection = 8, maxCandidates = 90, maxTerms = 8 } = opts;
 
   const sourceTitle = getRecordTitle(sourceRecord, sourceCollection);
   const terms = extractTerms(sourceRecord, sourceCollection).slice(0, maxTerms);
