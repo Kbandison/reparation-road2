@@ -3,9 +3,9 @@
 import { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
-import { X, ChevronLeft, ChevronRight, ArrowLeft, Loader2, ZoomIn } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ArrowLeft, Loader2, ZoomIn, ExternalLink } from 'lucide-react';
 import type { Collection, CollectionRecord } from '@/lib/types';
-import { buildImageUrl } from '@/lib/collections/helpers';
+import { buildImageUrl, isPdfPath } from '@/lib/collections/helpers';
 import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
 import { BookmarkButton } from '@/components/collection/bookmark-button';
 import { ModalRelatedRecords } from '@/components/collection/modal-related-records';
@@ -45,7 +45,9 @@ export function RecordModal({
   const activeRecord = overrideData?.record ?? record;
 
   const imagePath = (activeRecord.image_path as string) || (activeRecord.image_url as string);
+  const isPdf = isPdfPath(imagePath);
   // Archival scans are 20-35 MB raw — request width-capped transforms.
+  // (For PDFs buildImageUrl returns the raw object URL, which we embed.)
   const imageUrl = buildImageUrl(imagePath, { width: 1400 });
   const imageZoomUrl = buildImageUrl(imagePath, { width: 2400 });
   const ocrText = activeRecord.ocr_text as string | undefined;
@@ -189,24 +191,44 @@ export function RecordModal({
               {/* Left: Document Image */}
               <div className="md:w-1/2 flex-shrink-0 bg-brand-card/50 border-b md:border-b-0 md:border-r border-brand-gold/[0.06]">
                 <div className="p-4">
-                  <p className="text-[11px] text-brand-muted font-medium uppercase tracking-wide mb-2">
-                    Document Image
-                  </p>
-                  <button
-                    onClick={() => setImageZoom(true)}
-                    className="relative w-full aspect-[3/4] rounded-xl overflow-hidden bg-black group cursor-zoom-in"
-                  >
-                    <Image
-                      src={imageUrl!}
-                      alt={String(title)}
-                      fill
-                      className="object-contain"
-                      sizes="(max-width: 768px) 100vw, 50vw"
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] text-brand-muted font-medium uppercase tracking-wide">
+                      Document {isPdf ? 'PDF' : 'Image'}
+                    </p>
+                    {isPdf && (
+                      <a
+                        href={imageUrl!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-brand-gold hover:text-brand-gold-light"
+                      >
+                        <ExternalLink className="w-3 h-3" /> Open in new tab
+                      </a>
+                    )}
+                  </div>
+                  {isPdf ? (
+                    <iframe
+                      src={`${imageUrl!}#toolbar=0&view=FitH`}
+                      title={String(title)}
+                      className="w-full aspect-[3/4] rounded-xl bg-white border border-brand-gold/[0.08]"
                     />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                      <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
-                    </div>
-                  </button>
+                  ) : (
+                    <button
+                      onClick={() => setImageZoom(true)}
+                      className="relative w-full aspect-[3/4] rounded-xl overflow-hidden bg-black group cursor-zoom-in"
+                    >
+                      <Image
+                        src={imageUrl!}
+                        alt={String(title)}
+                        fill
+                        className="object-contain"
+                        sizes="(max-width: 768px) 100vw, 50vw"
+                      />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                        <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
+                      </div>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -295,7 +317,7 @@ export function RecordModal({
     </div>
   );
 
-  const zoomOverlay = imageZoom && imageUrl ? (
+  const zoomOverlay = imageZoom && imageUrl && !isPdf ? (
     <div
       className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 cursor-zoom-out"
       onClick={() => setImageZoom(false)}
