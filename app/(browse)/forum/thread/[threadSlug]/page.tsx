@@ -7,6 +7,16 @@ import { formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ReactionBar } from '@/components/forum/reaction-bar';
 import { ReplyEditor } from '@/components/forum/reply-editor';
+import { VoteButton } from '@/components/forum/vote-button';
+import { PostAttachments } from '@/components/forum/post-attachments';
+import { MessageSquare, Search, HelpCircle } from 'lucide-react';
+import type { ForumPostType } from '@/lib/types';
+
+const POST_TYPE_META: Record<ForumPostType, { label: string; icon: typeof Search; cls: string }> = {
+  discussion: { label: 'Discussion', icon: MessageSquare, cls: 'text-brand-muted' },
+  find: { label: 'Share a Find', icon: Search, cls: 'text-brand-gold' },
+  help: { label: 'Research Help', icon: HelpCircle, cls: 'text-brand-sage' },
+};
 
 interface Props {
   params: Promise<{ threadSlug: string }>;
@@ -40,6 +50,18 @@ export default async function ThreadPage({ params }: Props) {
   }
 
   if (!thread) notFound();
+
+  // The viewer's vote on this thread (for the vote button).
+  let myVote = 0;
+  if (user) {
+    const { data: voteRow } = await supabase
+      .from('forum_votes')
+      .select('value')
+      .eq('user_id', user.id)
+      .eq('thread_id', thread.id)
+      .maybeSingle();
+    myVote = voteRow?.value ?? 0;
+  }
 
   // Fetch category separately
   let category: { name: string; slug: string } | null = null;
@@ -118,6 +140,15 @@ export default async function ThreadPage({ params }: Props) {
         </Link>
       </div>
 
+      {(() => {
+        const tm = POST_TYPE_META[(thread.post_type as ForumPostType) ?? 'discussion'] ?? POST_TYPE_META.discussion;
+        const TypeIcon = tm.icon;
+        return (
+          <span className={`inline-flex items-center gap-1 text-xs mb-2 ${tm.cls}`}>
+            <TypeIcon className="w-3.5 h-3.5" /> {tm.label}
+          </span>
+        );
+      })()}
       <h1 className="font-display text-2xl md:text-3xl font-semibold text-brand-cream mb-2">
         {thread.title}
       </h1>
@@ -128,20 +159,33 @@ export default async function ThreadPage({ params }: Props) {
       </p>
 
       {/* Original post */}
-      <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Avatar className="w-8 h-8">
-            <AvatarFallback className="bg-brand-gold/10 text-brand-gold text-xs">{threadInitials}</AvatarFallback>
-          </Avatar>
-          <div>
-            <p className="text-sm font-medium text-brand-cream">{threadAuthor}</p>
-            <p className="text-xs text-brand-muted">
-              {formatDistanceToNow(new Date(thread.created_at), { addSuffix: true })}
-            </p>
-          </div>
+      <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mb-6 flex gap-4">
+        <div className="flex-shrink-0">
+          <VoteButton
+            threadId={thread.id}
+            initialCount={thread.vote_count ?? 0}
+            initialVote={myVote === 1 ? 1 : 0}
+            isSignedIn={!!user}
+          />
         </div>
-        <div className="text-sm text-brand-cream-muted leading-relaxed whitespace-pre-wrap">
-          {thread.content}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-3 mb-4">
+            <Avatar className="w-8 h-8">
+              <AvatarFallback className="bg-brand-gold/10 text-brand-gold text-xs">{threadInitials}</AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="text-sm font-medium text-brand-cream">{threadAuthor}</p>
+              <p className="text-xs text-brand-muted">
+                {formatDistanceToNow(new Date(thread.created_at), { addSuffix: true })}
+              </p>
+            </div>
+          </div>
+          <div className="text-sm text-brand-cream-muted leading-relaxed whitespace-pre-wrap">
+            {thread.content}
+          </div>
+          <div className="mt-4">
+            <PostAttachments attachedRecord={thread.attached_record} images={thread.image_urls} size="full" />
+          </div>
         </div>
       </div>
 
