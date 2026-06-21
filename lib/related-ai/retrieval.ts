@@ -14,8 +14,10 @@ import { getRecordTitle } from '@/lib/collections/helpers';
 // Columns that never carry meaningful match text.
 const SKIP_COLUMNS = new Set(['slug', 'image_path']);
 
-// OCR dumps are huge and noisy; searching them produces mostly false hits.
-const NOISY_COLUMNS = new Set(['ocr_text']);
+// ocr_text (raw scanned-page text) IS searched so a name handwritten in a
+// document gets matched — but its full content is never dumped into the judge
+// prompt (only a snippet around the match), since these can be huge.
+const SNIPPET_COLUMNS = new Set(['ocr_text']);
 
 const STOP_TOKENS = new Set([
   'jr', 'sr', 'i', 'ii', 'iii', 'iv', 'v', 'mr', 'mrs', 'ms', 'dr', 'esq',
@@ -88,7 +90,7 @@ async function getSearchableColumns(
   const { data } = await supabase.rpc('get_text_columns', { p_table_name: tableName });
   const cols = ((data as { column_name: string }[]) || [])
     .map((c) => c.column_name)
-    .filter((c) => !SKIP_COLUMNS.has(c) && !NOISY_COLUMNS.has(c));
+    .filter((c) => !SKIP_COLUMNS.has(c));
   textColumnCache.set(tableName, cols);
   return cols;
 }
@@ -154,13 +156,22 @@ export async function retrieveCandidates(
           const fields: Record<string, string> = {};
           for (const col of cols) {
             const val = row[col];
-            if (typeof val === 'string' && val.trim()) {
-              const lower = val.toLowerCase();
-              if (terms.some((t) => lower.includes(t.toLowerCase()))) {
-                matchedColumns.push(col);
+            if (typeof val !== 'string' || !val.trim()) continue;
+            const lower = val.toLowerCase();
+            const matchedTerm = terms.find((t) => lower.includes(t.toLowerCase()));
+            if (matchedTerm) matchedColumns.push(col);
+
+            if (SNIPPET_COLUMNS.has(col)) {
+              // Only surface a window around the match for huge text dumps.
+              if (matchedTerm) {
+                const idx = lower.indexOf(matchedTerm.toLowerCase());
+                const start = Math.max(0, idx - 80);
+                const snippet = val.slice(start, idx + matchedTerm.length + 120).trim();
+                fields[col] = `${start > 0 ? '…' : ''}${snippet}…`;
               }
-              if (Object.keys(fields).length < 8) fields[col] = val.slice(0, 240);
+              continue;
             }
+            if (Object.keys(fields).length < 8) fields[col] = val.slice(0, 240);
           }
           return {
             table: c.table_name!,
