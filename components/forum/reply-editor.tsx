@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -38,29 +37,26 @@ export function ReplyEditor({ threadId, isLoggedIn = false }: ReplyEditorProps) 
     if (!content.trim()) return;
 
     setLoading(true);
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      toast.error('You must be logged in to reply');
-      setLoading(false);
-      return;
-    }
-
-    const { error } = await supabase.from('forum_posts').insert({
-      thread_id: threadId,
-      user_id: user.id,
-      content: content.trim(),
-    });
-
-    if (error) {
+    try {
+      // Routed through the API so the reply also fans out notifications to the
+      // thread author, followers, and @mentioned users.
+      const res = await fetch('/api/forum/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thread_id: threadId, content: content.trim() }),
+      });
+      if (!res.ok) {
+        toast.error('Failed to post reply');
+      } else {
+        setContent('');
+        toast.success('Reply posted');
+        router.refresh();
+      }
+    } catch {
       toast.error('Failed to post reply');
-    } else {
-      setContent('');
-      toast.success('Reply posted');
-      router.refresh();
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   return (

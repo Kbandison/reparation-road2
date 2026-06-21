@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createNotifications } from '@/lib/forum/notify';
 
 // POST — set the viewer's vote on a thread. Body: { thread_id, value: 1 | 0 }
 // (0 clears the vote). Keeps forum_threads.vote_count in sync. Returns the new
@@ -68,6 +69,27 @@ export async function POST(request: NextRequest) {
   const voteCount = count ?? 0;
 
   await admin.from('forum_threads').update({ vote_count: voteCount }).eq('id', threadId);
+
+  // Tell the author when their post is upvoted (best-effort).
+  if (want) {
+    try {
+      const { data: thread } = await admin
+        .from('forum_threads')
+        .select('user_id')
+        .eq('id', threadId)
+        .maybeSingle();
+      if (thread?.user_id) {
+        await createNotifications(admin, {
+          recipients: [thread.user_id],
+          actorId: user.id,
+          type: 'vote',
+          threadId,
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   return NextResponse.json({ voteCount, myVote: want ? 1 : 0 });
 }

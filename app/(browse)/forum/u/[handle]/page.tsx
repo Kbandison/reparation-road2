@@ -5,6 +5,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { createClient } from '@/lib/supabase/server';
 import { Avatar } from '@/components/forum/avatar';
 import { ProfileEditButton } from '@/components/forum/profile-edit-button';
+import { FollowButton } from '@/components/forum/follow-button';
 import { deriveBadges } from '@/lib/forum/badges';
 import { Award, MessageSquare, ArrowBigUp, MapPin, Users } from 'lucide-react';
 import type { Profile, ForumThread } from '@/lib/types';
@@ -59,6 +60,18 @@ export default async function ProfilePage({ params }: Props) {
   const isOwn = user?.id === profile.id;
   const name = displayName(profile);
 
+  let followingUser = false;
+  if (user && !isOwn) {
+    const { data: followRow } = await supabase
+      .from('forum_follows')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('target_type', 'user')
+      .eq('target_id', profile.id)
+      .maybeSingle();
+    followingUser = !!followRow;
+  }
+
   return (
     <>
       <div className="mb-4">
@@ -77,7 +90,17 @@ export default async function ProfilePage({ params }: Props) {
                 <h1 className="font-display text-2xl font-semibold text-brand-cream truncate">{name}</h1>
                 {profile.handle && <p className="text-sm text-brand-muted">@{profile.handle}</p>}
               </div>
-              {isOwn && <ProfileEditButton profile={profile} />}
+              {isOwn ? (
+                <ProfileEditButton profile={profile} />
+              ) : (
+                <FollowButton
+                  targetType="user"
+                  targetId={profile.id}
+                  initialFollowing={followingUser}
+                  isSignedIn={!!user}
+                  variant="user"
+                />
+              )}
             </div>
 
             {profile.bio && <p className="text-sm text-brand-cream/90 mt-3 leading-relaxed">{profile.bio}</p>}
