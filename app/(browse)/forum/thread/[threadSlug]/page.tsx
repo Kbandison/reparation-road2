@@ -9,6 +9,7 @@ import { ReactionBar } from '@/components/forum/reaction-bar';
 import { ReplyEditor } from '@/components/forum/reply-editor';
 import { VoteButton } from '@/components/forum/vote-button';
 import { PostAttachments } from '@/components/forum/post-attachments';
+import { FollowButton } from '@/components/forum/follow-button';
 import { MessageSquare, Search, HelpCircle } from 'lucide-react';
 import type { ForumPostType } from '@/lib/types';
 
@@ -51,16 +52,22 @@ export default async function ThreadPage({ params }: Props) {
 
   if (!thread) notFound();
 
-  // The viewer's vote on this thread (for the vote button).
+  // The viewer's vote + follow state on this thread.
   let myVote = 0;
+  let followingThread = false;
   if (user) {
-    const { data: voteRow } = await supabase
-      .from('forum_votes')
-      .select('value')
-      .eq('user_id', user.id)
-      .eq('thread_id', thread.id)
-      .maybeSingle();
+    const [{ data: voteRow }, { data: followRow }] = await Promise.all([
+      supabase.from('forum_votes').select('value').eq('user_id', user.id).eq('thread_id', thread.id).maybeSingle(),
+      supabase
+        .from('forum_follows')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('target_type', 'thread')
+        .eq('target_id', thread.id)
+        .maybeSingle(),
+    ]);
     myVote = voteRow?.value ?? 0;
+    followingThread = !!followRow;
   }
 
   // Fetch category separately
@@ -149,9 +156,20 @@ export default async function ThreadPage({ params }: Props) {
           </span>
         );
       })()}
-      <h1 className="font-display text-2xl md:text-3xl font-semibold text-brand-cream mb-2">
-        {thread.title}
-      </h1>
+      <div className="flex items-start justify-between gap-4 mb-2">
+        <h1 className="font-display text-2xl md:text-3xl font-semibold text-brand-cream">
+          {thread.title}
+        </h1>
+        <div className="flex-shrink-0 pt-1">
+          <FollowButton
+            targetType="thread"
+            targetId={thread.id}
+            initialFollowing={followingThread}
+            isSignedIn={!!user}
+            variant="thread"
+          />
+        </div>
+      </div>
       <p className="text-sm text-brand-muted mb-8">
         by {threadAuthor} &middot;{' '}
         {formatDistanceToNow(new Date(thread.created_at), { addSuffix: true })} &middot;{' '}

@@ -7,6 +7,7 @@ import { MessageSquare, Flame, Clock, TrendingUp, PenLine } from 'lucide-react';
 import { getFeed } from '@/lib/forum/feed';
 import { PostCard } from '@/components/forum/post-card';
 import { Avatar } from '@/components/forum/avatar';
+import { NotificationBell } from '@/components/forum/notification-bell';
 import type { FeedSort } from '@/lib/types';
 
 export const metadata: Metadata = {
@@ -111,12 +112,15 @@ export default async function ForumPage({ searchParams }: Props) {
           ))}
         </div>
         {user && (
-          <Link
-            href="/forum/profile"
-            className="ml-auto text-xs text-brand-muted hover:text-brand-gold transition-colors"
-          >
-            My profile
-          </Link>
+          <div className="ml-auto flex items-center gap-3">
+            <Link
+              href="/forum/profile"
+              className="text-xs text-brand-muted hover:text-brand-gold transition-colors"
+            >
+              My profile
+            </Link>
+            <NotificationBell />
+          </div>
         )}
       </div>
 
