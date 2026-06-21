@@ -70,7 +70,11 @@ Confidence calibration — use the FULL 0–1 range; do NOT cluster everything l
 - 0.45–0.65: plausible lead worth surfacing — a period name-variant match, or the same distinctive place/era with some supporting detail.
 - below 0.45: weak or "none".
 
-Researchers WANT plausible leads to follow, not only certainties — surface genuine connections, don't suppress them. But a shared COMMON place alone ("Creek Nation", "Georgia", a state/nation) or a shared common given name alone is NOT a relationship — score those below 0.45 or "none". Reserve confidence for distinctive evidence: surnames, full names, specific localities, dates, explicit roles.
+Researchers WANT plausible leads to follow, not only certainties — surface genuine connections, don't suppress them.
+
+Critically, sharing only a PLACE is not a relationship — not a state or nation, and not even a specific town or locality. Two people both living in Chehawah, or both in a given county, are NOT related on that basis. Score "same_place" at most 0.40 (so it stays below the publish bar) UNLESS there is additional distinctive evidence tying the two — a shared surname, a family link, the same transaction or household, or an explicit role. A shared common given name alone is likewise not enough.
+
+Reserve real confidence for distinctive evidence: surnames, full names, explicit roles (enslaver/enslaved, parent/child), the same documented event, dates.
 
 Return a verdict for EVERY candidate.`;
 

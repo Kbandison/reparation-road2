@@ -23,6 +23,14 @@ const STOP_TOKENS = new Set([
   'jr', 'sr', 'i', 'ii', 'iii', 'iv', 'v', 'mr', 'mrs', 'ms', 'dr', 'esq',
   'the', 'of', 'and', 'a', 'an', 'unknown', 'unk', 'illegible', 'illegilbe',
   'negro', 'negroes', 'slave', 'enslaved', 'child', 'infant', 'son', 'daughter',
+  // Common archival descriptors — these appear in a huge share of records, so
+  // searching on them floods the candidate pool and drowns out distinctive
+  // matches (names, places). Term extraction must key on what's distinctive.
+  'free', 'black', 'white', 'colored', 'coloured', 'mulatto', 'mulattoe',
+  'male', 'female', 'man', 'woman', 'men', 'women', 'boy', 'girl',
+  'person', 'persons', 'people', 'family', 'families', 'head', 'household',
+  'widow', 'widower', 'deceased', 'late', 'junior', 'senior', 'wife', 'husband',
+  'aged', 'age', 'years', 'old', 'about', 'named', 'name', 'his', 'her', 'their',
 ]);
 
 export interface Candidate {
