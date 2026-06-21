@@ -115,7 +115,11 @@ export async function retrieveCandidates(
   sourceRecord: CollectionRecord,
   opts: RetrievalOptions = {},
 ): Promise<RetrievalResult> {
-  const { perCollection = 8, maxCandidates = 90, maxTerms = 8 } = opts;
+  // perCollection is the DB fetch ceiling per table; the global pool is then
+  // ranked by how many columns matched and capped at maxCandidates, so the
+  // most relevant records (matching name AND remarks, say) survive even when a
+  // single collection has many term hits.
+  const { perCollection = 20, maxCandidates = 80, maxTerms = 8 } = opts;
 
   const sourceTitle = getRecordTitle(sourceRecord, sourceCollection);
   const terms = extractTerms(sourceRecord, sourceCollection).slice(0, maxTerms);

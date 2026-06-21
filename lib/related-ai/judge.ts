@@ -108,17 +108,21 @@ export async function judgeCandidates(
   opts: JudgeOptions = {},
 ): Promise<Verdict[]> {
   if (candidates.length === 0) return [];
-  const { batchSize = 20 } = opts;
+  // Smaller batches give the model more attention per candidate (a genuine
+  // match doesn't get diluted among 20 others).
+  const { batchSize = 12 } = opts;
 
   const sourceBlock = compactRecord(sourceRecord, sourceCollection);
-  const verdicts: Verdict[] = [];
 
+  const batches: Candidate[][] = [];
   for (let i = 0; i < candidates.length; i += batchSize) {
-    const batch = candidates.slice(i, i + batchSize);
+    batches.push(candidates.slice(i, i + batchSize));
+  }
+
+  const judgeBatch = async (batch: Candidate[]): Promise<Verdict[]> => {
     const prompt = `SOURCE RECORD:\n${sourceBlock}\n\nCANDIDATE RECORDS (${batch.length}):\n\n${batch
       .map((c, idx) => `--- Candidate ${idx + 1} ---\n${describeCandidate(c)}`)
       .join('\n\n')}\n\nReturn a verdict for every candidate by its id.`;
-
     try {
       const { object } = await generateObject({
         model: anthropic(JUDGE_MODEL),
@@ -126,22 +130,24 @@ export async function judgeCandidates(
         system: SYSTEM,
         prompt,
       });
-
       const valid = new Set(batch.map((c) => c.id));
-      for (const v of object.verdicts) {
-        if (!valid.has(v.candidate_id)) continue;
-        verdicts.push({
+      return object.verdicts
+        .filter((v) => valid.has(v.candidate_id))
+        .map((v) => ({
           candidateId: v.candidate_id,
           relationshipType: v.relationship_type,
           confidence: v.confidence,
           reasoning: v.reasoning,
-        });
-      }
+        }));
     } catch {
       // A failed batch yields no verdicts for those candidates rather than
       // failing the whole run.
+      return [];
     }
-  }
+  };
 
-  return verdicts;
+  // Batches are independent — run them concurrently so the whole judging pass
+  // fits comfortably inside the background compute window.
+  const results = await Promise.all(batches.map(judgeBatch));
+  return results.flat();
 }
