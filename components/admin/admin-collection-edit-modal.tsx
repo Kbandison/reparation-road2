@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ColumnManager } from '@/components/admin/column-manager';
 import type { Collection } from '@/lib/types';
 
 interface AdminCollectionEditModalProps {
@@ -25,6 +26,12 @@ export function AdminCollectionEditModal({
   const [sortOrder, setSortOrder] = useState<string>(String(collection.sort_order ?? 0));
   const [titleColumnsRaw, setTitleColumnsRaw] = useState<string>(
     (collection.title_columns || []).join(', '),
+  );
+  const [displayColumns, setDisplayColumns] = useState<string[]>(
+    collection.display_columns || [],
+  );
+  const [searchColumns, setSearchColumns] = useState<string[]>(
+    collection.search_columns || [],
   );
 
   const [saving, setSaving] = useState(false);
@@ -94,6 +101,8 @@ export function AdminCollectionEditModal({
       long_description: longDescription.trim() || null,
       sort_order: Number.isFinite(parsedSort) ? parsedSort : collection.sort_order,
       title_columns: titleColumns.length > 0 ? titleColumns : null,
+      display_columns: displayColumns,
+      search_columns: searchColumns,
     };
 
     try {
@@ -213,6 +222,27 @@ export function AdminCollectionEditModal({
               Leave blank to use the default heuristic.
             </p>
           </div>
+
+          {collection.table_name && (
+            <div className="space-y-3 border-t border-brand-gold/[0.08] pt-4">
+              <div>
+                <Label>Columns</Label>
+                <p className="text-[11px] text-brand-muted mt-1">
+                  Every column in <span className="font-mono">{collection.table_name}</span> is
+                  listed below. Choose which appear for users and in what order.
+                </p>
+              </div>
+              <ColumnManager
+                tableName={collection.table_name}
+                displayColumns={displayColumns}
+                searchColumns={searchColumns}
+                onChange={({ displayColumns: d, searchColumns: s }) => {
+                  setDisplayColumns(d);
+                  setSearchColumns(s);
+                }}
+              />
+            </div>
+          )}
 
           <div className="space-y-2 border-t border-brand-gold/[0.08] pt-4">
             <Label>Sort Order</Label>
