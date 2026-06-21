@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, ChevronUp, ChevronDown, Plus, X, Eye, Search } from 'lucide-react';
+import { Loader2, ChevronUp, ChevronDown, Eye, EyeOff, Search } from 'lucide-react';
 
 interface ColumnManagerProps {
   tableName: string;
@@ -102,7 +102,7 @@ export function ColumnManager({
 
         {displayColumns.length === 0 ? (
           <p className="text-[11px] text-brand-muted">
-            No columns selected — records will show with default formatting. Add columns below.
+            No columns shown — records will use default formatting. Show columns from the list below.
           </p>
         ) : (
           <div className="space-y-1">
@@ -134,10 +134,11 @@ export function ColumnManager({
                 <button
                   type="button"
                   onClick={() => removeDisplay(col)}
-                  className="p-0.5 text-brand-muted hover:text-brand-burgundy-light"
-                  aria-label={`Remove ${col}`}
+                  className="p-0.5 text-brand-gold hover:text-brand-muted"
+                  aria-label={`Hide ${col}`}
+                  title="Hide from display"
                 >
-                  <X className="w-4 h-4" />
+                  <Eye className="w-4 h-4" />
                 </button>
               </div>
             ))}
@@ -145,21 +146,25 @@ export function ColumnManager({
         )}
       </div>
 
-      {/* Available columns — click to add to display */}
+      {/* Hidden columns — click the eye to show them */}
       {available.length > 0 && (
         <div className="space-y-2">
-          <span className="text-[11px] text-brand-muted uppercase tracking-wide">
-            Available columns
-          </span>
+          <div className="flex items-center gap-1.5">
+            <EyeOff className="w-3.5 h-3.5 text-brand-muted" />
+            <span className="text-[11px] text-brand-muted uppercase tracking-wide">
+              Hidden columns
+            </span>
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {available.map((col) => (
               <button
                 key={col}
                 type="button"
                 onClick={() => addDisplay(col)}
-                className="inline-flex items-center gap-1 bg-brand-card border border-brand-gold/[0.12] rounded-lg px-2 py-1 text-xs text-brand-cream font-mono hover:border-brand-gold/35 transition-colors"
+                className="inline-flex items-center gap-1 bg-brand-card border border-brand-gold/[0.12] rounded-lg px-2 py-1 text-xs text-brand-muted font-mono hover:text-brand-cream hover:border-brand-gold/35 transition-colors"
+                title="Show in display"
               >
-                <Plus className="w-3 h-3 text-brand-gold" /> {col}
+                <EyeOff className="w-3 h-3" /> {col}
               </button>
             ))}
           </div>
