@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import type { Collection, CollectionRecord } from '@/lib/types';
-import { buildImageUrl, getRecordTitle } from '@/lib/collections/helpers';
+import { FileText } from 'lucide-react';
+import { buildImageUrl, getRecordTitle, isPdfPath } from '@/lib/collections/helpers';
 import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
 import { trackActivity } from '@/lib/hooks/use-activity';
 import { RecordModal } from '@/components/collection/record-modal';
@@ -36,7 +37,10 @@ export function BookGrid({ collection, records }: BookGridProps) {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {records.map((record, idx) => {
           const imagePath = (record.image_path as string) || (record.image_url as string);
-          const imageUrl = buildImageUrl(imagePath, { width: 600 });
+          const isPdf = isPdfPath(imagePath);
+          // PDFs can't be thumbnailed via the transform endpoint; show a
+          // document placeholder. The modal renders the actual PDF on click.
+          const imageUrl = isPdf ? null : buildImageUrl(imagePath, { width: 600 });
           const label = columns
             .map((col) => record[col])
             .filter(Boolean)
@@ -59,6 +63,11 @@ export function BookGrid({ collection, records }: BookGridProps) {
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
                       sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                     />
+                  ) : isPdf ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-brand-muted">
+                      <FileText className="w-8 h-8 text-brand-gold/70" />
+                      <span className="text-xs">PDF document</span>
+                    </div>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-brand-muted text-xs">
                       No image

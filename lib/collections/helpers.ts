@@ -11,6 +11,16 @@ interface ImageUrlOptions {
 }
 
 /**
+ * True when a stored media path is a PDF. PDFs can't go through Supabase's
+ * image transform endpoint (it returns 400) and won't render in an <img>, so
+ * callers display them in an <iframe> instead. Tolerates a trailing query
+ * string (e.g. a signed URL).
+ */
+export function isPdfPath(path: string | null | undefined): boolean {
+  return !!path && /\.pdf(?:$|\?)/i.test(path);
+}
+
+/**
  * Resolves a record's `image_path` to a displayable URL. Passing a `width`
  * routes through Supabase's on-the-fly image transform endpoint, which is
  * essential for the archival scans — originals run 20-35 MB each, far too
@@ -35,7 +45,9 @@ export function buildImageUrl(
     url = `${SUPABASE_URL}${OBJECT_SEGMENT}${encoded}`;
   }
 
-  if (!options?.width) return url;
+  // PDFs aren't supported by the image transform endpoint — always hand back
+  // the raw object URL so it can be embedded in an <iframe>.
+  if (!options?.width || isPdfPath(imagePath)) return url;
 
   const params = new URLSearchParams({
     width: String(options.width),
