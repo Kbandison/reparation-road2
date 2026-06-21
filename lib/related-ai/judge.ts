@@ -60,11 +60,19 @@ Judge carefully:
 - "enslaver_enslaved": one record's person is named as enslaver/owner of the other.
 - "same_household"/"same_event"/"same_place": appear together in the same household, transaction, or locale.
 - "associated": clearly connected but none of the above.
-- "none": no real relationship (most candidates will be this — say so honestly).
+- "none": no real relationship.
 
 A candidate matched because the source's name appears in one of its fields (e.g. a name appearing in another record's remarks). Weigh WHICH field matched and whether it's meaningful.
 
-Return a verdict for EVERY candidate. Be conservative with confidence — only go above 0.7 when the evidence is genuinely strong.`;
+Confidence calibration — use the FULL 0–1 range; do NOT cluster everything low:
+- 0.85–1.0: near-certain — the same person with corroborating name + place/date, or an explicit enslaver/enslaved naming.
+- 0.65–0.85: strong lead — shared surname + shared place, a clear family/household link, or the same distinctive event.
+- 0.45–0.65: plausible lead worth surfacing — a period name-variant match, or the same distinctive place/era with some supporting detail.
+- below 0.45: weak or "none".
+
+Researchers WANT plausible leads to follow, not only certainties — surface genuine connections, don't suppress them. But a shared COMMON place alone ("Creek Nation", "Georgia", a state/nation) or a shared common given name alone is NOT a relationship — score those below 0.45 or "none". Reserve confidence for distinctive evidence: surnames, full names, specific localities, dates, explicit roles.
+
+Return a verdict for EVERY candidate.`;
 
 function compactRecord(record: CollectionRecord, collection: Collection): string {
   const skip = new Set(['id', 'slug', 'image_path', 'ocr_text', 'created_at', 'updated_at', 'embedding', 'tsv']);

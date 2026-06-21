@@ -9,7 +9,11 @@ const MODE_KEY = 'related_records_mode';
 const CUTOFF_KEY = 'related_records_confidence';
 
 export const DEFAULT_MODE: RelatedRecordsMode = 'algorithmic';
-export const DEFAULT_CUTOFF = 0.7;
+// Archival matches are often circumstantial, so the publish bar sits lower than
+// a generic 0.7 — this matches the judge's "plausible lead worth surfacing"
+// band (0.45+). Researchers want leads to follow, not only certainties; the
+// admin slider tunes precision/recall from here.
+export const DEFAULT_CUTOFF = 0.45;
 
 async function getSetting<T>(
   supabase: SupabaseClient,

@@ -165,9 +165,12 @@ export async function GET(request: NextRequest) {
     const cutoff = await getConfidenceCutoff(supabase);
 
     if (await hasComputed(supabase, recordId)) {
-      const rows = await getCachedMatches(supabase, recordId, { publishedOnly: true });
+      // Filter by the CURRENT cutoff at read time (not the baked-in is_published
+      // flag), so adjusting the cutoff resurfaces already-computed matches with
+      // no recompute.
+      const rows = await getCachedMatches(supabase, recordId);
       const algorithmic = rows
-        .filter((r) => !curatedIds.has(r.target_record_id))
+        .filter((r) => r.confidence >= cutoff && !curatedIds.has(r.target_record_id))
         .map(aiMatchToAlgorithmic);
       return NextResponse.json({ curated, algorithmic, mode: 'ai', source: 'ai' });
     }
