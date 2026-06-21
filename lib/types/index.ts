@@ -11,8 +11,37 @@ export interface Profile {
   subscription_period_start: string | null;
   subscription_period_end: string | null;
   subscription_cancel_at_period_end: boolean;
+  // Forum identity (present once the migration is run; default-safe otherwise).
+  handle?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
+  bio?: string | null;
+  research_surnames?: string[] | null;
+  research_regions?: string[] | null;
+  karma?: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface ForumNotification {
+  id: string;
+  user_id: string;
+  actor_id: string | null;
+  type: 'reply' | 'reaction' | 'mention' | 'vote' | 'follow';
+  thread_id: string | null;
+  post_id: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export type ForumFollowTarget = 'thread' | 'user' | 'surname';
+
+export interface ForumFollow {
+  id: string;
+  user_id: string;
+  target_type: ForumFollowTarget;
+  target_id: string;
+  created_at: string;
 }
 
 export interface Collection {
@@ -78,6 +107,15 @@ export interface ForumCategory {
   created_at: string;
 }
 
+export type ForumPostType = 'discussion' | 'find' | 'help';
+
+// A record attached to a forum post (the "Share a Find" hook).
+export interface ForumAttachedRecord {
+  collection_slug: string;
+  record_id: string;
+  title: string;
+}
+
 export interface ForumThread {
   id: string;
   category_id: string;
@@ -88,10 +126,38 @@ export interface ForumThread {
   is_pinned: boolean;
   is_locked: boolean;
   view_count: number;
+  // Social fields (present once the migration is run; default-safe otherwise).
+  vote_count?: number;
+  image_urls?: string[] | null;
+  attached_record?: ForumAttachedRecord | null;
+  tags?: string[] | null;
+  post_type?: ForumPostType | null;
   created_at: string;
   updated_at: string;
   profiles?: Pick<Profile, 'first_name' | 'last_name' | 'email'>;
   forum_posts?: { count: number }[];
+}
+
+export interface ForumAuthor {
+  id: string;
+  displayName: string;
+  handle: string | null;
+  avatarUrl: string | null;
+}
+
+export type FeedSort = 'hot' | 'new' | 'top';
+
+// A thread as it appears in the feed, with the derived presentation data the
+// list needs (author, counts, the viewer's vote, hot score).
+export interface FeedItem {
+  thread: ForumThread;
+  author: ForumAuthor;
+  categorySlug: string;
+  categoryName: string;
+  replyCount: number;
+  voteCount: number;
+  myVote: number; // -1 | 0 | 1
+  hotScore: number;
 }
 
 export interface ForumPost {
