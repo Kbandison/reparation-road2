@@ -79,7 +79,7 @@ export default async function ThreadPage({ params }: Props) {
 
   // Fetch profiles for post authors separately
   const postUserIds = [...new Set((posts || []).map((p) => p.user_id))];
-  let postProfilesMap: Record<string, { first_name: string | null; last_name: string | null; email: string | null }> = {};
+  const postProfilesMap: Record<string, { first_name: string | null; last_name: string | null; email: string | null }> = {};
   if (postUserIds.length > 0) {
     const { data: profiles } = await supabase
       .from('profiles')
