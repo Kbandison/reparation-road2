@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Star, Sparkles } from 'lucide-react';
-import type { RelatedRecordsResponse, RelatedRecord } from '@/lib/types';
+import type { RelatedRecordsResponse, RelatedRecord, AlgorithmicMatch } from '@/lib/types';
+
+// The endpoint also reports which matcher produced the algorithmic list.
+type RelatedResponse = RelatedRecordsResponse & {
+  mode?: 'ai' | 'algorithmic';
+  source?: 'ai' | 'pending' | 'algorithmic';
+};
 
 interface ModalRelatedRecordsProps {
   recordId: string;
@@ -17,30 +23,31 @@ export function ModalRelatedRecords({
   collectionSlug,
   onNavigate,
 }: ModalRelatedRecordsProps) {
-  const [data, setData] = useState<RelatedRecordsResponse | null>(null);
+  const [data, setData] = useState<RelatedResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setData(null);
-
-    fetch(
-      `/api/related-records?recordId=${encodeURIComponent(recordId)}&tableName=${encodeURIComponent(tableName)}&collectionSlug=${encodeURIComponent(collectionSlug)}`
-    )
-      .then((r) => r.json())
-      .then((res) => {
-        if (!cancelled) setData(res);
-      })
-      .catch(() => {
+    const load = async () => {
+      setLoading(true);
+      setData(null);
+      try {
+        const res = await fetch(
+          `/api/related-records?recordId=${encodeURIComponent(recordId)}&tableName=${encodeURIComponent(tableName)}&collectionSlug=${encodeURIComponent(collectionSlug)}`,
+        );
+        const json = await res.json();
+        if (!cancelled) setData(json);
+      } catch {
         if (!cancelled) setData({ curated: [], algorithmic: [] });
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
-
-    return () => { cancelled = true; };
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, [recordId, tableName, collectionSlug]);
 
   // No results state
@@ -91,37 +98,95 @@ export function ModalRelatedRecords({
                 />
               ))}
 
-              {/* Algorithmic matches */}
+              {/* Algorithmic / AI matches */}
               {data?.algorithmic.map((match) => (
-                <button
+                <AlgorithmicItem
                   key={`${match.collectionSlug}-${match.id}`}
-                  onClick={() => onNavigate(match.collectionSlug, match.slug)}
-                  className="w-full flex items-start gap-3 py-2.5 px-3 rounded-xl hover:bg-brand-card transition-colors text-left group"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-brand-muted mt-0.5 flex-shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-brand-cream group-hover:text-brand-gold transition-colors truncate">
-                      {match.name}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                      <span className="text-xs text-brand-muted">{match.collectionName}</span>
-                      {match.matchReasons.map((reason) => (
-                        <span
-                          key={reason}
-                          className="text-[10px] px-1.5 py-0.5 rounded-md bg-brand-sage/10 text-brand-sage"
-                        >
-                          {reason}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </button>
+                  match={match}
+                  isAi={data?.mode === 'ai'}
+                  onNavigate={onNavigate}
+                />
               ))}
             </div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function AlgorithmicItem({
+  match,
+  isAi,
+  onNavigate,
+}: {
+  match: AlgorithmicMatch;
+  isAi: boolean;
+  onNavigate: (collectionSlug: string, recordId: string) => void;
+}) {
+  // In AI mode, score is a 0–100 confidence and matchReasons = [type, reason].
+  const [typeLabel, ...rest] = match.matchReasons;
+  const reasoning = rest.join(' ');
+  const confidence = Math.max(0, Math.min(100, Math.round(match.score)));
+  const confidenceClass =
+    confidence >= 80
+      ? 'bg-brand-sage/15 text-brand-sage'
+      : confidence >= 60
+        ? 'bg-brand-gold/15 text-brand-gold'
+        : 'bg-brand-muted/15 text-brand-muted';
+
+  return (
+    <button
+      onClick={() => onNavigate(match.collectionSlug, match.slug)}
+      className="w-full flex items-start gap-3 py-2.5 px-3 rounded-xl hover:bg-brand-card transition-colors text-left group"
+    >
+      <Sparkles
+        className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${isAi ? 'text-brand-gold' : 'text-brand-muted'}`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-brand-cream group-hover:text-brand-gold transition-colors truncate">
+            {match.name}
+          </p>
+          {isAi && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-brand-gold/15 text-brand-gold font-semibold uppercase tracking-wide flex-shrink-0">
+              AI
+            </span>
+          )}
+        </div>
+
+        {isAi ? (
+          <>
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              <span className="text-xs text-brand-muted">{match.collectionName}</span>
+              {typeLabel && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-brand-sage/10 text-brand-sage">
+                  {typeLabel}
+                </span>
+              )}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${confidenceClass}`}>
+                {confidence}% match
+              </span>
+            </div>
+            {reasoning && (
+              <p className="text-[11px] text-brand-muted/70 mt-0.5 line-clamp-2">{reasoning}</p>
+            )}
+          </>
+        ) : (
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            <span className="text-xs text-brand-muted">{match.collectionName}</span>
+            {match.matchReasons.map((reason) => (
+              <span
+                key={reason}
+                className="text-[10px] px-1.5 py-0.5 rounded-md bg-brand-sage/10 text-brand-sage"
+              >
+                {reason}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </button>
   );
 }
 
