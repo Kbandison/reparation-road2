@@ -185,7 +185,7 @@ export function RecordModal({
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1">
+        <div className="overflow-y-auto flex-1 min-h-0">
           {hasImage ? (
             <div className="flex flex-col md:flex-row min-h-0">
               {/* Left: Document Image */}

@@ -105,7 +105,7 @@ export function ModalRelatedRecords({
       </button>
 
       {!collapsed && (
-        <div className="px-5 pb-4">
+        <div className="px-5 pb-4 max-h-[40vh] overflow-y-auto">
           {loading ? (
             <div className="space-y-2.5">
               {[1, 2, 3].map((i) => (
