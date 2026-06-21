@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,13 +11,15 @@ import {
   CreditCard,
   Bell,
   Shield,
+  Sparkles,
   Loader2,
 } from 'lucide-react';
 
-type Tab = 'general' | 'email' | 'billing' | 'notifications' | 'security';
+type Tab = 'general' | 'email' | 'billing' | 'notifications' | 'security' | 'ai';
 
 const tabs: { id: Tab; label: string; icon: typeof Globe }[] = [
   { id: 'general', label: 'General', icon: Globe },
+  { id: 'ai', label: 'AI Matching', icon: Sparkles },
   { id: 'email', label: 'Email', icon: Mail },
   { id: 'billing', label: 'Billing', icon: CreditCard },
   { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -50,6 +52,7 @@ export function AdminSettingsPanel() {
       {/* Content */}
       <div className="flex-1 bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6">
         {activeTab === 'general' && <GeneralSettings />}
+        {activeTab === 'ai' && <AiMatchingSettings />}
         {activeTab === 'email' && <EmailSettings />}
         {activeTab === 'billing' && <BillingSettings />}
         {activeTab === 'notifications' && <NotificationsSettings />}
@@ -97,6 +100,144 @@ function GeneralSettings() {
       >
         Save Changes
       </Button>
+    </div>
+  );
+}
+
+function AiMatchingSettings() {
+  const [mode, setMode] = useState<'algorithmic' | 'ai'>('algorithmic');
+  const [cutoff, setCutoff] = useState(0.7);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch('/api/admin/related-records-ai');
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.mode) setMode(data.mode);
+        if (typeof data.cutoff === 'number') setCutoff(data.cutoff);
+      } catch {
+        // keep defaults
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const save = async (next: { mode?: 'algorithmic' | 'ai'; cutoff?: number }) => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/related-records-ai', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to save');
+        return;
+      }
+      if (data.mode) setMode(data.mode);
+      if (typeof data.cutoff === 'number') setCutoff(data.cutoff);
+      toast.success('AI matching settings saved');
+    } catch {
+      toast.error('Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-brand-muted py-6">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="font-display text-lg font-semibold text-brand-cream mb-1">
+          AI Related-Records Matching
+        </h3>
+        <p className="text-sm text-brand-muted">
+          Choose how the &ldquo;Related Records&rdquo; suggestions are generated. Curated
+          (hand-made) relationships always show regardless of this setting.
+        </p>
+      </div>
+
+      {/* Mode selector */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => save({ mode: 'algorithmic' })}
+          disabled={saving}
+          className={`text-left p-4 rounded-xl border transition-colors ${
+            mode === 'algorithmic'
+              ? 'border-brand-gold/50 bg-brand-gold/[0.06]'
+              : 'border-brand-gold/[0.12] bg-brand-bg hover:border-brand-gold/30'
+          }`}
+        >
+          <p className="text-sm font-medium text-brand-cream mb-1">Current system</p>
+          <p className="text-xs text-brand-muted">
+            Fast keyword matching on names and places. No AI cost. This is the default.
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={() => save({ mode: 'ai' })}
+          disabled={saving}
+          className={`text-left p-4 rounded-xl border transition-colors ${
+            mode === 'ai'
+              ? 'border-brand-gold/50 bg-brand-gold/[0.06]'
+              : 'border-brand-gold/[0.12] bg-brand-bg hover:border-brand-gold/30'
+          }`}
+        >
+          <p className="text-sm font-medium text-brand-cream mb-1 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-brand-gold" /> AI matching
+          </p>
+          <p className="text-xs text-brand-muted">
+            Searches every column across all collections, then an AI judges and explains each
+            match. Computed once per record, then cached.
+          </p>
+        </button>
+      </div>
+
+      {/* Confidence cutoff */}
+      <div className={`space-y-2 ${mode === 'ai' ? '' : 'opacity-50 pointer-events-none'}`}>
+        <Label>Confidence cutoff — {Math.round(cutoff * 100)}%</Label>
+        <input
+          type="range"
+          min={0.3}
+          max={0.95}
+          step={0.05}
+          value={cutoff}
+          onChange={(e) => setCutoff(parseFloat(e.target.value))}
+          onMouseUp={() => save({ cutoff })}
+          onTouchEnd={() => save({ cutoff })}
+          className="w-full accent-brand-gold"
+        />
+        <p className="text-xs text-brand-muted">
+          Only AI matches at or above this confidence are shown to users. Higher = stricter
+          (fewer, surer matches). Lower = more matches, more noise.
+        </p>
+      </div>
+
+      <div className="bg-brand-bg rounded-xl p-4 border border-brand-gold/[0.08]">
+        <p className="text-xs text-brand-muted">
+          <span className="text-brand-cream font-medium">Reversible:</span> switching back to
+          &ldquo;Current system&rdquo; instantly restores today&rsquo;s behavior. AI matches are
+          stored separately and are never deleted, so you can flip between them freely.
+        </p>
+      </div>
     </div>
   );
 }
