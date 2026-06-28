@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   X,
   Trash2,
@@ -9,14 +10,16 @@ import {
   Baby,
   Search,
   Loader2,
-  Link2,
   ExternalLink,
+  UserRound,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { TreeIndividual, ArchiveMatch } from '@/lib/types';
+import type { TreeIndividual, ArchiveMatch, TreeArchiveMatch } from '@/lib/types';
 import { fullName } from '@/lib/family-tree/display';
 
 interface Props {
+  treeId: string;
   person: TreeIndividual;
   onSave: (patch: Partial<TreeIndividual>) => Promise<void>;
   onDelete: () => Promise<void>;
@@ -30,6 +33,7 @@ const FIELD =
 const LABEL = 'block text-xs font-medium text-brand-muted mb-1';
 
 export function PersonEditor({
+  treeId,
   person,
   onSave,
   onDelete,
@@ -39,14 +43,28 @@ export function PersonEditor({
 }: Props) {
   const [form, setForm] = useState(person);
   const [saving, setSaving] = useState(false);
-  const [matches, setMatches] = useState<ArchiveMatch[] | null>(null);
+  const [suggestionCount, setSuggestionCount] = useState<number | null>(null);
   const [matching, setMatching] = useState(false);
-  const [linkingId, setLinkingId] = useState<string | null>(null);
 
-  // Reset the form whenever a different person is selected.
+  // Reset the form and load this person's persisted match count when selected.
   useEffect(() => {
     setForm(person);
-    setMatches(null);
+    setSuggestionCount(null);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/family-tree/individuals/${person.id}/matches`);
+        const data = await res.json();
+        if (cancelled) return;
+        const list = (data.matches ?? []) as TreeArchiveMatch[];
+        setSuggestionCount(list.filter((m) => m.status === 'suggested').length);
+      } catch {
+        if (!cancelled) setSuggestionCount(0);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [person]);
 
   function set<K extends keyof TreeIndividual>(key: K, value: TreeIndividual[K]) {
@@ -73,9 +91,8 @@ export function PersonEditor({
     }
   }
 
-  async function runMatch() {
+  async function rescan() {
     setMatching(true);
-    setMatches(null);
     try {
       const res = await fetch('/api/family-tree/match', {
         method: 'POST',
@@ -83,22 +100,16 @@ export function PersonEditor({
         body: JSON.stringify({ individual_id: person.id }),
       });
       const data = await res.json();
-      setMatches(Array.isArray(data.matches) ? data.matches : []);
+      const list = (data.matches ?? []) as TreeArchiveMatch[];
+      setSuggestionCount(list.filter((m) => m.status === 'suggested').length);
     } catch {
-      setMatches([]);
+      // ignore
     } finally {
       setMatching(false);
     }
   }
 
-  async function link(match: ArchiveMatch) {
-    setLinkingId(match.id);
-    try {
-      await onLinkArchive(match);
-    } finally {
-      setLinkingId(null);
-    }
-  }
+  const profileHref = `/family-tree/${treeId}/person/${person.id}`;
 
   return (
     <div className="flex h-full flex-col bg-brand-card border-l border-brand-gold/[0.1]">
@@ -117,6 +128,16 @@ export function PersonEditor({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        {/* View full profile */}
+        <Link
+          href={profileHref}
+          className="flex items-center gap-2 rounded-xl border border-brand-gold/20 bg-brand-bg/40 px-3 py-2.5 hover:border-brand-gold/40 transition-colors"
+        >
+          <UserRound className="w-4 h-4 text-brand-gold" />
+          <span className="text-sm text-brand-cream">View full profile</span>
+          <ChevronRight className="w-4 h-4 text-brand-muted ml-auto" />
+        </Link>
+
         {/* Identity */}
         <div className="grid grid-cols-2 gap-2">
           <div>
@@ -266,11 +287,13 @@ export function PersonEditor({
           </div>
         </div>
 
-        {/* Archive matching */}
-        <div className="pt-2 border-t border-brand-gold/[0.08]">
-          {person.archive_record_id ? (
+        {/* Archive records */}
+        <div className="pt-2 border-t border-brand-gold/[0.08] space-y-2">
+          <p className={LABEL}>Archive records</p>
+
+          {person.archive_record_id && (
             <div className="rounded-xl border border-brand-sage/30 bg-brand-sage/[0.06] p-3">
-              <p className="text-xs text-brand-muted mb-1">Linked archive record</p>
+              <p className="text-xs text-brand-muted mb-1">Linked record</p>
               <p className="text-sm text-brand-cream mb-2">
                 {person.archive_record_title || 'Record'}
               </p>
@@ -293,69 +316,35 @@ export function PersonEditor({
                 </button>
               </div>
             </div>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={runMatch}
-              disabled={matching}
-              className="w-full rounded-xl border-brand-gold/20 text-brand-cream"
-            >
-              {matching ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Search className="w-3.5 h-3.5" />
-              )}
-              Search the archive for this person
-            </Button>
           )}
 
-          {matches !== null && !person.archive_record_id && (
-            <div className="mt-3 space-y-2">
-              {matches.length === 0 ? (
-                <p className="text-xs text-brand-muted text-center py-2">
-                  No likely matches found in the archive.
-                </p>
-              ) : (
-                matches.map((m) => (
-                  <div
-                    key={`${m.collectionSlug}-${m.id}`}
-                    className="rounded-xl border border-brand-gold/[0.12] bg-brand-bg/40 p-3"
-                  >
-                    <p className="text-sm text-brand-cream truncate">{m.title}</p>
-                    <p className="text-xs text-brand-muted">{m.collectionName}</p>
-                    {m.matchReasons.length > 0 && (
-                      <p className="text-[11px] text-brand-sage mt-0.5">
-                        {m.matchReasons.join(' · ')}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-3 mt-2">
-                      <button
-                        onClick={() => link(m)}
-                        disabled={linkingId === m.id}
-                        className="inline-flex items-center gap-1 text-xs text-brand-gold hover:text-brand-gold-light"
-                      >
-                        {linkingId === m.id ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <Link2 className="w-3 h-3" />
-                        )}
-                        Link
-                      </button>
-                      <a
-                        href={m.detailUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-brand-muted hover:text-brand-cream"
-                      >
-                        <ExternalLink className="w-3 h-3" /> View
-                      </a>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+          {suggestionCount !== null && suggestionCount > 0 && (
+            <Link
+              href={profileHref}
+              className="flex items-center gap-2 rounded-xl border border-brand-gold/[0.15] bg-brand-bg/40 px-3 py-2.5 hover:border-brand-gold/35 transition-colors"
+            >
+              <Search className="w-4 h-4 text-brand-gold" />
+              <span className="text-sm text-brand-cream">
+                {suggestionCount} possible {suggestionCount === 1 ? 'match' : 'matches'}
+              </span>
+              <span className="text-xs text-brand-gold ml-auto">Review →</span>
+            </Link>
           )}
+
+          {suggestionCount === 0 && !person.archive_record_id && (
+            <p className="text-xs text-brand-muted">No archive matches found yet.</p>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={rescan}
+            disabled={matching}
+            className="w-full rounded-xl border-brand-gold/20 text-brand-cream"
+          >
+            {matching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+            Re-scan the archive
+          </Button>
         </div>
       </div>
 

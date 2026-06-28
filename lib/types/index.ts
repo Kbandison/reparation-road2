@@ -276,10 +276,30 @@ export interface TreeIndividual {
   archive_collection_slug: string | null;
   archive_record_id: string | null;
   archive_record_title: string | null;
+  // When archive matching was last run for this person (null = never).
+  matched_at?: string | null;
   pos_x: number;
   pos_y: number;
   created_at?: string;
   updated_at?: string;
+}
+
+// A persisted archive match for a tree individual (suggested, linked, or
+// dismissed). Mirrors an ArchiveMatch plus its stored status.
+export interface TreeArchiveMatch {
+  id: string;
+  individual_id: string;
+  tree_id: string;
+  collection_slug: string;
+  collection_name: string | null;
+  record_id: string;
+  record_slug: string | null;
+  title: string | null;
+  score: number;
+  match_reasons: string[];
+  detail_url: string | null;
+  status: 'suggested' | 'linked' | 'dismissed';
+  created_at: string;
 }
 
 export type TreeRelationshipType = 'parent' | 'spouse';

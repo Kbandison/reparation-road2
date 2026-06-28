@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { findArchiveMatches } from '@/lib/family-tree/archive-matching';
+import { matchAndPersist } from '@/lib/family-tree/persist-matches';
 import type { TreeIndividual } from '@/lib/types';
 
 export const maxDuration = 60;
 
-// POST — find archive records that may refer to a tree individual.
-// Body: { individual_id }.
+// POST — (re)scan the archive for one tree individual and persist the matches.
+// Body: { individual_id }. Returns the person's persisted, non-dismissed matches.
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const {
@@ -30,10 +30,18 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   if (!person) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  // Searching arbitrary collection tables needs the service-role client, the
-  // same way /api/collection-search does.
+  // Searching arbitrary collection tables + writing match rows needs the
+  // service-role client, the same way /api/collection-search does.
   const admin = createAdminClient();
-  const matches = await findArchiveMatches(admin, person as TreeIndividual);
+  await matchAndPersist(admin, person as TreeIndividual);
 
-  return NextResponse.json({ matches });
+  // Return the persisted matches (with their row ids) for the UI.
+  const { data: matches } = await supabase
+    .from('tree_individual_matches')
+    .select('*')
+    .eq('individual_id', individualId)
+    .neq('status', 'dismissed')
+    .order('score', { ascending: false });
+
+  return NextResponse.json({ matches: matches ?? [] });
 }

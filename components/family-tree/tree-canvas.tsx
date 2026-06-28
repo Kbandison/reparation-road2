@@ -16,6 +16,8 @@ import {
   Target,
   Heart,
   Baby,
+  Loader2,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -117,6 +119,10 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openRelatives, setOpenRelatives] = useState<string | null>(null);
+
+  // Background archive matching (auto-runs after import / on load).
+  const [matchProgress, setMatchProgress] = useState<{ done: number; remaining: number } | null>(null);
+  const matchingRef = useRef(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef(view);
@@ -292,6 +298,43 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     });
   }
 
+  // ── background archive matching ───────────────────────────────────────
+  // Search the archive for every not-yet-matched person, a batch at a time,
+  // until everyone has been searched. Runs after an import and on load.
+  const runMatchLoop = useCallback(async () => {
+    if (matchingRef.current) return;
+    matchingRef.current = true;
+    let done = 0;
+    try {
+      // Up to ~200 people per visit keeps the background work bounded; a reload
+      // resumes any remainder.
+      for (let i = 0; i < 20; i++) {
+        const res = await fetch(`/api/family-tree/${tree.id}/match-all`, {
+          method: 'POST',
+          headers: json,
+          body: JSON.stringify({ limit: 12 }),
+        });
+        if (!res.ok) break;
+        const data = await res.json();
+        done += data.processed ?? 0;
+        const remaining = data.remaining ?? 0;
+        if (done > 0 || remaining > 0) setMatchProgress({ done, remaining });
+        if (!data.processed || remaining === 0) break;
+      }
+    } catch {
+      // ignore — matching resumes next load
+    } finally {
+      matchingRef.current = false;
+      setTimeout(() => setMatchProgress(null), 4000);
+    }
+  }, [tree.id]);
+
+  // Kick off matching for anyone still unsearched when the tree opens.
+  useEffect(() => {
+    runMatchLoop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── data mutations ────────────────────────────────────────────────────
   function persistPositions(ids: string[]) {
     const positions = ids
@@ -444,6 +487,8 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
       homeId ??
       (persisted && inds.some((i) => i.id === persisted) ? persisted : pickDefaultFocal(inds, rels));
     setFocalId(home);
+    // Newly imported people haven't been searched yet — match them now.
+    runMatchLoop();
   }
 
   // ── connectors ────────────────────────────────────────────────────────
@@ -556,6 +601,26 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
           </button>
         )}
       </div>
+
+      {/* Background archive-matching progress */}
+      {matchProgress && (matchProgress.remaining > 0 || matchProgress.done > 0) && (
+        <div
+          className="absolute top-3 right-3 z-20 inline-flex items-center gap-2 rounded-xl border border-brand-gold/20 bg-brand-card/90 px-3 py-1.5 text-xs text-brand-cream backdrop-blur"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {matchProgress.remaining > 0 ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-gold" />
+              Searching the archive… {matchProgress.done} done · {matchProgress.remaining} left
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3.5 h-3.5 text-brand-sage" />
+              Archive search complete
+            </>
+          )}
+        </div>
+      )}
 
       {/* Zoom controls (bottom-left, clear of the floating assistant bubble) */}
       <div
@@ -737,6 +802,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
         >
           <PersonEditor
             key={selected.id}
+            treeId={tree.id}
             person={selected}
             onSave={savePerson}
             onDelete={deletePerson}
