@@ -12,6 +12,7 @@ import type {
   TreeEvent,
   TreeSource,
   TreeCitation,
+  TreeMedia,
 } from '@/lib/types';
 
 function yearOf(date: string | null): number {
@@ -108,6 +109,19 @@ export default async function PersonProfilePage({ params }: Props) {
   }
   const sourceByXref = new Map(sources.map((s) => [s.gedcom_xref, s]));
 
+  // Photos for this person (degrades to empty before the media migration).
+  let media: TreeMedia[] = [];
+  {
+    const { data } = await supabase
+      .from('tree_media')
+      .select('*')
+      .eq('individual_id', personId)
+      .eq('user_id', user.id)
+      .order('is_primary', { ascending: false })
+      .order('created_at');
+    media = (data as TreeMedia[]) ?? [];
+  }
+
   // ── Relatives ──────────────────────────────────────────────────────────
   const byId = new Map(allInds.map((i) => [i.id, i]));
   const ref = (id: string, parentType?: string | null): RelRef | null => {
@@ -200,7 +214,7 @@ export default async function PersonProfilePage({ params }: Props) {
       initialMatches={matches}
       events={profileEvents}
       sources={sources}
-      raw={(person as TreeIndividual).raw_gedcom ?? null}
+      media={media}
     />
   );
 }

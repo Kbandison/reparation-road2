@@ -68,14 +68,23 @@ function PersonCardInner({ p }: { p: TreeIndividual }) {
   return (
     <>
       <div className="flex items-center gap-2.5">
-        <div
-          className={cn(
-            'w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold shrink-0',
-            sexClass
-          )}
-        >
-          {initials(p)}
-        </div>
+        {p.photo_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={p.photo_url}
+            alt={fullName(p) || ''}
+            className="w-11 h-11 rounded-full object-cover shrink-0 border border-brand-gold/15"
+          />
+        ) : (
+          <div
+            className={cn(
+              'w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold shrink-0',
+              sexClass
+            )}
+          >
+            {initials(p)}
+          </div>
+        )}
         <div className="min-w-0">
           <p className="text-base leading-tight font-medium text-brand-cream truncate">
             {fullName(p) || 'Unnamed'}

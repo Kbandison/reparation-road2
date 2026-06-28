@@ -20,12 +20,12 @@ import {
   Calendar,
   Clock,
   BookOpen,
-  ListTree,
+  Images,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { fullName, initials, lifespan } from '@/lib/family-tree/display';
-import type { TreeIndividual, TreeArchiveMatch, TreeSource, GedcomNode } from '@/lib/types';
+import type { TreeIndividual, TreeArchiveMatch, TreeSource, TreeMedia } from '@/lib/types';
 
 export interface RelRef {
   id: string;
@@ -54,7 +54,7 @@ interface Props {
   initialMatches: TreeArchiveMatch[];
   events: ProfileEvent[];
   sources: TreeSource[];
-  raw: GedcomNode | null;
+  media: TreeMedia[];
 }
 
 const FIELD =
@@ -73,21 +73,6 @@ function sexTint(sex: TreeIndividual['sex']): string {
 const REL_ICON = { parents: Users, spouses: Heart, children: Baby, siblings: UserRound } as const;
 const REL_LABEL = { parents: 'Parents', spouses: 'Spouses', children: 'Children', siblings: 'Siblings' } as const;
 
-// Recursively render a preserved GEDCOM subtree — the "nothing was lost" view.
-function GedcomTreeView({ node, depth = 0 }: { node: GedcomNode; depth?: number }) {
-  return (
-    <div style={{ marginLeft: depth ? 14 : 0 }} className={depth ? 'border-l border-brand-gold/[0.08] pl-3' : ''}>
-      <div className="flex gap-2 py-0.5 text-xs">
-        <span className="font-mono text-brand-gold shrink-0">{node.tag}</span>
-        {node.value && <span className="text-brand-cream-muted break-words whitespace-pre-wrap">{node.value}</span>}
-      </div>
-      {node.children.map((c, i) => (
-        <GedcomTreeView key={i} node={c} depth={depth + 1} />
-      ))}
-    </div>
-  );
-}
-
 export function PersonProfile({
   treeId,
   treeName,
@@ -96,7 +81,7 @@ export function PersonProfile({
   initialMatches,
   events,
   sources,
-  raw,
+  media,
 }: Props) {
   const [person, setPerson] = useState(initialPerson);
   const [matches, setMatches] = useState(initialMatches);
@@ -252,14 +237,23 @@ export function PersonProfile({
       {/* Header */}
       <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mb-6">
         <div className="flex items-start gap-4">
-          <div
-            className={cn(
-              'w-16 h-16 rounded-full flex items-center justify-center text-xl font-semibold shrink-0',
-              sexTint(person.sex),
-            )}
-          >
-            {initials(person)}
-          </div>
+          {person.photo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={person.photo_url}
+              alt={name}
+              className="w-16 h-16 rounded-full object-cover shrink-0 border border-brand-gold/15"
+            />
+          ) : (
+            <div
+              className={cn(
+                'w-16 h-16 rounded-full flex items-center justify-center text-xl font-semibold shrink-0',
+                sexTint(person.sex),
+              )}
+            >
+              {initials(person)}
+            </div>
+          )}
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-2xl font-semibold text-brand-cream truncate">{name}</h1>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-sm text-brand-muted">
@@ -386,6 +380,30 @@ export function PersonProfile({
           </div>
         )}
       </div>
+
+      {/* Photos */}
+      {media.length > 0 && (
+        <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mb-6">
+          <h2 className="font-display text-lg font-semibold text-brand-cream mb-4 inline-flex items-center gap-2">
+            <Images className="w-4 h-4 text-brand-gold" /> Photos
+          </h2>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            {media.map((m) => (
+              <a
+                key={m.id}
+                href={m.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block aspect-square rounded-xl overflow-hidden border border-brand-gold/10 bg-brand-bg"
+                title={m.title ?? undefined}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={m.url} alt={m.title ?? ''} className="w-full h-full object-cover" loading="lazy" />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Life events */}
       {events.length > 0 && (
@@ -588,18 +606,6 @@ export function PersonProfile({
         </div>
       )}
 
-      {/* Everything from the file */}
-      {raw && (
-        <details className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mt-6">
-          <summary className="cursor-pointer list-none flex items-center gap-2 font-display text-lg font-semibold text-brand-cream [&::-webkit-details-marker]:hidden">
-            <ListTree className="w-4 h-4 text-brand-gold" /> All facts &amp; tags
-            <span className="ml-auto text-xs font-body font-normal text-brand-muted">everything from the file</span>
-          </summary>
-          <div className="mt-4 overflow-x-auto">
-            <GedcomTreeView node={raw} />
-          </div>
-        </details>
-      )}
     </div>
   );
 }

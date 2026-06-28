@@ -282,6 +282,8 @@ export interface TreeIndividual {
   // full-import migration is run; default-safe otherwise).
   raw_gedcom?: GedcomNode | null;
   citations?: TreeCitation[] | null;
+  // Primary photo (present once the media migration is run).
+  photo_url?: string | null;
   pos_x: number;
   pos_y: number;
   created_at?: string;
@@ -319,6 +321,20 @@ export interface TreeEvent {
   sources: TreeCitation[];
   raw: GedcomNode | null;
   position: number;
+  created_at: string;
+}
+
+// A photo / media file attached to a person.
+export interface TreeMedia {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  individual_id: string | null;
+  title: string | null;
+  url: string;
+  storage_path: string | null;
+  format: string | null;
+  is_primary: boolean;
   created_at: string;
 }
 

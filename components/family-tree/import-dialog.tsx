@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useRef, useMemo } from 'react';
-import { Upload, Loader2, FileUp, AlertTriangle, Search } from 'lucide-react';
+import { unzip } from 'fflate';
+import { Upload, Loader2, FileUp, AlertTriangle, Search, ImageIcon } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -28,19 +29,43 @@ interface ImportedPerson {
 interface ImportResult {
   added: number;
   relationships: number;
+  events?: number;
+  sources?: number;
+  media?: number;
   warnings: string[];
   people: ImportedPerson[];
 }
 
+type Phase = 'idle' | 'reading' | 'uploading' | 'importing';
+
 const MAX_LISTED = 80;
+const MAX_PHOTOS = 1000;
+const IMG_RE = /\.(jpe?g|png|gif|webp|bmp|tiff?)$/i;
+const MIME: Record<string, string> = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+  webp: 'image/webp', bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff',
+};
 
 function personName(p: ImportedPerson): string {
   return [p.given_name, p.surname].filter((s) => s && s.trim()).join(' ').trim() || 'Unnamed';
 }
 
+// Run async tasks with a small concurrency cap.
+async function pool<T>(items: T[], n: number, fn: (t: T) => Promise<void>): Promise<void> {
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      await fn(items[i++]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+}
+
 export function ImportDialog({ treeId, open, onOpenChange, onImported }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [photoProgress, setPhotoProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [query, setQuery] = useState('');
@@ -54,6 +79,8 @@ export function ImportDialog({ treeId, open, onOpenChange, onImported }: Props) 
     setQuery('');
     setSavingHome(false);
     setUploading(false);
+    setPhase('idle');
+    setPhotoProgress(null);
   }
 
   async function handleUpload() {
@@ -61,9 +88,63 @@ export function ImportDialog({ treeId, open, onOpenChange, onImported }: Props) 
     setUploading(true);
     setError(null);
     setResult(null);
+    setPhotoProgress(null);
     try {
+      const isZip =
+        /\.(zip|gedz)$/i.test(file.name) ||
+        file.type === 'application/zip' ||
+        file.type === 'application/x-zip-compressed';
+
+      let gedFile: File = file;
+      const mediaMap: Record<string, { url: string; path?: string }> = {};
+
+      if (isZip) {
+        setPhase('reading');
+        const buf = new Uint8Array(await file.arrayBuffer());
+        const entries = await new Promise<Record<string, Uint8Array>>((resolve, reject) =>
+          unzip(buf, (err, d) => (err ? reject(err) : resolve(d))),
+        );
+
+        const gedNames = Object.keys(entries).filter((n) => /\.ged$/i.test(n));
+        if (gedNames.length === 0) {
+          setError('No .ged file was found inside the zip.');
+          return;
+        }
+        gedNames.sort((a, b) => entries[b].length - entries[a].length);
+        gedFile = new File([entries[gedNames[0]] as BlobPart], 'tree.ged', { type: 'text/plain' });
+
+        const imgNames = Object.keys(entries).filter((n) => IMG_RE.test(n)).slice(0, MAX_PHOTOS);
+        if (imgNames.length > 0) {
+          setPhase('uploading');
+          setPhotoProgress({ done: 0, total: imgNames.length });
+          let done = 0;
+          await pool(imgNames, 4, async (name) => {
+            try {
+              const base = name.split(/[\\/]/).pop() || name;
+              const ext = (base.split('.').pop() || 'jpg').toLowerCase();
+              const f = new File([entries[name] as BlobPart], base, {
+                type: MIME[ext] || 'application/octet-stream',
+              });
+              const fd = new FormData();
+              fd.append('file', f);
+              fd.append('treeId', treeId);
+              const res = await fetch('/api/family-tree/media/upload', { method: 'POST', body: fd });
+              const data = await res.json();
+              if (res.ok && data.url) mediaMap[base.toLowerCase()] = { url: data.url, path: data.path };
+            } catch {
+              // skip a single failed photo
+            } finally {
+              done += 1;
+              setPhotoProgress({ done, total: imgNames.length });
+            }
+          });
+        }
+      }
+
+      setPhase('importing');
       const form = new FormData();
-      form.append('file', file);
+      form.append('file', gedFile);
+      if (Object.keys(mediaMap).length > 0) form.append('media', JSON.stringify(mediaMap));
       const res = await fetch(`/api/family-tree/${treeId}/import`, { method: 'POST', body: form });
       const data = await res.json();
       if (!res.ok) {
@@ -75,6 +156,7 @@ export function ImportDialog({ treeId, open, onOpenChange, onImported }: Props) 
       setError('Something went wrong reading the file.');
     } finally {
       setUploading(false);
+      setPhase('idle');
     }
   }
 
@@ -105,6 +187,13 @@ export function ImportDialog({ treeId, open, onOpenChange, onImported }: Props) 
     return list.slice(0, MAX_LISTED);
   }, [result, query]);
 
+  const busyLabel =
+    phase === 'reading'
+      ? 'Reading zip…'
+      : phase === 'uploading' && photoProgress
+        ? `Uploading photos ${photoProgress.done}/${photoProgress.total}…`
+        : 'Importing…';
+
   return (
     <Dialog
       open={open}
@@ -120,8 +209,15 @@ export function ImportDialog({ treeId, open, onOpenChange, onImported }: Props) 
               <DialogTitle className="font-display text-brand-cream">Who is the home person?</DialogTitle>
               <DialogDescription className="text-brand-muted">
                 Imported <strong className="text-brand-cream">{result.added}</strong> people and{' '}
-                <strong className="text-brand-cream">{result.relationships}</strong> relationships. Choose the
-                person the pedigree should center on — usually you or the most recent descendant.
+                <strong className="text-brand-cream">{result.relationships}</strong> relationships
+                {result.media ? (
+                  <>
+                    {' '}
+                    and <strong className="text-brand-cream">{result.media}</strong> photos
+                  </>
+                ) : null}
+                . Choose the person the pedigree should center on — usually you or the most recent
+                descendant.
               </DialogDescription>
             </DialogHeader>
 
@@ -188,9 +284,9 @@ export function ImportDialog({ treeId, open, onOpenChange, onImported }: Props) 
             <DialogHeader>
               <DialogTitle className="font-display text-brand-cream">Import a GEDCOM file</DialogTitle>
               <DialogDescription className="text-brand-muted">
-                Upload a <code className="text-brand-gold">.ged</code> file exported from Ancestry,
-                FamilySearch, MyHeritage, or any genealogy program. People and relationships are added to
-                this tree.
+                Upload a <code className="text-brand-gold">.ged</code> file, or a{' '}
+                <code className="text-brand-gold">.zip</code> export that bundles the GEDCOM with its
+                photos. People, relationships, events, sources, and photos are added to this tree.
               </DialogDescription>
             </DialogHeader>
 
@@ -201,13 +297,15 @@ export function ImportDialog({ treeId, open, onOpenChange, onImported }: Props) 
                 className="w-full rounded-2xl border border-dashed border-brand-gold/30 bg-brand-bg/40 px-4 py-8 text-center hover:border-brand-gold/50 transition-colors"
               >
                 <FileUp className="w-8 h-8 text-brand-gold mx-auto mb-2" />
-                <p className="text-sm text-brand-cream">{file ? file.name : 'Choose a .ged file'}</p>
-                <p className="text-xs text-brand-muted mt-1">Up to 8MB</p>
+                <p className="text-sm text-brand-cream">{file ? file.name : 'Choose a .ged or .zip file'}</p>
+                <p className="text-xs text-brand-muted mt-1 inline-flex items-center gap-1">
+                  <ImageIcon className="w-3 h-3" /> .zip bundles import photos too
+                </p>
               </button>
               <input
                 ref={inputRef}
                 type="file"
-                accept=".ged,.gedcom,text/plain"
+                accept=".ged,.gedcom,.zip,.gedz,text/plain,application/zip"
                 className="hidden"
                 onChange={(e) => {
                   setFile(e.target.files?.[0] ?? null);
@@ -229,7 +327,7 @@ export function ImportDialog({ treeId, open, onOpenChange, onImported }: Props) 
               >
                 {uploading ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" /> Importing…
+                    <Loader2 className="w-4 h-4 animate-spin" /> {busyLabel}
                   </>
                 ) : (
                   <>

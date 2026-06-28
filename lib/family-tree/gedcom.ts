@@ -64,6 +64,13 @@ export interface ParsedSource {
   raw: GedcomJson | null;
 }
 
+export interface ParsedMedia {
+  owner_xref: string;
+  file: string;   // a filename, path, or URL referenced by the GEDCOM
+  form: string | null;
+  title: string | null;
+}
+
 export type ParentType = 'adopted' | 'step' | 'foster' | null;
 
 export interface ParsedRelationship {
@@ -90,6 +97,7 @@ export interface ParsedGedcom {
   relationships: ParsedRelationship[];
   events: ParsedEvent[];
   sources: ParsedSource[];
+  media: ParsedMedia[];
   warnings: string[];
 }
 
@@ -342,6 +350,41 @@ function extractFamily(node: GNode, out: ParsedRelationship[], events: ParsedEve
   }
 }
 
+// A media object can be an inline OBJE or a top-level @M1@ OBJE record. Both
+// hold one or more FILE references (a filename, path, or URL) plus FORM/TITL.
+function mediaInObje(node: GNode): { file: string; form: string | null; title: string | null }[] {
+  const formTop = clean(firstChild(node, 'FORM')?.value);
+  const titleTop = clean(firstChild(node, 'TITL')?.value);
+  const out: { file: string; form: string | null; title: string | null }[] = [];
+  for (const f of allChildren(node, 'FILE')) {
+    const file = clean(f.value);
+    if (!file) continue;
+    out.push({
+      file,
+      form: clean(firstChild(f, 'FORM')?.value) ?? formTop,
+      title: clean(firstChild(f, 'TITL')?.value) ?? titleTop,
+    });
+  }
+  return out;
+}
+
+function extractIndividualMedia(
+  node: GNode,
+  mediaRecords: Map<string, { file: string; form: string | null; title: string | null }[]>,
+  out: ParsedMedia[],
+): void {
+  const owner = normXref(node.xref!);
+  for (const obje of allChildren(node, 'OBJE')) {
+    const v = obje.value.trim();
+    if (/^@.+@$/.test(v)) {
+      const rec = mediaRecords.get(normXref(v));
+      if (rec) for (const m of rec) out.push({ owner_xref: owner, ...m });
+    } else {
+      for (const m of mediaInObje(obje)) out.push({ owner_xref: owner, ...m });
+    }
+  }
+}
+
 function extractSource(node: GNode, repoNames: Map<string, string>): ParsedSource {
   const repoNode = firstChild(node, 'REPO');
   let repository: string | null = null;
@@ -369,13 +412,18 @@ export function parseGedcom(text: string): ParsedGedcom {
   const relationships: ParsedRelationship[] = [];
   const events: ParsedEvent[] = [];
   const sources: ParsedSource[] = [];
+  const media: ParsedMedia[] = [];
 
-  // Repository names first, so sources can resolve their REPO pointer.
+  // Repository names + media records first, so sources/individuals can resolve
+  // their @REPO@ / @OBJE@ pointers.
   const repoNames = new Map<string, string>();
+  const mediaRecords = new Map<string, { file: string; form: string | null; title: string | null }[]>();
   for (const node of roots) {
     if (node.tag === 'REPO' && node.xref) {
       const name = clean(firstChild(node, 'NAME')?.value);
       if (name) repoNames.set(normXref(node.xref), name);
+    } else if (node.tag === 'OBJE' && node.xref) {
+      mediaRecords.set(normXref(node.xref), mediaInObje(node));
     }
   }
 
@@ -383,6 +431,7 @@ export function parseGedcom(text: string): ParsedGedcom {
     if (node.tag === 'INDI' && node.xref) {
       individuals.push(extractIndividual(node));
       extractIndividualEvents(node, events);
+      extractIndividualMedia(node, mediaRecords, media);
     } else if (node.tag === 'FAM') {
       extractFamily(node, relationships, events);
     } else if (node.tag === 'SOUR' && node.xref) {
@@ -403,8 +452,9 @@ export function parseGedcom(text: string): ParsedGedcom {
     );
   }
 
-  // Keep only events whose owner exists.
+  // Keep only events / media whose owner exists.
   const validEvents = events.filter((e) => known.has(e.owner_xref));
+  const validMedia = media.filter((m) => known.has(m.owner_xref));
 
   // De-duplicate relationships.
   const seen = new Set<string>();
@@ -418,5 +468,5 @@ export function parseGedcom(text: string): ParsedGedcom {
     return true;
   });
 
-  return { individuals, relationships: deduped, events: validEvents, sources, warnings };
+  return { individuals, relationships: deduped, events: validEvents, sources, media: validMedia, warnings };
 }

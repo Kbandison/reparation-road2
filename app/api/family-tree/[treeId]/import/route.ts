@@ -35,8 +35,10 @@ export async function POST(
     .maybeSingle();
   if (!tree) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  // Read the file text from a multipart upload or the raw body.
+  // Read the file text from a multipart upload or the raw body. Photos are
+  // uploaded to Storage by the client first and arrive as a basename→URL map.
   let text: string;
+  let mediaMap: Record<string, { url: string; path?: string }> = {};
   const contentType = request.headers.get('content-type') || '';
   if (contentType.includes('multipart/form-data')) {
     const form = await request.formData();
@@ -48,6 +50,14 @@ export async function POST(
       return NextResponse.json({ error: 'File too large (max 8MB).' }, { status: 413 });
     }
     text = await file.text();
+    const mediaRaw = form.get('media');
+    if (typeof mediaRaw === 'string' && mediaRaw) {
+      try {
+        mediaMap = JSON.parse(mediaRaw);
+      } catch {
+        mediaMap = {};
+      }
+    }
   } else {
     text = await request.text();
   }
@@ -218,6 +228,67 @@ export async function POST(
     }
   }
 
+  // Photos. Each parsed OBJE reference is resolved to a Storage URL (uploaded by
+  // the client, keyed by lowercased basename) or kept as an external URL. The
+  // first image per person becomes their primary photo. Best-effort: silently
+  // skips if the media table/columns aren't migrated yet.
+  let mediaAdded = 0;
+  {
+    const basename = (p: string) =>
+      p.split(/[\\/]/).pop()?.split('?')[0]?.trim().toLowerCase() ?? '';
+    const seenPrimary = new Set<string>();
+    const photoByIndividual = new Map<string, string>();
+    const mediaRows: Record<string, unknown>[] = [];
+
+    for (const m of parsed.media) {
+      const individualId = xrefToId.get(m.owner_xref);
+      if (!individualId) continue;
+      const uploaded = mediaMap[basename(m.file)];
+      let url: string | null = null;
+      let storagePath: string | null = null;
+      if (uploaded?.url) {
+        url = uploaded.url;
+        storagePath = uploaded.path ?? null;
+      } else if (/^https?:\/\//i.test(m.file)) {
+        url = m.file; // web-hosted photo referenced directly
+      }
+      if (!url) continue; // a local file the client didn't upload — nothing to show
+
+      const isImage = !m.form || /jpe?g|png|gif|webp|bmp|tiff?/i.test(m.form) || /\.(jpe?g|png|gif|webp|bmp|tiff?)$/i.test(m.file);
+      const isPrimary = isImage && !seenPrimary.has(individualId);
+      if (isPrimary) {
+        seenPrimary.add(individualId);
+        photoByIndividual.set(individualId, url);
+      }
+      mediaRows.push({
+        tree_id: treeId,
+        user_id: user.id,
+        individual_id: individualId,
+        title: m.title,
+        url,
+        storage_path: storagePath,
+        format: m.form,
+        is_primary: isPrimary,
+      });
+    }
+
+    for (const part of chunk(mediaRows, 500)) {
+      if (part.length === 0) continue;
+      const { error } = await supabase.from('tree_media').insert(part);
+      if (!error) mediaAdded += part.length;
+    }
+
+    // Set each person's primary photo (small concurrency cap).
+    const updates = [...photoByIndividual.entries()];
+    for (const group of chunk(updates, 25)) {
+      await Promise.all(
+        group.map(([id, url]) =>
+          supabase.from('tree_individuals').update({ photo_url: url }).eq('id', id).then(() => {}),
+        ),
+      );
+    }
+  }
+
   await supabase
     .from('family_trees')
     .update({ updated_at: new Date().toISOString() })
@@ -229,6 +300,7 @@ export async function POST(
     relationships: relRows.length,
     events: eventsAdded,
     sources: sourcesAdded,
+    media: mediaAdded,
     warnings: parsed.warnings,
     people,
   });
