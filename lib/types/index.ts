@@ -242,3 +242,167 @@ export interface RelatedRecordsResponse {
   curated: RelatedRecord[];
   algorithmic: AlgorithmicMatch[];
 }
+
+// ── Family tree ──────────────────────────────────────────────────────────
+
+export interface FamilyTree {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  // The person the pedigree view centers on. Null falls back to an auto-pick.
+  home_person_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TreeIndividual {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  given_name: string | null;
+  surname: string | null;
+  sex: 'M' | 'F' | 'U' | null;
+  birth_date: string | null;
+  birth_place: string | null;
+  death_date: string | null;
+  death_place: string | null;
+  is_living: boolean;
+  occupation: string | null;
+  notes: string | null;
+  // Original @I123@ pointer when imported from a GEDCOM file.
+  gedcom_xref: string | null;
+  // Set when the individual is linked to a record in the archive.
+  archive_collection_slug: string | null;
+  archive_record_id: string | null;
+  archive_record_title: string | null;
+  // When archive matching was last run for this person (null = never).
+  matched_at?: string | null;
+  // The full raw GEDCOM subtree + direct source citations (present once the
+  // full-import migration is run; default-safe otherwise).
+  raw_gedcom?: GedcomNode | null;
+  citations?: TreeCitation[] | null;
+  // Primary photo (present once the media migration is run).
+  photo_url?: string | null;
+  pos_x: number;
+  pos_y: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// A node of a preserved GEDCOM record (every tag is kept).
+export interface GedcomNode {
+  tag: string;
+  value: string;
+  children: GedcomNode[];
+}
+
+// A source citation pointer captured from the file.
+export interface TreeCitation {
+  source_xref: string | null;
+  page: string | null;
+  text: string | null;
+}
+
+// A life event / fact for a person (birth, marriage, residence, custom…).
+export interface TreeEvent {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  individual_id: string;
+  related_individual_id: string | null;
+  tag: string;
+  type: string;
+  label: string;
+  date: string | null;
+  place: string | null;
+  value: string | null;
+  note: string | null;
+  sources: TreeCitation[];
+  raw: GedcomNode | null;
+  position: number;
+  created_at: string;
+}
+
+// A photo / media file attached to a person.
+export interface TreeMedia {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  individual_id: string | null;
+  title: string | null;
+  url: string;
+  storage_path: string | null;
+  format: string | null;
+  is_primary: boolean;
+  created_at: string;
+}
+
+// A bibliography source captured from the file.
+export interface TreeSource {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  gedcom_xref: string;
+  title: string | null;
+  author: string | null;
+  publication: string | null;
+  repository: string | null;
+  text: string | null;
+  raw: GedcomNode | null;
+  created_at: string;
+}
+
+// A persisted archive match for a tree individual (suggested, linked, or
+// dismissed). Mirrors an ArchiveMatch plus its stored status.
+export interface TreeArchiveMatch {
+  id: string;
+  individual_id: string;
+  tree_id: string;
+  collection_slug: string;
+  collection_name: string | null;
+  record_id: string;
+  record_slug: string | null;
+  title: string | null;
+  score: number;
+  match_reasons: string[];
+  detail_url: string | null;
+  status: 'suggested' | 'linked' | 'dismissed';
+  created_at: string;
+}
+
+export type TreeRelationshipType = 'parent' | 'spouse';
+
+export interface TreeRelationship {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  type: TreeRelationshipType;
+  // 'parent': from_id = parent, to_id = child.
+  // 'spouse': from_id/to_id are partners (unordered).
+  from_id: string;
+  to_id: string;
+  // For parent edges: 'adopted' | 'step' | 'foster' for non-biological links;
+  // null/undefined means biological or unspecified.
+  parent_type?: string | null;
+  created_at?: string;
+}
+
+// Full payload for rendering a tree on the canvas.
+export interface TreeGraph {
+  tree: FamilyTree;
+  individuals: TreeIndividual[];
+  relationships: TreeRelationship[];
+}
+
+// One candidate archive record matched against a tree individual.
+export interface ArchiveMatch {
+  id: string;
+  slug: string;
+  title: string;
+  collectionSlug: string;
+  collectionName: string;
+  matchReasons: string[];
+  score: number;
+  detailUrl: string;
+}

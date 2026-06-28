@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { canUseFamilyTree } from '@/lib/family-tree/access';
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -57,6 +58,31 @@ export async function updateSession(request: NextRequest) {
     url.pathname = '/login';
     url.searchParams.set('redirect', request.nextUrl.pathname);
     return NextResponse.redirect(url);
+  }
+
+  // The family tree is in private testing — gate its pages and APIs to admins
+  // and the allowlist. Everyone else gets a 404 (APIs) or is sent home (pages).
+  const path = request.nextUrl.pathname;
+  const isTreePath = path.startsWith('/family-tree') || path.startsWith('/api/family-tree');
+  if (isTreePath) {
+    let allowed = false;
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, email')
+        .eq('id', user.id)
+        .maybeSingle();
+      allowed = canUseFamilyTree(profile);
+    }
+    if (!allowed) {
+      if (path.startsWith('/api/')) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      }
+      const url = request.nextUrl.clone();
+      url.pathname = user ? '/dashboard' : '/login';
+      if (!user) url.searchParams.set('redirect', request.nextUrl.pathname);
+      return NextResponse.redirect(url);
+    }
   }
 
   // Redirect /login if already authenticated (/signup redirects to /login)

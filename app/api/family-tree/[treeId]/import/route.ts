@@ -1,0 +1,307 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { parseGedcom, type ParentType } from '@/lib/family-tree/gedcom';
+import { computeLayout, type LayoutEdge } from '@/lib/family-tree/layout';
+
+export const maxDuration = 60;
+
+const MAX_INDIVIDUALS = 5000;
+const MAX_BYTES = 8 * 1024 * 1024;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// POST — import a GEDCOM (.ged) file into an existing tree. Accepts either a
+// multipart upload (field "file") or the raw file text as the request body.
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ treeId: string }> }
+) {
+  const { treeId } = await params;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { data: tree } = await supabase
+    .from('family_trees')
+    .select('id')
+    .eq('id', treeId)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (!tree) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  // Read the file text from a multipart upload or the raw body. Photos are
+  // uploaded to Storage by the client first and arrive as a basename→URL map.
+  let text: string;
+  let mediaMap: Record<string, { url: string; path?: string }> = {};
+  const contentType = request.headers.get('content-type') || '';
+  if (contentType.includes('multipart/form-data')) {
+    const form = await request.formData();
+    const file = form.get('file');
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: 'No file provided.' }, { status: 400 });
+    }
+    if (file.size > MAX_BYTES) {
+      return NextResponse.json({ error: 'File too large (max 8MB).' }, { status: 413 });
+    }
+    text = await file.text();
+    const mediaRaw = form.get('media');
+    if (typeof mediaRaw === 'string' && mediaRaw) {
+      try {
+        mediaMap = JSON.parse(mediaRaw);
+      } catch {
+        mediaMap = {};
+      }
+    }
+  } else {
+    text = await request.text();
+  }
+
+  if (!text.trim()) {
+    return NextResponse.json({ error: 'The file appears to be empty.' }, { status: 400 });
+  }
+
+  const parsed = parseGedcom(text);
+  if (parsed.individuals.length === 0) {
+    return NextResponse.json(
+      { error: 'No individuals were found in this GEDCOM file.', warnings: parsed.warnings },
+      { status: 422 }
+    );
+  }
+  if (parsed.individuals.length > MAX_INDIVIDUALS) {
+    return NextResponse.json(
+      { error: `This file has ${parsed.individuals.length} people, which exceeds the ${MAX_INDIVIDUALS} limit.` },
+      { status: 413 }
+    );
+  }
+
+  // Lay the tree out by GEDCOM xref *before* inserting, so positions go in with
+  // the initial rows and we avoid a second mass-update pass.
+  const layout = computeLayout(
+    parsed.individuals.map((i) => ({ id: i.xref })),
+    parsed.relationships.map((r) => ({
+      type: r.type,
+      from_id: r.from_xref,
+      to_id: r.to_xref,
+    }))
+  );
+
+  const rows = parsed.individuals.map((p) => ({
+    tree_id: treeId,
+    user_id: user.id,
+    given_name: p.given_name,
+    surname: p.surname,
+    sex: p.sex,
+    birth_date: p.birth_date,
+    birth_place: p.birth_place,
+    death_date: p.death_date,
+    death_place: p.death_place,
+    occupation: p.occupation,
+    notes: p.notes,
+    gedcom_xref: p.xref,
+    raw_gedcom: p.raw,
+    citations: p.citations,
+    pos_x: layout[p.xref]?.x ?? 0,
+    pos_y: layout[p.xref]?.y ?? 0,
+  }));
+
+  // The full-import columns (raw_gedcom/citations) may not exist yet. If the
+  // first insert rejects them, fall back to the core columns so importing still
+  // works before the migration is run.
+  let fullCapture = true;
+
+  const strip = (part: typeof rows) =>
+    part.map(({ raw_gedcom, citations, ...rest }) => {
+      void raw_gedcom;
+      void citations;
+      return rest;
+    });
+
+  const xrefToId = new Map<string, string>();
+  const people: { id: string; given_name: string | null; surname: string | null; birth_date: string | null }[] = [];
+  for (const part of chunk(rows, 500)) {
+    const payload = fullCapture ? part : strip(part);
+    let { data, error } = await supabase
+      .from('tree_individuals')
+      .insert(payload)
+      .select('id, gedcom_xref, given_name, surname, birth_date');
+
+    // First batch with the full-capture columns missing → drop them and retry.
+    if (error && fullCapture) {
+      fullCapture = false;
+      ({ data, error } = await supabase
+        .from('tree_individuals')
+        .insert(strip(part))
+        .select('id, gedcom_xref, given_name, surname, birth_date'));
+    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    for (const r of data ?? []) {
+      if (r.gedcom_xref) xrefToId.set(r.gedcom_xref as string, r.id as string);
+      people.push({
+        id: r.id as string,
+        given_name: (r.given_name as string) ?? null,
+        surname: (r.surname as string) ?? null,
+        birth_date: (r.birth_date as string) ?? null,
+      });
+    }
+  }
+
+  const relRows = parsed.relationships
+    .map((r) => ({
+      from_id: xrefToId.get(r.from_xref),
+      to_id: xrefToId.get(r.to_xref),
+      type: r.type,
+      parent_type: r.parent_type ?? null,
+    }))
+    .filter(
+      (r): r is { from_id: string; to_id: string; type: LayoutEdge['type']; parent_type: ParentType } =>
+        Boolean(r.from_id && r.to_id)
+    )
+    .map((r) => ({
+      tree_id: treeId,
+      user_id: user.id,
+      type: r.type,
+      from_id: r.from_id,
+      to_id: r.to_id,
+      parent_type: r.parent_type,
+    }));
+
+  for (const part of chunk(relRows, 500)) {
+    if (part.length === 0) continue;
+    const { error } = await supabase.from('tree_relationships').insert(part);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  // Sources + events (only when the full-capture migration is in place).
+  let sourcesAdded = 0;
+  let eventsAdded = 0;
+  if (fullCapture) {
+    if (parsed.sources.length > 0) {
+      const sourceRows = parsed.sources.map((s) => ({
+        tree_id: treeId,
+        user_id: user.id,
+        gedcom_xref: s.xref,
+        title: s.title,
+        author: s.author,
+        publication: s.publication,
+        repository: s.repository,
+        text: s.text,
+        raw: s.raw,
+      }));
+      for (const part of chunk(sourceRows, 500)) {
+        const { error } = await supabase
+          .from('tree_sources')
+          .upsert(part, { onConflict: 'tree_id,gedcom_xref', ignoreDuplicates: true });
+        // A missing table here just means partial migration — don't fail the import.
+        if (!error) sourcesAdded += part.length;
+      }
+    }
+
+    const eventRows = parsed.events
+      .map((e) => ({
+        tree_id: treeId,
+        user_id: user.id,
+        individual_id: xrefToId.get(e.owner_xref),
+        related_individual_id: e.related_xref ? xrefToId.get(e.related_xref) ?? null : null,
+        tag: e.tag,
+        type: e.type,
+        label: e.label,
+        date: e.date,
+        place: e.place,
+        value: e.value,
+        note: e.note,
+        sources: e.sources,
+        raw: e.raw,
+        position: e.position,
+      }))
+      .filter((e): e is typeof e & { individual_id: string } => Boolean(e.individual_id));
+
+    for (const part of chunk(eventRows, 500)) {
+      if (part.length === 0) continue;
+      const { error } = await supabase.from('tree_events').insert(part);
+      if (!error) eventsAdded += part.length;
+    }
+  }
+
+  // Photos. Each parsed OBJE reference is resolved to a Storage URL (uploaded by
+  // the client, keyed by lowercased basename) or kept as an external URL. The
+  // first image per person becomes their primary photo. Best-effort: silently
+  // skips if the media table/columns aren't migrated yet.
+  let mediaAdded = 0;
+  {
+    const basename = (p: string) =>
+      p.split(/[\\/]/).pop()?.split('?')[0]?.trim().toLowerCase() ?? '';
+    const seenPrimary = new Set<string>();
+    const photoByIndividual = new Map<string, string>();
+    const mediaRows: Record<string, unknown>[] = [];
+
+    for (const m of parsed.media) {
+      const individualId = xrefToId.get(m.owner_xref);
+      if (!individualId) continue;
+      const uploaded = mediaMap[basename(m.file)];
+      let url: string | null = null;
+      let storagePath: string | null = null;
+      if (uploaded?.url) {
+        url = uploaded.url;
+        storagePath = uploaded.path ?? null;
+      } else if (/^https?:\/\//i.test(m.file)) {
+        url = m.file; // web-hosted photo referenced directly
+      }
+      if (!url) continue; // a local file the client didn't upload — nothing to show
+
+      const isImage = !m.form || /jpe?g|png|gif|webp|bmp|tiff?/i.test(m.form) || /\.(jpe?g|png|gif|webp|bmp|tiff?)$/i.test(m.file);
+      const isPrimary = isImage && !seenPrimary.has(individualId);
+      if (isPrimary) {
+        seenPrimary.add(individualId);
+        photoByIndividual.set(individualId, url);
+      }
+      mediaRows.push({
+        tree_id: treeId,
+        user_id: user.id,
+        individual_id: individualId,
+        title: m.title,
+        url,
+        storage_path: storagePath,
+        format: m.form,
+        is_primary: isPrimary,
+      });
+    }
+
+    for (const part of chunk(mediaRows, 500)) {
+      if (part.length === 0) continue;
+      const { error } = await supabase.from('tree_media').insert(part);
+      if (!error) mediaAdded += part.length;
+    }
+
+    // Set each person's primary photo (small concurrency cap).
+    const updates = [...photoByIndividual.entries()];
+    for (const group of chunk(updates, 25)) {
+      await Promise.all(
+        group.map(([id, url]) =>
+          supabase.from('tree_individuals').update({ photo_url: url }).eq('id', id).then(() => {}),
+        ),
+      );
+    }
+  }
+
+  await supabase
+    .from('family_trees')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', treeId)
+    .eq('user_id', user.id);
+
+  return NextResponse.json({
+    added: rows.length,
+    relationships: relRows.length,
+    events: eventsAdded,
+    sources: sourcesAdded,
+    media: mediaAdded,
+    warnings: parsed.warnings,
+    people,
+  });
+}

@@ -11,6 +11,7 @@ import {
   ShoppingCart,
   Link2,
   Upload,
+  Network,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -24,6 +25,7 @@ export const platformNavItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Collection', href: '/collection', icon: Library },
   { label: 'Search', href: '/search', icon: Search },
+  { label: 'Family Tree', href: '/family-tree', icon: Network },
   { label: 'Bookmarks', href: '/dashboard/bookmarks', icon: Bookmark },
   { label: 'Forum', href: '/forum', icon: MessageSquare },
   { label: 'Booking', href: '/booking', icon: CalendarDays },
