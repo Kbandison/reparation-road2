@@ -278,10 +278,63 @@ export interface TreeIndividual {
   archive_record_title: string | null;
   // When archive matching was last run for this person (null = never).
   matched_at?: string | null;
+  // The full raw GEDCOM subtree + direct source citations (present once the
+  // full-import migration is run; default-safe otherwise).
+  raw_gedcom?: GedcomNode | null;
+  citations?: TreeCitation[] | null;
   pos_x: number;
   pos_y: number;
   created_at?: string;
   updated_at?: string;
+}
+
+// A node of a preserved GEDCOM record (every tag is kept).
+export interface GedcomNode {
+  tag: string;
+  value: string;
+  children: GedcomNode[];
+}
+
+// A source citation pointer captured from the file.
+export interface TreeCitation {
+  source_xref: string | null;
+  page: string | null;
+  text: string | null;
+}
+
+// A life event / fact for a person (birth, marriage, residence, custom…).
+export interface TreeEvent {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  individual_id: string;
+  related_individual_id: string | null;
+  tag: string;
+  type: string;
+  label: string;
+  date: string | null;
+  place: string | null;
+  value: string | null;
+  note: string | null;
+  sources: TreeCitation[];
+  raw: GedcomNode | null;
+  position: number;
+  created_at: string;
+}
+
+// A bibliography source captured from the file.
+export interface TreeSource {
+  id: string;
+  tree_id: string;
+  user_id: string;
+  gedcom_xref: string;
+  title: string | null;
+  author: string | null;
+  publication: string | null;
+  repository: string | null;
+  text: string | null;
+  raw: GedcomNode | null;
+  created_at: string;
 }
 
 // A persisted archive match for a tree individual (suggested, linked, or

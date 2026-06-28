@@ -3,8 +3,21 @@ import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { fetchAllRows } from '@/lib/family-tree/fetch-all';
 import { fullName, lifespan } from '@/lib/family-tree/display';
-import { PersonProfile, type RelRef } from '@/components/family-tree/person-profile';
-import type { FamilyTree, TreeIndividual, TreeRelationship, TreeArchiveMatch } from '@/lib/types';
+import { PersonProfile, type RelRef, type ProfileEvent } from '@/components/family-tree/person-profile';
+import type {
+  FamilyTree,
+  TreeIndividual,
+  TreeRelationship,
+  TreeArchiveMatch,
+  TreeEvent,
+  TreeSource,
+  TreeCitation,
+} from '@/lib/types';
+
+function yearOf(date: string | null): number {
+  const m = date?.match(/\d{4}/);
+  return m ? parseInt(m[0], 10) : Number.POSITIVE_INFINITY;
+}
 
 interface Props {
   params: Promise<{ treeId: string; personId: string }>;
@@ -64,6 +77,37 @@ export default async function PersonProfilePage({ params }: Props) {
     matches = (data as TreeArchiveMatch[]) ?? [];
   }
 
+  // Life events for this person (degrades to empty before the full-import
+  // migration is run).
+  let events: TreeEvent[] = [];
+  {
+    const { data } = await supabase
+      .from('tree_events')
+      .select('*')
+      .eq('individual_id', personId)
+      .eq('user_id', user.id)
+      .order('position');
+    events = (data as TreeEvent[]) ?? [];
+  }
+
+  // Resolve the sources cited by this person (events + direct citations).
+  const citedXrefs = new Set<string>();
+  for (const e of events) for (const c of e.sources ?? []) if (c.source_xref) citedXrefs.add(c.source_xref);
+  for (const c of ((person as TreeIndividual).citations ?? []) as TreeCitation[]) {
+    if (c?.source_xref) citedXrefs.add(c.source_xref);
+  }
+
+  let sources: TreeSource[] = [];
+  if (citedXrefs.size > 0) {
+    const { data } = await supabase
+      .from('tree_sources')
+      .select('*')
+      .eq('tree_id', treeId)
+      .in('gedcom_xref', [...citedXrefs]);
+    sources = (data as TreeSource[]) ?? [];
+  }
+  const sourceByXref = new Map(sources.map((s) => [s.gedcom_xref, s]));
+
   // ── Relatives ──────────────────────────────────────────────────────────
   const byId = new Map(allInds.map((i) => [i.id, i]));
   const ref = (id: string, parentType?: string | null): RelRef | null => {
@@ -117,6 +161,36 @@ export default async function PersonProfilePage({ params }: Props) {
     siblings: dedupe([...siblingIds].map((id) => ref(id))),
   };
 
+  // Display-ready events: resolve the marriage partner's name + source titles,
+  // and sort by year (undated events keep their original order at the end).
+  const profileEvents: ProfileEvent[] = events
+    .map((e, i) => ({
+      id: e.id,
+      label: e.label,
+      type: e.type,
+      date: e.date,
+      place: e.place,
+      value: e.value,
+      note: e.note,
+      relatedName: e.related_individual_id
+        ? (() => {
+            const r = byId.get(e.related_individual_id);
+            return r ? fullName(r) || 'Unnamed' : null;
+          })()
+        : null,
+      citations: (e.sources ?? []).map((c) => ({
+        title: c.source_xref ? sourceByXref.get(c.source_xref)?.title ?? c.source_xref : null,
+        page: c.page,
+        text: c.text,
+      })),
+      _sort: [yearOf(e.date), e.position, i] as [number, number, number],
+    }))
+    .sort((a, b) => a._sort[0] - b._sort[0] || a._sort[1] - b._sort[1] || a._sort[2] - b._sort[2])
+    .map(({ _sort, ...e }) => {
+      void _sort;
+      return e;
+    });
+
   return (
     <PersonProfile
       treeId={treeId}
@@ -124,6 +198,9 @@ export default async function PersonProfilePage({ params }: Props) {
       initialPerson={person as TreeIndividual}
       relatives={relatives}
       initialMatches={matches}
+      events={profileEvents}
+      sources={sources}
+      raw={(person as TreeIndividual).raw_gedcom ?? null}
     />
   );
 }

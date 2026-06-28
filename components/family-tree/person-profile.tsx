@@ -18,11 +18,14 @@ import {
   Briefcase,
   MapPin,
   Calendar,
+  Clock,
+  BookOpen,
+  ListTree,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { fullName, initials, lifespan } from '@/lib/family-tree/display';
-import type { TreeIndividual, TreeArchiveMatch } from '@/lib/types';
+import type { TreeIndividual, TreeArchiveMatch, TreeSource, GedcomNode } from '@/lib/types';
 
 export interface RelRef {
   id: string;
@@ -31,12 +34,27 @@ export interface RelRef {
   parentType?: string | null;
 }
 
+export interface ProfileEvent {
+  id: string;
+  label: string;
+  type: string;
+  date: string | null;
+  place: string | null;
+  value: string | null;
+  note: string | null;
+  relatedName: string | null;
+  citations: { title: string | null; page: string | null; text: string | null }[];
+}
+
 interface Props {
   treeId: string;
   treeName: string;
   initialPerson: TreeIndividual;
   relatives: { parents: RelRef[]; spouses: RelRef[]; children: RelRef[]; siblings: RelRef[] };
   initialMatches: TreeArchiveMatch[];
+  events: ProfileEvent[];
+  sources: TreeSource[];
+  raw: GedcomNode | null;
 }
 
 const FIELD =
@@ -55,7 +73,31 @@ function sexTint(sex: TreeIndividual['sex']): string {
 const REL_ICON = { parents: Users, spouses: Heart, children: Baby, siblings: UserRound } as const;
 const REL_LABEL = { parents: 'Parents', spouses: 'Spouses', children: 'Children', siblings: 'Siblings' } as const;
 
-export function PersonProfile({ treeId, treeName, initialPerson, relatives, initialMatches }: Props) {
+// Recursively render a preserved GEDCOM subtree — the "nothing was lost" view.
+function GedcomTreeView({ node, depth = 0 }: { node: GedcomNode; depth?: number }) {
+  return (
+    <div style={{ marginLeft: depth ? 14 : 0 }} className={depth ? 'border-l border-brand-gold/[0.08] pl-3' : ''}>
+      <div className="flex gap-2 py-0.5 text-xs">
+        <span className="font-mono text-brand-gold shrink-0">{node.tag}</span>
+        {node.value && <span className="text-brand-cream-muted break-words whitespace-pre-wrap">{node.value}</span>}
+      </div>
+      {node.children.map((c, i) => (
+        <GedcomTreeView key={i} node={c} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
+export function PersonProfile({
+  treeId,
+  treeName,
+  initialPerson,
+  relatives,
+  initialMatches,
+  events,
+  sources,
+  raw,
+}: Props) {
   const [person, setPerson] = useState(initialPerson);
   const [matches, setMatches] = useState(initialMatches);
   const [editing, setEditing] = useState(false);
@@ -345,6 +387,43 @@ export function PersonProfile({ treeId, treeName, initialPerson, relatives, init
         )}
       </div>
 
+      {/* Life events */}
+      {events.length > 0 && (
+        <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mb-6">
+          <h2 className="font-display text-lg font-semibold text-brand-cream mb-4 inline-flex items-center gap-2">
+            <Clock className="w-4 h-4 text-brand-gold" /> Life events
+          </h2>
+          <ol className="space-y-4">
+            {events.map((e) => (
+              <li key={e.id} className="relative pl-5 border-l border-brand-gold/[0.12]">
+                <span className="absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full bg-brand-gold" />
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-sm font-medium text-brand-cream">{e.label}</span>
+                  {e.date && <span className="text-xs text-brand-muted">{e.date}</span>}
+                </div>
+                {e.relatedName && <p className="text-sm text-brand-cream-muted">to {e.relatedName}</p>}
+                {e.value && e.value !== e.label && (
+                  <p className="text-sm text-brand-cream-muted">{e.value}</p>
+                )}
+                {e.place && (
+                  <p className="text-xs text-brand-muted inline-flex items-center gap-1 mt-0.5">
+                    <MapPin className="w-3 h-3" /> {e.place}
+                  </p>
+                )}
+                {e.note && (
+                  <p className="text-xs text-brand-cream-muted whitespace-pre-wrap mt-0.5">{e.note}</p>
+                )}
+                {e.citations.length > 0 && (
+                  <p className="text-[11px] text-brand-sage mt-1">
+                    Sources: {e.citations.map((c) => c.title || c.text || 'cited').join('; ')}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
       {/* Relationships */}
       <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mb-6">
         <h2 className="font-display text-lg font-semibold text-brand-cream mb-4">Relationships</h2>
@@ -484,6 +563,43 @@ export function PersonProfile({ treeId, treeName, initialPerson, relatives, init
           </div>
         )}
       </div>
+
+      {/* Sources */}
+      {sources.length > 0 && (
+        <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mt-6">
+          <h2 className="font-display text-lg font-semibold text-brand-cream mb-4 inline-flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-brand-gold" /> Sources
+          </h2>
+          <div className="space-y-3">
+            {sources.map((s) => (
+              <div key={s.id} className="rounded-xl border border-brand-gold/[0.1] bg-brand-bg/40 p-3">
+                <p className="text-sm font-medium text-brand-cream">{s.title || s.gedcom_xref}</p>
+                {(s.author || s.publication || s.repository) && (
+                  <p className="text-xs text-brand-muted mt-0.5">
+                    {[s.author, s.publication, s.repository].filter(Boolean).join(' · ')}
+                  </p>
+                )}
+                {s.text && (
+                  <p className="text-xs text-brand-cream-muted whitespace-pre-wrap mt-1.5">{s.text}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Everything from the file */}
+      {raw && (
+        <details className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mt-6">
+          <summary className="cursor-pointer list-none flex items-center gap-2 font-display text-lg font-semibold text-brand-cream [&::-webkit-details-marker]:hidden">
+            <ListTree className="w-4 h-4 text-brand-gold" /> All facts &amp; tags
+            <span className="ml-auto text-xs font-body font-normal text-brand-muted">everything from the file</span>
+          </summary>
+          <div className="mt-4 overflow-x-auto">
+            <GedcomTreeView node={raw} />
+          </div>
+        </details>
+      )}
     </div>
   );
 }

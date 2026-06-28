@@ -94,17 +94,41 @@ export async function POST(
     occupation: p.occupation,
     notes: p.notes,
     gedcom_xref: p.xref,
+    raw_gedcom: p.raw,
+    citations: p.citations,
     pos_x: layout[p.xref]?.x ?? 0,
     pos_y: layout[p.xref]?.y ?? 0,
   }));
 
+  // The full-import columns (raw_gedcom/citations) may not exist yet. If the
+  // first insert rejects them, fall back to the core columns so importing still
+  // works before the migration is run.
+  let fullCapture = true;
+
+  const strip = (part: typeof rows) =>
+    part.map(({ raw_gedcom, citations, ...rest }) => {
+      void raw_gedcom;
+      void citations;
+      return rest;
+    });
+
   const xrefToId = new Map<string, string>();
   const people: { id: string; given_name: string | null; surname: string | null; birth_date: string | null }[] = [];
   for (const part of chunk(rows, 500)) {
-    const { data, error } = await supabase
+    const payload = fullCapture ? part : strip(part);
+    let { data, error } = await supabase
       .from('tree_individuals')
-      .insert(part)
+      .insert(payload)
       .select('id, gedcom_xref, given_name, surname, birth_date');
+
+    // First batch with the full-capture columns missing → drop them and retry.
+    if (error && fullCapture) {
+      fullCapture = false;
+      ({ data, error } = await supabase
+        .from('tree_individuals')
+        .insert(strip(part))
+        .select('id, gedcom_xref, given_name, surname, birth_date'));
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     for (const r of data ?? []) {
       if (r.gedcom_xref) xrefToId.set(r.gedcom_xref as string, r.id as string);
@@ -143,6 +167,57 @@ export async function POST(
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
+  // Sources + events (only when the full-capture migration is in place).
+  let sourcesAdded = 0;
+  let eventsAdded = 0;
+  if (fullCapture) {
+    if (parsed.sources.length > 0) {
+      const sourceRows = parsed.sources.map((s) => ({
+        tree_id: treeId,
+        user_id: user.id,
+        gedcom_xref: s.xref,
+        title: s.title,
+        author: s.author,
+        publication: s.publication,
+        repository: s.repository,
+        text: s.text,
+        raw: s.raw,
+      }));
+      for (const part of chunk(sourceRows, 500)) {
+        const { error } = await supabase
+          .from('tree_sources')
+          .upsert(part, { onConflict: 'tree_id,gedcom_xref', ignoreDuplicates: true });
+        // A missing table here just means partial migration — don't fail the import.
+        if (!error) sourcesAdded += part.length;
+      }
+    }
+
+    const eventRows = parsed.events
+      .map((e) => ({
+        tree_id: treeId,
+        user_id: user.id,
+        individual_id: xrefToId.get(e.owner_xref),
+        related_individual_id: e.related_xref ? xrefToId.get(e.related_xref) ?? null : null,
+        tag: e.tag,
+        type: e.type,
+        label: e.label,
+        date: e.date,
+        place: e.place,
+        value: e.value,
+        note: e.note,
+        sources: e.sources,
+        raw: e.raw,
+        position: e.position,
+      }))
+      .filter((e): e is typeof e & { individual_id: string } => Boolean(e.individual_id));
+
+    for (const part of chunk(eventRows, 500)) {
+      if (part.length === 0) continue;
+      const { error } = await supabase.from('tree_events').insert(part);
+      if (!error) eventsAdded += part.length;
+    }
+  }
+
   await supabase
     .from('family_trees')
     .update({ updated_at: new Date().toISOString() })
@@ -152,6 +227,8 @@ export async function POST(
   return NextResponse.json({
     added: rows.length,
     relationships: relRows.length,
+    events: eventsAdded,
+    sources: sourcesAdded,
     warnings: parsed.warnings,
     people,
   });
