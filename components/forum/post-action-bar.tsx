@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ThumbsUp, Lightbulb, HelpCircle, MessageSquare, Loader2 } from 'lucide-react';
+import { ThumbsUp, Lightbulb, HelpCircle, MessageSquare, Share2, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import type { ForumThreadReaction } from '@/lib/types';
@@ -11,6 +12,7 @@ import type { ForumThreadReaction } from '@/lib/types';
 interface Props {
   threadId: string;
   threadSlug: string;
+  title?: string;
   initialVoteCount: number;
   initialVoted: boolean;
   initialReactions: ForumThreadReaction[];
@@ -29,6 +31,7 @@ const RATINGS = [
 export function PostActionBar({
   threadId,
   threadSlug,
+  title,
   initialVoteCount,
   initialVoted,
   initialReactions,
@@ -103,6 +106,26 @@ export function PostActionBar({
     }
   }
 
+  async function share() {
+    const url = `${window.location.origin}/forum/thread/${threadSlug}`;
+    const shareData = { title: title || 'A post on Reparation Road', url };
+    // Native share sheet on supporting devices; clipboard copy everywhere else.
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch {
+        // user cancelled or it failed — fall through to copy
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Link copied to clipboard');
+    } catch {
+      toast.error('Could not copy the link');
+    }
+  }
+
   return (
     <div className="flex items-center gap-1 flex-wrap">
       {/* Like (vote) */}
@@ -150,15 +173,25 @@ export function PostActionBar({
         );
       })}
 
-      {/* Comment */}
-      <Link
-        href={`/forum/thread/${threadSlug}`}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-muted hover:text-brand-cream hover:bg-brand-card-hover transition-colors ml-auto"
-      >
-        <MessageSquare className="w-4 h-4" />
-        <span className="hidden sm:inline">Comment</span>
-        {replyCount > 0 && <span className="tabular-nums">{replyCount}</span>}
-      </Link>
+      {/* Comment + Share */}
+      <div className="flex items-center gap-1 ml-auto">
+        <Link
+          href={`/forum/thread/${threadSlug}`}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-muted hover:text-brand-cream hover:bg-brand-card-hover transition-colors"
+        >
+          <MessageSquare className="w-4 h-4" />
+          <span className="hidden sm:inline">Comment</span>
+          {replyCount > 0 && <span className="tabular-nums">{replyCount}</span>}
+        </Link>
+        <button
+          type="button"
+          onClick={share}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-muted hover:text-brand-cream hover:bg-brand-card-hover transition-colors"
+        >
+          <Share2 className="w-4 h-4" />
+          <span className="hidden sm:inline">Share</span>
+        </button>
+      </div>
     </div>
   );
 }
