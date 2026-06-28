@@ -103,6 +103,7 @@ export function PostCard({
         <PostActionBar
           threadId={thread.id}
           threadSlug={thread.slug}
+          title={thread.title}
           initialVoteCount={voteCount}
           initialVoted={myVote === 1}
           initialReactions={reactions}
