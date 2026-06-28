@@ -116,6 +116,13 @@ export interface ForumAttachedRecord {
   title: string;
 }
 
+// Another thread reposted into this one (the internal "Share to your feed").
+export interface ForumSharedThread {
+  slug: string;
+  title: string;
+  author?: string | null;
+}
+
 export interface ForumThread {
   id: string;
   category_id: string;
@@ -130,6 +137,7 @@ export interface ForumThread {
   vote_count?: number;
   image_urls?: string[] | null;
   attached_record?: ForumAttachedRecord | null;
+  shared_thread?: ForumSharedThread | null;
   tags?: string[] | null;
   post_type?: ForumPostType | null;
   created_at: string;

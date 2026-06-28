@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import { FileText } from 'lucide-react';
-import type { ForumAttachedRecord } from '@/lib/types';
+import { FileText, Repeat2 } from 'lucide-react';
+import type { ForumAttachedRecord, ForumSharedThread } from '@/lib/types';
 
 interface PostMediaProps {
   images?: string[] | null;
@@ -117,6 +117,24 @@ export function AttachedRecordCard({ record }: { record?: ForumAttachedRecord | 
         <p className="text-[11px] uppercase tracking-wide text-brand-muted">Archive record</p>
         <p className="text-sm text-brand-cream truncate">{record.title}</p>
       </div>
+    </Link>
+  );
+}
+
+// A reposted thread, shown as an embedded quote (the internal "Share to your
+// feed"). Links to the original post.
+export function SharedThreadCard({ shared }: { shared?: ForumSharedThread | null }) {
+  if (!shared) return null;
+  return (
+    <Link
+      href={`/forum/thread/${shared.slug}`}
+      className="block rounded-xl border border-brand-gold/15 bg-brand-bg/40 p-3 hover:border-brand-gold/35 transition-colors"
+    >
+      <p className="text-[11px] uppercase tracking-wide text-brand-muted inline-flex items-center gap-1 mb-1">
+        <Repeat2 className="w-3 h-3 text-brand-gold" /> Shared post
+      </p>
+      <p className="text-sm font-medium text-brand-cream line-clamp-2">{shared.title}</p>
+      {shared.author && <p className="text-xs text-brand-muted mt-0.5">by {shared.author}</p>}
     </Link>
   );
 }

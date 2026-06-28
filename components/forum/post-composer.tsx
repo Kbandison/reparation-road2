@@ -11,7 +11,8 @@ import { toast } from 'sonner';
 import { Loader2, MessageSquare, Search, HelpCircle, ImagePlus, FileText, X } from 'lucide-react';
 import slugify from 'slugify';
 import { RecordPicker } from '@/components/forum/record-picker';
-import type { ForumAttachedRecord, ForumPostType } from '@/lib/types';
+import { SharedThreadCard } from '@/components/forum/post-media';
+import type { ForumAttachedRecord, ForumPostType, ForumSharedThread } from '@/lib/types';
 
 interface Category {
   id: string;
@@ -43,6 +44,40 @@ export function PostComposer({ inModal = false }: { inModal?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedCategory = searchParams.get('category');
+  const shareSlug = searchParams.get('share');
+  const [sharedThread, setSharedThread] = useState<ForumSharedThread | null>(null);
+
+  // When reposting (?share=slug), load the original so we can show a quote
+  // preview and attach a reference to the new post.
+  useEffect(() => {
+    if (!shareSlug) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data: t } = await supabase
+        .from('forum_threads')
+        .select('slug, title, user_id')
+        .eq('slug', shareSlug)
+        .maybeSingle();
+      if (cancelled || !t) return;
+      const { data: p } = await supabase
+        .from('profiles')
+        .select('display_name, first_name, last_name, handle')
+        .eq('id', t.user_id)
+        .maybeSingle();
+      const author =
+        p?.display_name?.trim() ||
+        `${p?.first_name ?? ''} ${p?.last_name ?? ''}`.trim() ||
+        p?.handle ||
+        'a member';
+      if (cancelled) return;
+      setSharedThread({ slug: t.slug, title: t.title, author });
+      setTitle((cur) => cur || `Shared: ${t.title}`);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shareSlug]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -81,7 +116,8 @@ export function PostComposer({ inModal = false }: { inModal?: boolean }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!categoryId || !title.trim() || !content.trim()) return;
+    // When reposting, a comment is optional — the shared post carries the content.
+    if (!categoryId || !title.trim() || (!content.trim() && !sharedThread)) return;
 
     setLoading(true);
     const supabase = createClient();
@@ -96,22 +132,38 @@ export function PostComposer({ inModal = false }: { inModal?: boolean }) {
 
     const slug = `${slugify(title, { lower: true, strict: true }).slice(0, 60)}-${Math.floor(Math.random() * 9000 + 1000)}`;
 
-    const { data: thread, error } = await supabase
+    const base = {
+      category_id: categoryId,
+      user_id: user.id,
+      title: title.trim(),
+      slug,
+      content: content.trim(),
+      post_type: postType,
+      image_urls: images,
+      attached_record: attachedRecord,
+    };
+
+    let { data: thread, error } = await supabase
       .from('forum_threads')
-      .insert({
-        category_id: categoryId,
-        user_id: user.id,
-        title: title.trim(),
-        slug,
-        content: content.trim(),
-        post_type: postType,
-        image_urls: images,
-        attached_record: attachedRecord,
-      })
+      .insert(sharedThread ? { ...base, shared_thread: sharedThread } : base)
       .select('slug')
       .single();
 
-    if (error) {
+    // If the shared_thread column isn't there yet, retry without it and keep a
+    // link to the original in the body so the repost still works.
+    if (error && sharedThread) {
+      const withLink = {
+        ...base,
+        content: `${content.trim()}${content.trim() ? '\n\n' : ''}↪ Sharing: ${window.location.origin}/forum/thread/${sharedThread.slug}`.trim(),
+      };
+      ({ data: thread, error } = await supabase
+        .from('forum_threads')
+        .insert(withLink)
+        .select('slug')
+        .single());
+    }
+
+    if (error || !thread) {
       toast.error('Failed to create post');
       setLoading(false);
       return;
@@ -130,6 +182,14 @@ export function PostComposer({ inModal = false }: { inModal?: boolean }) {
   return (
     <>
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Reposting an existing post */}
+        {sharedThread && (
+          <div className="space-y-2">
+            <Label>You&apos;re sharing this post</Label>
+            <SharedThreadCard shared={sharedThread} />
+          </div>
+        )}
+
         {/* Post type */}
         <div className="grid grid-cols-3 gap-2">
           {POST_TYPES.map(({ key, label, icon: Icon, hint }) => (
@@ -177,12 +237,12 @@ export function PostComposer({ inModal = false }: { inModal?: boolean }) {
         </div>
 
         <div className="space-y-2">
-          <Label>Content</Label>
+          <Label>{sharedThread ? 'Add a comment (optional)' : 'Content'}</Label>
           <Textarea
-            placeholder="Write your post…"
+            placeholder={sharedThread ? 'Say something about this post…' : 'Write your post…'}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            required
+            required={!sharedThread}
             rows={inModal ? 5 : 7}
             className="bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold resize-y"
           />

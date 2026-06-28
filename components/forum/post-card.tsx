@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { MessageSquare, Pin, Lock, Search, HelpCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Avatar } from './avatar';
-import { PostMedia, AttachedRecordCard } from './post-media';
+import { PostMedia, AttachedRecordCard, SharedThreadCard } from './post-media';
 import { PostActionBar } from './post-action-bar';
 import type { FeedItem, ForumPostType } from '@/lib/types';
 
@@ -83,6 +83,13 @@ export function PostCard({
           </p>
         )}
       </div>
+
+      {/* Reposted thread */}
+      {thread.shared_thread && (
+        <div className="mt-3">
+          <SharedThreadCard shared={thread.shared_thread} />
+        </div>
+      )}
 
       {/* Large media */}
       {images.length > 0 && (

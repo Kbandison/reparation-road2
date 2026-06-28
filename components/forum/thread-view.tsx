@@ -6,7 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ReactionBar } from '@/components/forum/reaction-bar';
 import { ReplyEditor } from '@/components/forum/reply-editor';
-import { PostMedia, AttachedRecordCard } from '@/components/forum/post-media';
+import { PostMedia, AttachedRecordCard, SharedThreadCard } from '@/components/forum/post-media';
 import { PostActionBar } from '@/components/forum/post-action-bar';
 import { FollowButton } from '@/components/forum/follow-button';
 import { MessageSquare, Search, HelpCircle } from 'lucide-react';
@@ -193,6 +193,12 @@ export async function ThreadView({ slug, inModal = false }: { slug: string; inMo
         <div className="text-sm text-brand-cream-muted leading-relaxed whitespace-pre-wrap">
           {thread.content}
         </div>
+
+        {thread.shared_thread && (
+          <div className="mt-4">
+            <SharedThreadCard shared={thread.shared_thread} />
+          </div>
+        )}
 
         {(thread.image_urls?.length ?? 0) > 0 && (
           <div className="mt-4">

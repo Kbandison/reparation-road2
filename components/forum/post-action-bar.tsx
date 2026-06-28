@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ThumbsUp, Lightbulb, HelpCircle, MessageSquare, Share2, Loader2 } from 'lucide-react';
+import { ThumbsUp, Lightbulb, HelpCircle, MessageSquare, Share2, Link2, Repeat2, Send, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -28,6 +28,11 @@ const RATINGS = [
   { type: 'insightful', icon: Lightbulb, label: 'Insightful' },
 ] as const;
 
+const BTN =
+  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors';
+const BTN_IDLE = 'text-brand-muted hover:text-brand-cream hover:bg-brand-card-hover';
+const BTN_ON = 'bg-brand-gold/10 text-brand-gold';
+
 export function PostActionBar({
   threadId,
   threadSlug,
@@ -44,6 +49,24 @@ export function PostActionBar({
   const [voted, setVoted] = useState(initialVoted);
   const [votePending, setVotePending] = useState(false);
   const [reactions, setReactions] = useState<ForumThreadReaction[]>(initialReactions);
+
+  const [shareOpen, setShareOpen] = useState(false);
+  const [canNativeShare, setCanNativeShare] = useState(false);
+  const shareRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setCanNativeShare(typeof navigator !== 'undefined' && typeof navigator.share === 'function');
+  }, []);
+
+  // Close the share menu on an outside click.
+  useEffect(() => {
+    if (!shareOpen) return;
+    function onClick(e: MouseEvent) {
+      if (shareRef.current && !shareRef.current.contains(e.target as Node)) setShareOpen(false);
+    }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [shareOpen]);
 
   async function toggleLike() {
     if (!isSignedIn) {
@@ -106,23 +129,26 @@ export function PostActionBar({
     }
   }
 
-  async function share() {
-    const url = `${window.location.origin}/forum/thread/${threadSlug}`;
-    const shareData = { title: title || 'A post on Reparation Road', url };
-    // Native share sheet on supporting devices; clipboard copy everywhere else.
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      try {
-        await navigator.share(shareData);
-        return;
-      } catch {
-        // user cancelled or it failed — fall through to copy
-      }
-    }
+  function threadUrl() {
+    return `${window.location.origin}/forum/thread/${threadSlug}`;
+  }
+
+  async function copyLink() {
+    setShareOpen(false);
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(threadUrl());
       toast.success('Link copied to clipboard');
     } catch {
       toast.error('Could not copy the link');
+    }
+  }
+
+  async function nativeShare() {
+    setShareOpen(false);
+    try {
+      await navigator.share({ title: title || 'A post on Reparation Road', url: threadUrl() });
+    } catch {
+      // cancelled — ignore
     }
   }
 
@@ -133,12 +159,7 @@ export function PostActionBar({
         type="button"
         onClick={toggleLike}
         aria-pressed={voted}
-        className={cn(
-          'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-          voted
-            ? 'bg-brand-gold/10 text-brand-gold'
-            : 'text-brand-muted hover:text-brand-cream hover:bg-brand-card-hover',
-        )}
+        className={cn(BTN, voted ? BTN_ON : BTN_IDLE)}
       >
         {votePending ? (
           <Loader2 className="w-4 h-4 animate-spin" />
@@ -149,48 +170,83 @@ export function PostActionBar({
         {voteCount > 0 && <span className="tabular-nums">{voteCount}</span>}
       </button>
 
-      {/* Rate */}
-      {RATINGS.map(({ type, icon: Icon, label }) => {
-        const count = reactions.filter((r) => r.reaction_type === type).length;
-        const mine = reactions.some((r) => r.user_id === currentUserId && r.reaction_type === type);
-        return (
-          <button
-            key={type}
-            type="button"
-            onClick={() => toggleReaction(type)}
-            title={label}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-              mine
-                ? 'bg-brand-gold/10 text-brand-gold'
-                : 'text-brand-muted hover:text-brand-cream hover:bg-brand-card-hover',
-            )}
-          >
-            <Icon className="w-4 h-4" />
-            <span className="hidden sm:inline">{label}</span>
-            {count > 0 && <span className="tabular-nums">{count}</span>}
-          </button>
-        );
-      })}
+      {/* Comment */}
+      <Link href={`/forum/thread/${threadSlug}`} className={cn(BTN, BTN_IDLE)}>
+        <MessageSquare className="w-4 h-4" />
+        <span className="hidden sm:inline">Comment</span>
+        {replyCount > 0 && <span className="tabular-nums">{replyCount}</span>}
+      </Link>
 
-      {/* Comment + Share */}
-      <div className="flex items-center gap-1 ml-auto">
-        <Link
-          href={`/forum/thread/${threadSlug}`}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-muted hover:text-brand-cream hover:bg-brand-card-hover transition-colors"
-        >
-          <MessageSquare className="w-4 h-4" />
-          <span className="hidden sm:inline">Comment</span>
-          {replyCount > 0 && <span className="tabular-nums">{replyCount}</span>}
-        </Link>
+      {/* Share (menu: internal repost + copy link + native) */}
+      <div className="relative" ref={shareRef}>
         <button
           type="button"
-          onClick={share}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-muted hover:text-brand-cream hover:bg-brand-card-hover transition-colors"
+          onClick={() => setShareOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={shareOpen}
+          className={cn(BTN, shareOpen ? BTN_ON : BTN_IDLE)}
         >
           <Share2 className="w-4 h-4" />
           <span className="hidden sm:inline">Share</span>
         </button>
+
+        {shareOpen && (
+          <div
+            role="menu"
+            className="absolute left-0 bottom-full mb-2 z-30 w-52 rounded-xl border border-brand-gold/15 bg-brand-card shadow-2xl py-1"
+          >
+            <Link
+              href={`/forum/new?share=${encodeURIComponent(threadSlug)}`}
+              onClick={() => setShareOpen(false)}
+              role="menuitem"
+              className="flex items-center gap-2.5 px-3 py-2 text-sm text-brand-cream hover:bg-brand-card-hover transition-colors"
+            >
+              <Repeat2 className="w-4 h-4 text-brand-gold" />
+              Share to your feed
+            </Link>
+            <button
+              type="button"
+              onClick={copyLink}
+              role="menuitem"
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-brand-cream hover:bg-brand-card-hover transition-colors"
+            >
+              <Link2 className="w-4 h-4 text-brand-muted" />
+              Copy link
+            </button>
+            {canNativeShare && (
+              <button
+                type="button"
+                onClick={nativeShare}
+                role="menuitem"
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-brand-cream hover:bg-brand-card-hover transition-colors"
+              >
+                <Send className="w-4 h-4 text-brand-muted" />
+                Share via…
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Rate */}
+      <div className="flex items-center gap-1 ml-auto">
+        {RATINGS.map(({ type, icon: Icon, label }) => {
+          const count = reactions.filter((r) => r.reaction_type === type).length;
+          const mine = reactions.some((r) => r.user_id === currentUserId && r.reaction_type === type);
+          return (
+            <button
+              key={type}
+              type="button"
+              onClick={() => toggleReaction(type)}
+              title={label}
+              className={cn(BTN, mine ? BTN_ON : BTN_IDLE)}
+            >
+              <Icon className="w-4 h-4" />
+              <span className="hidden sm:inline">{label}</span>
+              {count > 0 && <span className="tabular-nums">{count}</span>}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
