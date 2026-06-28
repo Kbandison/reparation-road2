@@ -5,17 +5,23 @@ import { usePathname } from 'next/navigation';
 import { Shield } from 'lucide-react';
 import { platformNavItems } from '@/lib/constants';
 import { useUser } from '@/contexts/user-context';
+import { canUseFamilyTree } from '@/lib/family-tree/access';
 
 // The same navigation the dashboard sidebar offers, rendered as a left rail
 // "attached" to the feed (Facebook-style) rather than pinned to the screen edge.
 export function FeedLeftRail() {
   const pathname = usePathname();
-  const { isAdmin } = useUser();
+  const { isAdmin, profile } = useUser();
+
+  // The family tree is gated while in private testing.
+  const items = platformNavItems.filter(
+    (item) => item.href !== '/family-tree' || canUseFamilyTree(profile),
+  );
 
   return (
     <aside className="hidden lg:block w-[230px] shrink-0">
       <nav className="sticky top-20 space-y-1">
-        {platformNavItems.map((item) => {
+        {items.map((item) => {
           const isActive =
             item.href === '/forum'
               ? pathname.startsWith('/forum')

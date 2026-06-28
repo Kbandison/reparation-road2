@@ -5,15 +5,21 @@ import { usePathname } from 'next/navigation';
 import { Shield } from 'lucide-react';
 import { platformNavItems } from '@/lib/constants';
 import { useUser } from '@/contexts/user-context';
+import { canUseFamilyTree } from '@/lib/family-tree/access';
 
 export function PlatformSidebar() {
   const pathname = usePathname();
-  const { isAdmin } = useUser();
+  const { isAdmin, profile } = useUser();
+
+  // The family tree is gated while in private testing.
+  const items = platformNavItems.filter(
+    (item) => item.href !== '/family-tree' || canUseFamilyTree(profile),
+  );
 
   return (
     <aside className="hidden lg:flex w-[260px] flex-col bg-brand-card border-r border-brand-gold/[0.08] fixed left-0 top-16 bottom-0">
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {platformNavItems.map((item) => {
+        {items.map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (
             <Link
