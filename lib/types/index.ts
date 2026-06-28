@@ -147,6 +147,14 @@ export interface ForumAuthor {
 
 export type FeedSort = 'hot' | 'new' | 'top';
 
+// A thread reaction (the "rate" control on a feed post). Mirrors a post
+// reaction but keyed on a thread.
+export interface ForumThreadReaction {
+  id: string;
+  user_id: string;
+  reaction_type: string;
+}
+
 // A thread as it appears in the feed, with the derived presentation data the
 // list needs (author, counts, the viewer's vote, hot score).
 export interface FeedItem {
@@ -157,6 +165,7 @@ export interface FeedItem {
   replyCount: number;
   voteCount: number;
   myVote: number; // -1 | 0 | 1
+  reactions: ForumThreadReaction[];
   hotScore: number;
 }
 

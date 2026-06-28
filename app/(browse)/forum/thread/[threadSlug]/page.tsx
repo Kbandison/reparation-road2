@@ -7,11 +7,11 @@ import { formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ReactionBar } from '@/components/forum/reaction-bar';
 import { ReplyEditor } from '@/components/forum/reply-editor';
-import { VoteButton } from '@/components/forum/vote-button';
-import { PostAttachments } from '@/components/forum/post-attachments';
+import { PostMedia, AttachedRecordCard } from '@/components/forum/post-media';
+import { PostActionBar } from '@/components/forum/post-action-bar';
 import { FollowButton } from '@/components/forum/follow-button';
 import { MessageSquare, Search, HelpCircle } from 'lucide-react';
-import type { ForumPostType } from '@/lib/types';
+import type { ForumPostType, ForumThreadReaction } from '@/lib/types';
 
 const POST_TYPE_META: Record<ForumPostType, { label: string; icon: typeof Search; cls: string }> = {
   discussion: { label: 'Discussion', icon: MessageSquare, cls: 'text-brand-muted' },
@@ -68,6 +68,19 @@ export default async function ThreadPage({ params }: Props) {
     ]);
     myVote = voteRow?.value ?? 0;
     followingThread = !!followRow;
+  }
+
+  // Thread reactions (the "rate" control on the original post). Degrades to
+  // empty if the thread_id column isn't there yet.
+  let threadReactions: ForumThreadReaction[] = [];
+  try {
+    const { data: reactionRows } = await supabase
+      .from('forum_reactions')
+      .select('id, user_id, reaction_type')
+      .eq('thread_id', thread.id);
+    threadReactions = (reactionRows as ForumThreadReaction[]) ?? [];
+  } catch {
+    // not migrated yet
   }
 
   // Fetch category separately
@@ -177,33 +190,46 @@ export default async function ThreadPage({ params }: Props) {
       </p>
 
       {/* Original post */}
-      <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mb-6 flex gap-4">
-        <div className="flex-shrink-0">
-          <VoteButton
-            threadId={thread.id}
-            initialCount={thread.vote_count ?? 0}
-            initialVote={myVote === 1 ? 1 : 0}
-            isSignedIn={!!user}
-          />
+      <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Avatar className="w-9 h-9">
+            <AvatarFallback className="bg-brand-gold/10 text-brand-gold text-xs">{threadInitials}</AvatarFallback>
+          </Avatar>
+          <div>
+            <p className="text-sm font-medium text-brand-cream">{threadAuthor}</p>
+            <p className="text-xs text-brand-muted">
+              {formatDistanceToNow(new Date(thread.created_at), { addSuffix: true })}
+            </p>
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-3 mb-4">
-            <Avatar className="w-8 h-8">
-              <AvatarFallback className="bg-brand-gold/10 text-brand-gold text-xs">{threadInitials}</AvatarFallback>
-            </Avatar>
-            <div>
-              <p className="text-sm font-medium text-brand-cream">{threadAuthor}</p>
-              <p className="text-xs text-brand-muted">
-                {formatDistanceToNow(new Date(thread.created_at), { addSuffix: true })}
-              </p>
-            </div>
-          </div>
-          <div className="text-sm text-brand-cream-muted leading-relaxed whitespace-pre-wrap">
-            {thread.content}
-          </div>
+
+        <div className="text-sm text-brand-cream-muted leading-relaxed whitespace-pre-wrap">
+          {thread.content}
+        </div>
+
+        {(thread.image_urls?.length ?? 0) > 0 && (
           <div className="mt-4">
-            <PostAttachments attachedRecord={thread.attached_record} images={thread.image_urls} size="full" />
+            <PostMedia images={thread.image_urls} />
           </div>
+        )}
+
+        {thread.attached_record && (
+          <div className="mt-4">
+            <AttachedRecordCard record={thread.attached_record} />
+          </div>
+        )}
+
+        <div className="mt-4 pt-4 border-t border-brand-gold/[0.06]">
+          <PostActionBar
+            threadId={thread.id}
+            threadSlug={thread.slug}
+            initialVoteCount={thread.vote_count ?? 0}
+            initialVoted={myVote === 1}
+            initialReactions={threadReactions}
+            currentUserId={user?.id ?? ''}
+            isSignedIn={!!user}
+            replyCount={posts?.length ?? 0}
+          />
         </div>
       </div>
 
