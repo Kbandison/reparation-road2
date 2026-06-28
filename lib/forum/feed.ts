@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { FeedItem, FeedSort, ForumAuthor, ForumThread } from '@/lib/types';
+import type { FeedItem, FeedSort, ForumAuthor, ForumThread, ForumThreadReaction } from '@/lib/types';
 
 // Builds the social feed: threads across all (or one) category, assembled with
 // author, reply count, vote count, the viewer's own vote, and a hot score.
@@ -116,6 +116,23 @@ export async function getFeed(
     myVoteMap.set(v.thread_id, v.value);
   }
 
+  // Thread reactions (the "rate" control). Degrades to empty if the thread_id
+  // column isn't there yet (migration not run), so the feed never hard-fails.
+  const reactionMap = new Map<string, ForumThreadReaction[]>();
+  try {
+    const { data: reactionRows } = await supabase
+      .from('forum_reactions')
+      .select('id, thread_id, user_id, reaction_type')
+      .in('thread_id', threadIds);
+    for (const r of (reactionRows as { id: string; thread_id: string; user_id: string; reaction_type: string }[]) ?? []) {
+      const list = reactionMap.get(r.thread_id) ?? [];
+      list.push({ id: r.id, user_id: r.user_id, reaction_type: r.reaction_type });
+      reactionMap.set(r.thread_id, list);
+    }
+  } catch {
+    // thread reactions not migrated yet — leave the map empty.
+  }
+
   const items: FeedItem[] = threads.map((thread) => {
     const cat = categoryMap.get(thread.category_id);
     const replyCount = replyCountMap.get(thread.id) ?? 0;
@@ -130,6 +147,7 @@ export async function getFeed(
       replyCount,
       voteCount,
       myVote: myVoteMap.get(thread.id) ?? 0,
+      reactions: reactionMap.get(thread.id) ?? [],
       hotScore: hotScore(voteCount, replyCount, thread.created_at),
     };
   });

@@ -4,10 +4,10 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Menu, X, LogOut, LayoutDashboard, Settings, Shield } from 'lucide-react';
+import { Menu, X, LogOut, LayoutDashboard, Settings, Shield, MessageSquare } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +44,8 @@ export function MainNav({ profile }: MainNavProps) {
   const initial = profile?.first_name?.[0]?.toUpperCase() || profile?.email?.[0]?.toUpperCase() || '?';
 
   useEffect(() => {
+    // Mount guard to avoid a hydration flash of the logged-in UI.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 
@@ -110,6 +112,7 @@ export function MainNav({ profile }: MainNavProps) {
               <DropdownMenu>
                 <DropdownMenuTrigger className="flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-brand-card-hover transition-colors">
                   <Avatar className="w-8 h-8">
+                    {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt="" />}
                     <AvatarFallback className="bg-brand-gold/10 text-brand-gold text-xs font-semibold">
                       {initial}
                     </AvatarFallback>
@@ -118,10 +121,22 @@ export function MainNav({ profile }: MainNavProps) {
                 <DropdownMenuContent align="end" className="w-56 bg-brand-card border-brand-gold/[0.08]">
                   <div className="px-2 py-1.5 border-b border-brand-gold/[0.08] mb-1">
                     <p className="text-sm font-medium text-brand-cream truncate">
-                      {profile?.first_name} {profile?.last_name}
+                      {profile?.display_name?.trim() || `${profile?.first_name ?? ''} ${profile?.last_name ?? ''}`.trim() || 'Researcher'}
                     </p>
-                    <p className="text-xs text-brand-muted truncate">{profile?.email}</p>
+                    {profile?.handle ? (
+                      <p className="text-xs text-brand-gold truncate">@{profile.handle}</p>
+                    ) : (
+                      <p className="text-xs text-brand-muted truncate">{profile?.email}</p>
+                    )}
                   </div>
+                  {profile?.handle && (
+                    <DropdownMenuItem asChild>
+                      <Link href={`/forum/u/${profile.handle}`} className="text-brand-cream">
+                        <MessageSquare className="w-4 h-4 mr-2" />
+                        My Community Profile
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem asChild>
                     <Link href="/dashboard" className="text-brand-cream">
                       <LayoutDashboard className="w-4 h-4 mr-2" />
