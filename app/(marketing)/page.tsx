@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { CalendarDays, ArrowRight, Search, Dna, GraduationCap, Box, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ContactSection } from '@/components/marketing/contact-section';
 import { freeFeatures, premiumFeatures, membershipPricing } from '@/lib/constants';
 
 const stats = [
@@ -287,6 +288,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Contact */}
+      <ContactSection />
     </>
   );
 }

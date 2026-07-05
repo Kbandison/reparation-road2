@@ -14,11 +14,18 @@ interface ImageViewerProps {
 export function ImageViewer({ imagePath, alt }: ImageViewerProps) {
   const [open, setOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
+  // Some archival scans are too large for Supabase's image transform endpoint
+  // (it returns 400). When the transformed src fails to load we fall back to the
+  // raw object URL so the image still shows instead of breaking.
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const [fullFailed, setFullFailed] = useState(false);
+
   const isPdf = isPdfPath(imagePath);
   // Archival scans are 20-35 MB raw — request width-capped transforms.
   // (For PDFs buildImageUrl returns the raw object URL, which we embed.)
   const thumbUrl = buildImageUrl(imagePath, { width: 1400 });
   const fullUrl = buildImageUrl(imagePath, { width: 2400 });
+  const rawUrl = buildImageUrl(imagePath); // un-transformed object URL
 
   if (!thumbUrl) return null;
 
@@ -51,14 +58,20 @@ export function ImageViewer({ imagePath, alt }: ImageViewerProps) {
         onClick={() => setOpen(true)}
         aria-label={`View full size image: ${alt}`}
       >
-        <Image
-          src={thumbUrl}
-          alt={alt}
-          fill
-          className="object-contain"
-          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 800px"
-          priority
-        />
+        {thumbFailed && rawUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={rawUrl} alt={alt} className="absolute inset-0 w-full h-full object-contain" />
+        ) : (
+          <Image
+            src={thumbUrl}
+            alt={alt}
+            fill
+            className="object-contain"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 800px"
+            priority
+            onError={() => setThumbFailed(true)}
+          />
+        )}
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -68,14 +81,20 @@ export function ImageViewer({ imagePath, alt }: ImageViewerProps) {
             onClick={() => setZoom(zoom === 1 ? 2 : 1)}
           >
             <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', transition: 'transform 0.3s' }}>
-              <Image
-                src={fullUrl ?? thumbUrl}
-                alt={alt}
-                width={1600}
-                height={1200}
-                className="object-contain w-full h-auto"
-                sizes="90vw"
-              />
+              {fullFailed && rawUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={rawUrl} alt={alt} className="object-contain w-full h-auto" />
+              ) : (
+                <Image
+                  src={fullUrl ?? thumbUrl}
+                  alt={alt}
+                  width={1600}
+                  height={1200}
+                  className="object-contain w-full h-auto"
+                  sizes="90vw"
+                  onError={() => setFullFailed(true)}
+                />
+              )}
             </div>
           </div>
         </DialogContent>

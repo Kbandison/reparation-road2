@@ -142,14 +142,17 @@ async function searchTable(
   offset: number,
   filterCollectionSlug: string | null,
 ) {
-  // Pull every text column from the table for both search and display.
+  // Pull every text column from the table for both search and display. Keep
+  // the unfiltered list too, so we know which columns actually exist (some
+  // tables have no `slug`, and metadata can reference columns that were
+  // renamed) — selecting a non-existent column 400s the whole query.
+  let rawCols: string[] = [];
   let textCols: string[] = [];
   try {
     const { data: colData } = await supabase.rpc('get_text_columns', { p_table_name: tableName });
     if (colData) {
-      textCols = (colData as { column_name: string }[])
-        .map((c) => c.column_name)
-        .filter((c) => !SYSTEM_COLS.has(c));
+      rawCols = (colData as { column_name: string }[]).map((c) => c.column_name);
+      textCols = rawCols.filter((c) => !SYSTEM_COLS.has(c));
     }
   } catch {
     // RPC may not exist
@@ -166,12 +169,18 @@ async function searchTable(
     return { groups: [] as CollectionRecordGroup[] };
   }
 
-  // Always include id and slug, plus any discriminator columns so we can
-  // route shared-table rows back to the right sub-collection.
+  // Build the SELECT from columns that actually exist. `id` always does; `slug`
+  // and the discriminator/display columns only when the table really has them.
+  const realSet = rawCols.length > 0 ? new Set([...rawCols, 'id']) : null;
+  const exists = (c: string) => !realSet || realSet.has(c);
   const discriminatorCols = cols
     .filter((c) => c.discriminator_column)
     .map((c) => c.discriminator_column!);
-  const selectColsSet = new Set<string>(['id', 'slug', ...expandedSearchCols, ...allDisplayCols, ...discriminatorCols]);
+  const selectColsSet = new Set<string>(['id']);
+  if (exists('slug')) selectColsSet.add('slug');
+  for (const c of [...expandedSearchCols, ...allDisplayCols, ...discriminatorCols]) {
+    if (exists(c)) selectColsSet.add(c);
+  }
   const uniqueSelect = [...selectColsSet].join(',');
 
   const tokens = tokenizeQuery(query);
@@ -197,13 +206,19 @@ async function searchTable(
 
   const [dataResp, countEntries] = await Promise.all([
     (async () => {
-      try {
-        let q = supabase.from(tableName).select(uniqueSelect);
+      const run = (sel: string) => {
+        let q = supabase.from(tableName).select(sel);
         for (const token of effectiveTokens) {
-          const orFilter = expandedSearchCols.map((c) => `${c}.ilike.%${token}%`).join(',');
-          q = q.or(orFilter);
+          q = q.or(expandedSearchCols.map((c) => `${c}.ilike.%${token}%`).join(','));
         }
-        return await q.limit(fetchLimit);
+        return q.limit(fetchLimit);
+      };
+      try {
+        let res = await run(uniqueSelect);
+        // A stale column in the SELECT (e.g. a table with no `slug`) 400s the
+        // whole query — fall back to all columns so the table still returns.
+        if (res.error) res = await run('*');
+        return res;
       } catch {
         return { data: null, error: { message: 'query failed' } };
       }
