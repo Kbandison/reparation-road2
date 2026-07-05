@@ -1,10 +1,35 @@
 import { NextResponse } from 'next/server';
-import { Resend } from 'resend';
+import { Resend, type CreateEmailOptions } from 'resend';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = 'Reparation Road <noreply@reparationroad.org>';
 const ADMIN_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'admin@reparationroad.org';
+
+// Send an email and surface failures. The Resend SDK returns { data, error }
+// (it does NOT throw on API errors like an unverified domain or a bad key), so
+// without this the emails fail silently and the route still reports success.
+async function sendEmail(
+  label: string,
+  opts: CreateEmailOptions,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!process.env.RESEND_API_KEY) {
+    console.error(`[email:${label}] RESEND_API_KEY is not set — email not sent`);
+    return { ok: false, error: 'RESEND_API_KEY not configured' };
+  }
+  try {
+    const { data, error } = await resend.emails.send(opts);
+    if (error) {
+      console.error(`[email:${label}] Resend error sending to ${JSON.stringify(opts.to)}:`, error);
+      return { ok: false, error: (error as { message?: string }).message || 'send failed' };
+    }
+    console.log(`[email:${label}] sent to ${JSON.stringify(opts.to)}${data?.id ? ` (id ${data.id})` : ''}`);
+    return { ok: true };
+  } catch (e) {
+    console.error(`[email:${label}] threw sending to ${JSON.stringify(opts.to)}:`, e);
+    return { ok: false, error: e instanceof Error ? e.message : 'send threw' };
+  }
+}
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -36,7 +61,7 @@ export async function POST(request: Request) {
     const userName = [body.firstName, body.lastName].filter(Boolean).join(' ') || 'Unknown';
 
     // Welcome email to user
-    await resend.emails.send({
+    const welcomeUser = await sendEmail('welcome-user', {
       from: FROM,
       to: [body.email],
       subject: 'Welcome to Reparation Road!',
@@ -71,7 +96,7 @@ export async function POST(request: Request) {
     });
 
     // Notify owner of new signup
-    await resend.emails.send({
+    const welcomeAdmin = await sendEmail('welcome-admin', {
       from: FROM,
       to: [ADMIN_EMAIL],
       subject: `New Signup: ${userName}`,
@@ -84,12 +109,16 @@ export async function POST(request: Request) {
       `,
     });
 
-    return NextResponse.json({ success: true });
+    // Signup shouldn't fail just because an email didn't send.
+    return NextResponse.json({
+      success: true,
+      emailSent: welcomeUser.ok && welcomeAdmin.ok,
+    });
   }
 
   if (body.type === 'booking') {
     // Booking confirmation email to user
-    await resend.emails.send({
+    const bookingUser = await sendEmail('booking-user', {
       from: FROM,
       to: [body.email],
       subject: 'Your Research Session is Booked!',
@@ -103,7 +132,7 @@ export async function POST(request: Request) {
     });
 
     // Notify owner of new booking
-    await resend.emails.send({
+    const bookingAdmin = await sendEmail('booking-admin', {
       from: FROM,
       to: [ADMIN_EMAIL],
       subject: `New Booking: ${body.name} — ${body.sessionType}`,
@@ -118,7 +147,18 @@ export async function POST(request: Request) {
       `,
     });
 
-    return NextResponse.json({ success: true });
+    if (!bookingAdmin.ok) {
+      console.error(
+        `[booking] Admin was NOT notified of booking by ${body.name} <${body.email}> for ${body.sessionType} on ${body.date} ${body.time}: ${bookingAdmin.error}`,
+      );
+    }
+
+    // The booking itself is already saved; report whether the notifications went out.
+    return NextResponse.json({
+      success: true,
+      confirmationSent: bookingUser.ok,
+      adminNotified: bookingAdmin.ok,
+    });
   }
 
   // Contact form email
@@ -128,12 +168,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
   }
 
-  await resend.emails.send({
+  const contact = await sendEmail('contact', {
     from: FROM,
     to: [ADMIN_EMAIL],
+    replyTo: email,
     subject: `New Contact Form: ${name}`,
-    html: `<p><strong>From:</strong> ${name} (${email})</p><p>${message}</p>`,
+    html: `<p><strong>From:</strong> ${name} (${email})</p><p>${String(message).replace(/\n/g, '<br/>')}</p>`,
   });
+
+  // Here the whole point is delivery — if it failed, tell the sender instead of
+  // showing a false "thank you".
+  if (!contact.ok) {
+    return NextResponse.json(
+      { error: 'We could not send your message right now. Please email us directly at info@reparationroad.org.' },
+      { status: 502 },
+    );
+  }
 
   return NextResponse.json({ success: true });
 }
