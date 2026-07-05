@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import { Playfair_Display, DM_Sans } from 'next/font/google';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -120,6 +121,12 @@ export default function RootLayout({
       <body
         className={`${playfairDisplay.variable} ${dmSans.variable} antialiased`}
       >
+      <Script
+        id="google-adsense"
+        src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7115663348250319"
+        strategy="afterInteractive"
+        crossOrigin="anonymous"
+      />
       <Analytics/>
         <ThemeProvider>
           <TooltipProvider>
