@@ -2,6 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { Collection, CollectionRecord, RelatedRecord } from '@/lib/types';
 
+// Above this row count, skip the extra exact-count scans used for
+// illegible-last ordering — they make very large collections slow to load.
+const LARGE_TABLE_ROWS = 15000;
+
 interface CollectionFilters {
   category?: string;
   era?: string;
@@ -155,11 +159,15 @@ export async function getCollectionRecords(
     rows = data || [];
     liveCount = count || 0;
     queryError = error;
-  } else if (orderColumn && orderColumnIsText) {
+  } else if (orderColumn && orderColumnIsText && (collection.record_count ?? 0) <= LARGE_TABLE_ROWS) {
     // Records whose ordering column reads "[illegible]" — an unreadable name in
     // the source document — sort after every legible record, no matter which
     // page they land on. Done as two partitions so it survives pagination
     // (PostgREST can't ORDER BY a CASE expression).
+    //
+    // Skipped for very large tables (e.g. slave_voyages, 36k rows): the two
+    // extra exact-count scans made those pages slow to load, and their ordering
+    // columns don't carry "[illegible]" values anyway.
     // Match on the "illeg" stem rather than the full word so transcription
     // typos (e.g. "[Illegilbe]") are still pushed to the tail.
     const ILLEGIBLE = '%illeg%';

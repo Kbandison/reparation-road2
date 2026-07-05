@@ -39,6 +39,10 @@ export function RecordModal({
   const [overrideData, setOverrideData] = useState<{ collection: Collection; record: CollectionRecord } | null>(null);
   const [navigating, setNavigating] = useState(false);
   const [imageZoom, setImageZoom] = useState(false);
+  // Fall back to the raw object URL when Supabase's transform endpoint 400s on
+  // an oversize scan (see image-viewer).
+  const [imgFailed, setImgFailed] = useState(false);
+  const [zoomFailed, setZoomFailed] = useState(false);
 
   // Use override data when navigated, otherwise use props
   const activeCollection = overrideData?.collection ?? collection;
@@ -50,8 +54,17 @@ export function RecordModal({
   // (For PDFs buildImageUrl returns the raw object URL, which we embed.)
   const imageUrl = buildImageUrl(imagePath, { width: 1400 });
   const imageZoomUrl = buildImageUrl(imagePath, { width: 2400 });
+  const rawImageUrl = buildImageUrl(imagePath);
   const ocrText = activeRecord.ocr_text as string | undefined;
   const hasImage = activeCollection.has_images && !!imageUrl;
+
+  // Reset the transform-failed flags when navigating to a different record.
+  const [prevImagePath, setPrevImagePath] = useState(imagePath);
+  if (prevImagePath !== imagePath) {
+    setPrevImagePath(imagePath);
+    setImgFailed(false);
+    setZoomFailed(false);
+  }
 
   const titleCol = activeCollection.display_columns?.[0];
   const title = titleCol ? String(activeRecord[titleCol] ?? activeRecord.id) : activeRecord.id;
@@ -217,13 +230,19 @@ export function RecordModal({
                       onClick={() => setImageZoom(true)}
                       className="relative w-full aspect-[3/4] rounded-xl overflow-hidden bg-black group cursor-zoom-in"
                     >
-                      <Image
-                        src={imageUrl!}
-                        alt={String(title)}
-                        fill
-                        className="object-contain"
-                        sizes="(max-width: 768px) 100vw, 50vw"
-                      />
+                      {imgFailed && rawImageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={rawImageUrl} alt={String(title)} className="absolute inset-0 w-full h-full object-contain" />
+                      ) : (
+                        <Image
+                          src={imageUrl!}
+                          alt={String(title)}
+                          fill
+                          className="object-contain"
+                          sizes="(max-width: 768px) 100vw, 50vw"
+                          onError={() => setImgFailed(true)}
+                        />
+                      )}
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                         <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
                       </div>
@@ -329,14 +348,20 @@ export function RecordModal({
         <X className="w-5 h-5" />
       </button>
       <div className="relative w-[90vw] h-[90vh]">
-        <Image
-          src={imageZoomUrl ?? imageUrl}
-          alt={String(title)}
-          fill
-          className="object-contain"
-          sizes="90vw"
-          quality={95}
-        />
+        {zoomFailed && rawImageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={rawImageUrl} alt={String(title)} className="absolute inset-0 w-full h-full object-contain" />
+        ) : (
+          <Image
+            src={imageZoomUrl ?? imageUrl}
+            alt={String(title)}
+            fill
+            className="object-contain"
+            sizes="90vw"
+            quality={95}
+            onError={() => setZoomFailed(true)}
+          />
+        )}
       </div>
     </div>
   ) : null;
