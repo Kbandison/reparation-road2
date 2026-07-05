@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
-import Script from 'next/script';
 import { Playfair_Display, DM_Sans } from 'next/font/google';
+import { AdSense } from '@/components/shared/adsense';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider } from '@/contexts/theme-context';
@@ -64,6 +64,10 @@ export const metadata: Metadata = {
   },
   manifest: '/manifest.webmanifest',
   robots: { index: true, follow: true },
+  other: {
+    // Google AdSense site-ownership verification (meta-tag method).
+    'google-adsense-account': 'ca-pub-7115663348250319',
+  },
 };
 
 export const viewport: Viewport = {
@@ -131,12 +135,7 @@ export default async function RootLayout({
       <body
         className={`${playfairDisplay.variable} ${dmSans.variable} antialiased`}
       >
-      <Script
-        id="google-adsense"
-        src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7115663348250319"
-        strategy="afterInteractive"
-        crossOrigin="anonymous"
-      />
+      <AdSense />
       <Analytics/>
         <ThemeProvider>
           <TooltipProvider>
