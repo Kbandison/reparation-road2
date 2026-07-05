@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { ArrowRight, Search, Dna, GraduationCap, Box } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SocialLinks } from '@/components/shared/social-links';
 
 export const metadata: Metadata = {
   title: 'Our Story',
@@ -151,6 +152,14 @@ export default function AboutPage() {
                 <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
               </Button>
             </Link>
+          </div>
+
+          {/* Follow us */}
+          <div className="mt-12">
+            <p className="font-body text-xs font-semibold tracking-widest uppercase text-brand-gold mb-4">
+              Follow our work
+            </p>
+            <SocialLinks className="justify-center" iconClassName="w-5 h-5" />
           </div>
         </div>
       </section>

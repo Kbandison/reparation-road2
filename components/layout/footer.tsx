@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { SocialLinks } from '@/components/shared/social-links';
 
 const exploreLinks = [
   { label: 'Collection', href: '/collection' },
@@ -41,6 +42,7 @@ export function Footer() {
             <p className="text-brand-muted text-sm leading-relaxed">
               Restoring history through research and advocacy. A digital archive dedicated to uncovering Black history.
             </p>
+            <SocialLinks className="mt-5" />
           </div>
 
           {/* Explore */}
