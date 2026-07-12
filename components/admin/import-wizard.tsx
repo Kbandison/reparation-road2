@@ -43,6 +43,14 @@ function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+// Turn a spreadsheet header into a safe Postgres column name. Mirrors the
+// server's sanitizer; falls back to a generic name so a header made only of
+// punctuation never becomes an empty (dropped) column.
+function toColumnName(header: string): string {
+  const name = header.replace(/[^a-z0-9_ ]/gi, '').replace(/\s+/g, '_').toLowerCase().replace(/^_+|_+$/g, '');
+  return name || 'column';
+}
+
 // Detect headers that look like an image-name column (e.g. "passbook_image",
 // "claim_image", "scan_id", "image_path"). Such columns always route to
 // image_path so no redundant DB column is created.
@@ -155,25 +163,26 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       if (mode === 'existing' && selectedCollection?.table_name) {
         const schemaRes = await fetch(`/api/admin/import?action=schema&table=${selectedCollection.table_name}`);
         const schemaData = await schemaRes.json();
-        if (schemaData.columns) {
-          setDbColumns(schemaData.columns);
-          // Auto-map by matching names; image-like headers route to image_path
-          const mapping: Record<string, string> = {};
-          for (const header of data.headers) {
-            if (looksLikeImageColumn(header)) {
-              mapping[header] = 'image_path';
-              continue;
-            }
-            const normHeader = normalize(header);
-            const match = schemaData.columns.find((c: string) => normalize(c) === normHeader);
-            if (match) mapping[header] = match;
+        const existingCols: string[] = schemaData.columns || [];
+        // Auto-map by matching names; a header that matches no existing column
+        // maps to a NEW column (added on import) instead of being dropped.
+        const mapping: Record<string, string> = {};
+        for (const header of data.headers) {
+          if (looksLikeImageColumn(header)) {
+            mapping[header] = 'image_path';
+            continue;
           }
-          setColumnMapping(mapping);
+          const normHeader = normalize(header);
+          const match = existingCols.find((c: string) => normalize(c) === normHeader);
+          mapping[header] = match || toColumnName(header);
         }
+        // Offer both the existing columns and any new ones as mapping targets.
+        setDbColumns([...new Set([...existingCols, ...(data.headers as string[]).map(toColumnName)])]);
+        setColumnMapping(mapping);
       } else {
-        // New collection — DB columns will be derived from file
-        const cols = data.headers.map((h: string) => h.replace(/[^a-z0-9_ ]/gi, '').replace(/\s+/g, '_').toLowerCase());
-        setDbColumns(cols);
+        // New collection — DB columns are derived from the file.
+        const cols: string[] = (data.headers as string[]).map((h) => toColumnName(h));
+        setDbColumns([...new Set(cols)]);
         const mapping: Record<string, string> = {};
         data.headers.forEach((h: string, i: number) => {
           // Image-like columns always go to image_path so no redundant DB column is created.
@@ -285,33 +294,41 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     setStep('importing');
 
     const tableName = mode === 'existing'
-      ? selectedCollection?.table_name!
+      ? (selectedCollection?.table_name ?? '')
       : newTableName;
 
-    // If new collection, create the table first
-    if (mode === 'new') {
-      const columns = Object.values(columnMapping)
-        .filter(Boolean)
-        .filter((c) => !['id', 'slug', 'created_at', 'image_path', 'ocr_text'].includes(c))
-        .map((c) => ({
-          name: c,
-          type: fileColumnTypes[Object.keys(columnMapping).find((k) => columnMapping[k] === c)!] || 'text',
-        }));
+    // Build the column list from the mapping (fileCol -> dbCol), deduped by db
+    // column name, excluding system columns. Using the mapping entries keeps the
+    // type lookup correct even when several headers map to the same column.
+    const RESERVED = new Set(['id', 'slug', 'created_at', 'image_path', 'ocr_text']);
+    const seenCol = new Set<string>();
+    const columns: { name: string; type: string }[] = [];
+    for (const [fileCol, dbCol] of Object.entries(columnMapping)) {
+      if (!dbCol || RESERVED.has(dbCol) || seenCol.has(dbCol)) continue;
+      seenCol.add(dbCol);
+      columns.push({ name: dbCol, type: fileColumnTypes[fileCol] || 'text' });
+    }
 
+    // Ensure every mapped column exists. create-table is idempotent (CREATE TABLE
+    // IF NOT EXISTS + ADD COLUMN IF NOT EXISTS), so this also *adds* any new
+    // columns to an existing table instead of silently dropping their data.
+    if (columns.length > 0) {
       const createRes = await fetch('/api/admin/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create-table', tableName: newTableName, columns }),
+        body: JSON.stringify({ action: 'create-table', tableName, columns }),
       });
-
       const createData = await createRes.json();
       if (!createRes.ok) {
-        toast.error(createData.error || 'Failed to create table');
+        toast.error(createData.error || 'Failed to prepare table columns');
         setImporting(false);
         setStep('preview');
         return;
       }
+    }
 
+    // If new collection, create its metadata row.
+    if (mode === 'new') {
       // Create collection metadata. Exclude system columns from display/search —
       // image_path renders inside the record modal, not as a table column;
       // ocr_text and slug aren't useful in either view.
@@ -319,8 +336,8 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       const userMappedCols = Object.values(columnMapping)
         .filter(Boolean)
         .filter((c) => !RESERVED_DISPLAY.has(c));
-      const displayCols = userMappedCols.slice(0, 7);
-      const searchCols = userMappedCols.slice(0, 3);
+      const displayCols = userMappedCols.slice(0, 12);
+      const searchCols = userMappedCols.slice(0, 4);
 
       await fetch('/api/admin/import', {
         method: 'POST',
@@ -646,8 +663,22 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       {step === 'mapping' && (
         <div className="space-y-4">
           <p className="text-sm text-brand-muted">
-            Map your spreadsheet columns to database columns. {rowCount} rows detected.
+            Map your spreadsheet columns to database columns. {rowCount} rows detected. Unmatched
+            columns are mapped to new columns automatically — anything set to “Skip” won&apos;t be imported.
           </p>
+
+          {(() => {
+            const skipped = fileHeaders.filter((h) => !columnMapping[h]);
+            return skipped.length > 0 ? (
+              <div className="flex items-start gap-2 rounded-xl border border-brand-gold/30 bg-brand-gold/[0.06] px-4 py-3">
+                <AlertCircle className="w-4 h-4 text-brand-gold mt-0.5 shrink-0" />
+                <p className="text-xs text-brand-cream">
+                  <span className="font-medium">{skipped.length} column{skipped.length === 1 ? '' : 's'} will NOT be imported</span> (set to “Skip”):{' '}
+                  <span className="text-brand-muted">{skipped.join(', ')}</span>. Pick a target for them below if you want them kept.
+                </p>
+              </div>
+            ) : null;
+          })()}
 
           <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden">
             <div className="grid grid-cols-3 gap-4 px-4 py-3 border-b border-brand-gold/[0.08] text-[11px] font-semibold uppercase tracking-wider text-brand-muted">
