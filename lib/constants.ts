@@ -11,6 +11,7 @@ import {
   ShoppingCart,
   Link2,
   Upload,
+  ImagePlus,
   Network,
   type LucideIcon,
 } from 'lucide-react';
@@ -36,6 +37,7 @@ export const adminNavItems: NavItem[] = [
   { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
   { label: 'Collections', href: '/admin/collections', icon: Library },
   { label: 'Import Records', href: '/admin/import', icon: Upload },
+  { label: 'Upload Images', href: '/admin/images', icon: ImagePlus },
   { label: 'Related Records', href: '/admin/related-records', icon: Link2 },
   { label: 'Forum', href: '/admin/forum', icon: MessageSquare },
   { label: 'Bookings', href: '/admin/bookings', icon: CalendarDays },
