@@ -10,6 +10,7 @@ import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
 import { BookmarkButton } from '@/components/collection/bookmark-button';
 import { ModalRelatedRecords } from '@/components/collection/modal-related-records';
 import { RecordCitation } from '@/components/collection/record-citation';
+import { ZoomableImage } from '@/components/collection/zoomable-image';
 
 interface RecordModalProps {
   collection: Collection;
@@ -40,9 +41,9 @@ export function RecordModal({
   const [navigating, setNavigating] = useState(false);
   const [imageZoom, setImageZoom] = useState(false);
   // Fall back to the raw object URL when Supabase's transform endpoint 400s on
-  // an oversize scan (see image-viewer).
+  // an oversize scan (see image-viewer). The full-screen zoom view handles its
+  // own fallback via ZoomableImage's fallbackSrc.
   const [imgFailed, setImgFailed] = useState(false);
-  const [zoomFailed, setZoomFailed] = useState(false);
 
   // Use override data when navigated, otherwise use props
   const activeCollection = overrideData?.collection ?? collection;
@@ -63,7 +64,6 @@ export function RecordModal({
   if (prevImagePath !== imagePath) {
     setPrevImagePath(imagePath);
     setImgFailed(false);
-    setZoomFailed(false);
   }
 
   const titleCol = activeCollection.display_columns?.[0];
@@ -114,13 +114,18 @@ export function RecordModal({
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleClose();
-      if (!overrideData) {
+      if (e.key === 'Escape') {
+        // Close the full-screen zoom first if it's open, otherwise the modal.
+        if (imageZoom) setImageZoom(false);
+        else handleClose();
+        return;
+      }
+      if (!overrideData && !imageZoom) {
         if (e.key === 'ArrowLeft' && hasPrev && onPrev) handlePrev();
         if (e.key === 'ArrowRight' && hasNext && onNext) handleNext();
       }
     },
-    [handleClose, handlePrev, handleNext, overrideData, hasPrev, hasNext, onPrev, onNext]
+    [handleClose, handlePrev, handleNext, overrideData, hasPrev, hasNext, onPrev, onNext, imageZoom]
   );
 
   useEffect(() => {
@@ -337,32 +342,19 @@ export function RecordModal({
   );
 
   const zoomOverlay = imageZoom && imageUrl && !isPdf ? (
-    <div
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 cursor-zoom-out"
-      onClick={() => setImageZoom(false)}
-    >
+    <div className="fixed inset-0 z-[110] bg-black/90">
       <button
         onClick={() => setImageZoom(false)}
-        className="absolute top-4 right-4 p-2 rounded-lg bg-black/50 text-white hover:bg-black/70 transition-colors z-10"
+        aria-label="Close full-screen view"
+        className="absolute top-4 right-4 p-2 rounded-lg bg-black/50 text-white hover:bg-black/70 transition-colors z-20"
       >
         <X className="w-5 h-5" />
       </button>
-      <div className="relative w-[90vw] h-[90vh]">
-        {zoomFailed && rawImageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={rawImageUrl} alt={String(title)} className="absolute inset-0 w-full h-full object-contain" />
-        ) : (
-          <Image
-            src={imageZoomUrl ?? imageUrl}
-            alt={String(title)}
-            fill
-            className="object-contain"
-            sizes="90vw"
-            quality={95}
-            onError={() => setZoomFailed(true)}
-          />
-        )}
-      </div>
+      <ZoomableImage
+        src={(imageZoomUrl ?? imageUrl)!}
+        fallbackSrc={rawImageUrl ?? undefined}
+        alt={String(title)}
+      />
     </div>
   ) : null;
 

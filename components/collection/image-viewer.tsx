@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { ExternalLink } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { ZoomableImage } from '@/components/collection/zoomable-image';
 import { buildImageUrl, isPdfPath } from '@/lib/collections/helpers';
 
 interface ImageViewerProps {
@@ -13,12 +14,10 @@ interface ImageViewerProps {
 
 export function ImageViewer({ imagePath, alt }: ImageViewerProps) {
   const [open, setOpen] = useState(false);
-  const [zoom, setZoom] = useState(1);
   // Some archival scans are too large for Supabase's image transform endpoint
   // (it returns 400). When the transformed src fails to load we fall back to the
   // raw object URL so the image still shows instead of breaking.
   const [thumbFailed, setThumbFailed] = useState(false);
-  const [fullFailed, setFullFailed] = useState(false);
 
   const isPdf = isPdfPath(imagePath);
   // Archival scans are 20-35 MB raw — request width-capped transforms.
@@ -75,27 +74,9 @@ export function ImageViewer({ imagePath, alt }: ImageViewerProps) {
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-[90vw] max-h-[90vh] bg-brand-bg border-brand-gold/[0.08] p-2">
-          <div
-            className="relative w-full h-[80vh] overflow-auto cursor-zoom-in"
-            onClick={() => setZoom(zoom === 1 ? 2 : 1)}
-          >
-            <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', transition: 'transform 0.3s' }}>
-              {fullFailed && rawUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={rawUrl} alt={alt} className="object-contain w-full h-auto" />
-              ) : (
-                <Image
-                  src={fullUrl ?? thumbUrl}
-                  alt={alt}
-                  width={1600}
-                  height={1200}
-                  className="object-contain w-full h-auto"
-                  sizes="90vw"
-                  onError={() => setFullFailed(true)}
-                />
-              )}
-            </div>
+        <DialogContent className="max-w-[95vw] max-h-[93vh] bg-brand-bg border-brand-gold/[0.08] p-0 overflow-hidden">
+          <div className="relative w-full h-[85vh]">
+            <ZoomableImage src={fullUrl ?? thumbUrl} fallbackSrc={rawUrl ?? undefined} alt={alt} />
           </div>
         </DialogContent>
       </Dialog>
