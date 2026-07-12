@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import {
   Upload, Loader2, Check, X, ImagePlus, Copy, FolderPlus, AlertCircle, RefreshCw,
+  FolderOpen, ChevronRight, CornerLeftUp, Link2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,12 @@ import { createClient } from '@/lib/supabase/client';
 interface Bucket {
   name: string;
   public: boolean;
+}
+
+interface CollectionOption {
+  slug: string;
+  name: string;
+  table_name: string;
 }
 
 type FileStatus = 'pending' | 'uploading' | 'done' | 'error';
@@ -41,7 +48,7 @@ function cleanSegment(s: string) {
   return s.trim().replace(/^\/+|\/+$/g, '');
 }
 
-export function ImageUploader() {
+export function ImageUploader({ collections = [] }: { collections?: CollectionOption[] }) {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [bucket, setBucket] = useState('');
   const [folder, setFolder] = useState('');
@@ -54,6 +61,19 @@ export function ImageUploader() {
   const [creatingBucket, setCreatingBucket] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Folder navigation
+  const [subfolders, setSubfolders] = useState<string[]>([]);
+  const [existingCount, setExistingCount] = useState(0);
+  const [loadingFolders, setLoadingFolders] = useState(false);
+  const [newFolder, setNewFolder] = useState('');
+
+  // Attach-to-records
+  const [attachTable, setAttachTable] = useState('');
+  const [attachCols, setAttachCols] = useState<string[]>([]);
+  const [matchColumn, setMatchColumn] = useState('');
+  const [loadingCols, setLoadingCols] = useState(false);
+  const [attaching, setAttaching] = useState(false);
 
   async function loadBuckets(select?: string) {
     setLoadingBuckets(true);
@@ -86,6 +106,30 @@ export function ImageUploader() {
     return () => { active = false; };
   }, []);
 
+  // Load the folders/file count at the current bucket + folder for navigation.
+  const loadFolders = useCallback(async (b: string, f: string) => {
+    if (!b) { setSubfolders([]); setExistingCount(0); return; }
+    setLoadingFolders(true);
+    try {
+      const params = new URLSearchParams({ bucket: b });
+      if (f) params.set('folder', f);
+      const res = await fetch(`/api/admin/import?action=storage-files&${params}`);
+      const data = await res.json();
+      const items: { name: string; isFolder: boolean }[] = data.items ?? [];
+      setSubfolders(items.filter((i) => i.isFolder).map((i) => i.name));
+      setExistingCount(items.filter((i) => !i.isFolder).length);
+    } catch {
+      setSubfolders([]);
+      setExistingCount(0);
+    } finally {
+      setLoadingFolders(false);
+    }
+  }, []);
+
+  useEffect(() => { loadFolders(bucket, folder); }, [bucket, folder, loadFolders]);
+  // Reset to bucket root whenever the bucket changes.
+  useEffect(() => { setFolder(''); }, [bucket]);
+
   async function createBucket() {
     if (!newBucketName.trim()) return;
     setCreatingBucket(true);
@@ -104,6 +148,20 @@ export function ImageUploader() {
     } finally {
       setCreatingBucket(false);
     }
+  }
+
+  const folderParts = folder ? folder.split('/').filter(Boolean) : [];
+  function goToCrumb(index: number) {
+    setFolder(index < 0 ? '' : folderParts.slice(0, index + 1).join('/'));
+  }
+  function enterFolder(name: string) {
+    setFolder(folder ? `${folder}/${name}` : name);
+  }
+  function addFolder() {
+    const seg = cleanSegment(newFolder).replace(/[^a-z0-9._/-]/gi, '-');
+    if (!seg) return;
+    setFolder(folder ? `${folder}/${seg}` : seg);
+    setNewFolder('');
   }
 
   function addFiles(list: FileList | null) {
@@ -135,6 +193,8 @@ export function ImageUploader() {
     setUploading(true);
     const supabase = createClient();
     const cleanFolder = cleanSegment(folder);
+    let ok = 0;
+    let failed = 0;
 
     await pool(queue, 4, async (qf) => {
       update(qf.id, { status: 'uploading', error: undefined });
@@ -156,71 +216,118 @@ export function ImageUploader() {
             upsert: true,
           });
         if (error) throw error;
+        ok += 1;
         update(qf.id, { status: 'done', path: `${bucket}/${data.path}`, publicUrl: data.publicUrl });
       } catch (e) {
+        failed += 1;
         update(qf.id, { status: 'error', error: e instanceof Error ? e.message : 'Upload failed' });
       }
     });
 
     setUploading(false);
-    const done = files.filter((f) => f.status === 'done').length;
-    toast.success(`Uploaded ${queue.filter((q) => files.find((f) => f.id === q.id)?.status !== 'error').length || done} image(s)`);
+    if (ok) toast.success(`Uploaded ${ok} image${ok === 1 ? '' : 's'}`);
+    if (failed) toast.error(`${failed} upload${failed === 1 ? '' : 's'} failed`);
+    // Refresh the folder view so newly-created folders/counts show up.
+    loadFolders(bucket, folder);
+  }
+
+  // Load the columns of the chosen collection's table so the admin can pick
+  // which one to match filenames against.
+  async function chooseTable(table: string) {
+    setAttachTable(table);
+    setAttachCols([]);
+    setMatchColumn('');
+    if (!table) return;
+    setLoadingCols(true);
+    try {
+      const res = await fetch(`/api/admin/import?action=schema&table=${encodeURIComponent(table)}`);
+      const data = await res.json();
+      const cols: string[] = data.columns ?? [];
+      // image_path is always present on imported tables; make sure it's offered.
+      const all = Array.from(new Set(['image_path', ...cols]));
+      setAttachCols(all);
+      setMatchColumn(all.includes('image_path') ? 'image_path' : all[0] || '');
+    } catch {
+      toast.error('Could not load table columns');
+    } finally {
+      setLoadingCols(false);
+    }
+  }
+
+  async function attachToRecords() {
+    const done = files.filter((f) => f.status === 'done' && f.path);
+    if (!attachTable) { toast.error('Choose a collection first'); return; }
+    if (done.length === 0) { toast.error('Upload some images first'); return; }
+    setAttaching(true);
+    try {
+      const res = await fetch('/api/admin/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'attach-images',
+          tableName: attachTable,
+          matchColumn: matchColumn || 'image_path',
+          files: done.map((f) => ({ name: f.file.name, path: f.path })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Attach failed'); return; }
+      if (data.updated > 0) {
+        toast.success(`Linked ${data.updated} record${data.updated === 1 ? '' : 's'} to ${data.matchedFiles} image${data.matchedFiles === 1 ? '' : 's'}`);
+      } else {
+        toast.warning('No records matched — check the match column');
+      }
+      if (data.unmatched?.length) {
+        const n = data.unmatched.length;
+        toast.info(`${n} image${n === 1 ? '' : 's'} matched no record${n === 1 ? '' : 's'}`);
+      }
+    } catch {
+      toast.error('Attach failed');
+    } finally {
+      setAttaching(false);
+    }
   }
 
   const doneCount = files.filter((f) => f.status === 'done').length;
   const errorCount = files.filter((f) => f.status === 'error').length;
+  const pendingCount = files.filter((f) => f.status === 'pending' || f.status === 'error').length;
   const selectedBucket = buckets.find((b) => b.name === bucket);
 
   return (
     <div className="max-w-3xl space-y-6">
-      {/* Bucket + folder */}
+      {/* Bucket */}
       <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-5 space-y-4">
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label className="flex items-center justify-between">
-              Bucket
-              <button
-                onClick={() => loadBuckets()}
-                className="text-brand-muted hover:text-brand-gold"
-                aria-label="Refresh buckets"
-                type="button"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingBuckets ? 'animate-spin' : ''}`} />
-              </button>
-            </Label>
-            <select
-              value={bucket}
-              onChange={(e) => setBucket(e.target.value)}
-              className="w-full bg-brand-bg border border-brand-gold/[0.15] rounded-xl px-3 py-2 text-sm text-brand-cream focus:border-brand-gold focus:outline-none"
-            >
-              {buckets.length === 0 && <option value="">No buckets</option>}
-              {buckets.map((b) => (
-                <option key={b.name} value={b.name}>
-                  {b.name} {b.public ? '(public)' : '(private)'}
-                </option>
-              ))}
-            </select>
+        <div className="space-y-2 max-w-sm">
+          <Label className="flex items-center justify-between">
+            Bucket
             <button
+              onClick={() => loadBuckets()}
+              className="text-brand-muted hover:text-brand-gold"
+              aria-label="Refresh buckets"
               type="button"
-              onClick={() => setShowNewBucket((s) => !s)}
-              className="text-xs text-brand-gold hover:text-brand-gold-light inline-flex items-center gap-1"
             >
-              <FolderPlus className="w-3.5 h-3.5" /> New bucket
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingBuckets ? 'animate-spin' : ''}`} />
             </button>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Folder (optional)</Label>
-            <Input
-              value={folder}
-              onChange={(e) => setFolder(e.target.value)}
-              placeholder="e.g. peter-ayrault"
-              className="bg-brand-bg border-brand-gold/[0.15] focus:border-brand-gold"
-            />
-            <p className="text-[11px] text-brand-muted truncate">
-              Path: <span className="text-brand-cream">{bucket || 'bucket'}/{cleanSegment(folder) ? cleanSegment(folder) + '/' : ''}&lt;filename&gt;</span>
-            </p>
-          </div>
+          </Label>
+          <select
+            value={bucket}
+            onChange={(e) => setBucket(e.target.value)}
+            className="w-full bg-brand-bg border border-brand-gold/[0.15] rounded-xl px-3 py-2 text-sm text-brand-cream focus:border-brand-gold focus:outline-none"
+          >
+            {buckets.length === 0 && <option value="">No buckets</option>}
+            {buckets.map((b) => (
+              <option key={b.name} value={b.name}>
+                {b.name} {b.public ? '(public)' : '(private)'}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setShowNewBucket((s) => !s)}
+            className="text-xs text-brand-gold hover:text-brand-gold-light inline-flex items-center gap-1"
+          >
+            <FolderPlus className="w-3.5 h-3.5" /> New bucket
+          </button>
         </div>
 
         {showNewBucket && (
@@ -243,6 +350,84 @@ export function ImageUploader() {
             </Button>
           </div>
         )}
+
+        {/* Folder navigation */}
+        <div className="pt-3 border-t border-brand-gold/[0.06] space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="mb-0">Destination folder</Label>
+            {loadingFolders && <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-muted" />}
+          </div>
+
+          {/* Breadcrumb */}
+          <div className="flex flex-wrap items-center gap-1 text-sm">
+            <button
+              type="button"
+              onClick={() => goToCrumb(-1)}
+              className={`px-2 py-1 rounded-lg hover:bg-brand-bg transition-colors ${folderParts.length === 0 ? 'text-brand-gold' : 'text-brand-muted hover:text-brand-cream'}`}
+            >
+              {bucket || 'bucket'}
+            </button>
+            {folderParts.map((part, i) => (
+              <span key={i} className="flex items-center gap-1">
+                <ChevronRight className="w-3.5 h-3.5 text-brand-muted" />
+                <button
+                  type="button"
+                  onClick={() => goToCrumb(i)}
+                  className={`px-2 py-1 rounded-lg hover:bg-brand-bg transition-colors ${i === folderParts.length - 1 ? 'text-brand-gold' : 'text-brand-muted hover:text-brand-cream'}`}
+                >
+                  {part}
+                </button>
+              </span>
+            ))}
+          </div>
+
+          {/* Subfolders */}
+          <div className="rounded-xl border border-brand-gold/[0.08] bg-brand-bg/40 divide-y divide-brand-gold/[0.04] max-h-44 overflow-y-auto">
+            {folder && (
+              <button
+                type="button"
+                onClick={() => goToCrumb(folderParts.length - 2)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-brand-muted hover:text-brand-cream hover:bg-brand-bg transition-colors"
+              >
+                <CornerLeftUp className="w-3.5 h-3.5" /> ..
+              </button>
+            )}
+            {subfolders.map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => enterFolder(name)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-brand-cream hover:bg-brand-bg transition-colors"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-brand-gold shrink-0" />
+                <span className="truncate">{name}</span>
+                <ChevronRight className="w-3.5 h-3.5 text-brand-muted ml-auto shrink-0" />
+              </button>
+            ))}
+            {!folder && subfolders.length === 0 && !loadingFolders && (
+              <p className="px-3 py-2 text-xs text-brand-muted">No sub-folders here.</p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Input
+                value={newFolder}
+                onChange={(e) => setNewFolder(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFolder(); } }}
+                placeholder="new-folder-name"
+                className="bg-brand-bg border-brand-gold/[0.15] focus:border-brand-gold h-9 w-52"
+              />
+              <Button type="button" variant="outline" onClick={addFolder} disabled={!newFolder.trim()} className="h-9 rounded-xl border-brand-gold/[0.25]">
+                <FolderPlus className="w-3.5 h-3.5 mr-1" /> Add
+              </Button>
+            </div>
+            <p className="text-[11px] text-brand-muted">
+              {existingCount > 0 ? `${existingCount} file${existingCount === 1 ? '' : 's'} here · ` : ''}
+              uploads go to <span className="text-brand-cream font-mono">{bucket || 'bucket'}/{cleanSegment(folder) ? cleanSegment(folder) + '/' : ''}</span>
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Drop zone */}
@@ -327,14 +512,75 @@ export function ImageUploader() {
       <div className="flex items-center gap-3">
         <Button
           onClick={uploadAll}
-          disabled={uploading || !bucket || files.filter((f) => f.status === 'pending' || f.status === 'error').length === 0}
+          disabled={uploading || !bucket || pendingCount === 0}
           className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
         >
-          {uploading ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Uploading…</> : <><Upload className="w-4 h-4 mr-1.5" /> Upload {files.filter((f) => f.status === 'pending' || f.status === 'error').length || ''}</>}
+          {uploading ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Uploading…</> : <><Upload className="w-4 h-4 mr-1.5" /> Upload {pendingCount || ''}</>}
         </Button>
         {selectedBucket && !selectedBucket.public && (
           <p className="text-xs text-brand-muted">This bucket is private — images won&apos;t be publicly viewable.</p>
         )}
+      </div>
+
+      {/* Attach to records */}
+      <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-5 space-y-4">
+        <div className="flex items-start gap-2">
+          <Link2 className="w-4 h-4 text-brand-gold mt-0.5 shrink-0" />
+          <div>
+            <h3 className="text-sm font-medium text-brand-cream">Attach to records (optional)</h3>
+            <p className="text-xs text-brand-muted mt-0.5">
+              After uploading, write each image&apos;s storage path onto matching records&apos; <span className="font-mono">image_path</span>. Matched by filename against the column you pick.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Collection</Label>
+            <select
+              value={attachTable}
+              onChange={(e) => chooseTable(e.target.value)}
+              className="w-full bg-brand-bg border border-brand-gold/[0.15] rounded-xl px-3 py-2 text-sm text-brand-cream focus:border-brand-gold focus:outline-none"
+            >
+              <option value="">— Select a collection —</option>
+              {collections.map((c) => (
+                <option key={c.slug} value={c.table_name}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              Match filenames against
+              {loadingCols && <Loader2 className="w-3 h-3 animate-spin text-brand-muted" />}
+            </Label>
+            <select
+              value={matchColumn}
+              onChange={(e) => setMatchColumn(e.target.value)}
+              disabled={!attachTable || loadingCols}
+              className="w-full bg-brand-bg border border-brand-gold/[0.15] rounded-xl px-3 py-2 text-sm text-brand-cream focus:border-brand-gold focus:outline-none disabled:opacity-50"
+            >
+              {attachCols.length === 0 && <option value="">—</option>}
+              {attachCols.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            onClick={attachToRecords}
+            disabled={attaching || !attachTable || doneCount === 0}
+            variant="outline"
+            className="rounded-xl border-brand-gold/[0.25] text-brand-cream hover:bg-brand-gold/[0.08]"
+          >
+            {attaching ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Attaching…</> : <><Link2 className="w-4 h-4 mr-1.5" /> Attach {doneCount || ''} uploaded image{doneCount === 1 ? '' : 's'}</>}
+          </Button>
+          <p className="text-[11px] text-brand-muted">
+            Tip: pick <span className="font-mono">image_path</span> to repair records whose image filename is already stored but broken.
+          </p>
+        </div>
       </div>
     </div>
   );
