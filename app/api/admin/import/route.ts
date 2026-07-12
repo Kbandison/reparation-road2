@@ -174,6 +174,105 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ signedUrl: data.signedUrl, token: data.token, path: data.path, publicUrl });
   }
 
+  // Match uploaded filenames to records and write the storage path onto their
+  // image_path. Matching is by filename: a record matches a file when its
+  // chosen column's value (basename, case-insensitive) equals the file name,
+  // or matches once the extension is dropped on both sides. This covers both
+  // "identifier column" cases (e.g. scan_id = "desaussure_1") and repairing a
+  // bare/broken image_path (e.g. image_path = "old/DeSaussure_1.jpg").
+  if (body.action === 'attach-images') {
+    const tableName = String(body.tableName || '').trim();
+    const matchColumn = String(body.matchColumn || 'image_path').trim();
+    const files = Array.isArray(body.files)
+      ? (body.files as { name?: unknown; path?: unknown }[])
+          .map((f) => ({ name: String(f.name || ''), path: String(f.path || '') }))
+          .filter((f) => f.name && f.path)
+      : [];
+
+    if (!tableName || files.length === 0) {
+      return NextResponse.json({ error: 'tableName and files are required' }, { status: 400 });
+    }
+    // matchColumn is interpolated into the select — keep it a plain identifier.
+    if (!/^[a-z0-9_]+$/i.test(matchColumn)) {
+      return NextResponse.json({ error: 'Invalid match column' }, { status: 400 });
+    }
+
+    const base = (s: string) => s.split('/').pop() || s;
+    const stripExt = (s: string) => s.replace(/\.[^.]+$/, '');
+    // Decode so an encoded stored URL (…/Baldwin%201.jpg) matches a raw
+    // uploaded filename (Baldwin 1.jpg). Strip any trailing query string first.
+    const norm = (s: string) => {
+      let b = base(String(s).split('?')[0]).trim();
+      try { b = decodeURIComponent(b); } catch { /* keep raw on malformed % */ }
+      return b.toLowerCase();
+    };
+    const pushId = (map: Map<string, string[]>, key: string, id: string) => {
+      const arr = map.get(key);
+      if (arr) arr.push(id); else map.set(key, [id]);
+    };
+
+    // Index the table's match column: basename -> ids and basename-without-ext -> ids.
+    const byFull = new Map<string, string[]>();
+    const byStem = new Map<string, string[]>();
+    const pageSize = 1000;
+    let from = 0;
+    let scanned = 0;
+    for (;;) {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select(`id, ${matchColumn}`)
+        .range(from, from + pageSize - 1);
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      const rows = (data as unknown as Record<string, unknown>[]) || [];
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        const raw = row[matchColumn];
+        if (raw == null || raw === '') continue;
+        const id = String(row.id);
+        const nb = norm(String(raw));
+        if (!nb) continue;
+        pushId(byFull, nb, id);
+        pushId(byStem, stripExt(nb), id);
+      }
+      scanned += rows.length;
+      if (rows.length < pageSize) break;
+      from += pageSize;
+    }
+
+    // Match each file; first file to claim a record id wins.
+    const perFile: { name: string; matched: number }[] = [];
+    const idToPath = new Map<string, string>();
+    for (const f of files) {
+      const fname = norm(f.name);
+      const fstem = stripExt(fname);
+      const ids = new Set<string>([...(byFull.get(fname) || []), ...(byStem.get(fstem) || [])]);
+      for (const id of ids) if (!idToPath.has(id)) idToPath.set(id, f.path);
+      perFile.push({ name: f.name, matched: ids.size });
+    }
+
+    // Apply — one UPDATE per distinct storage path, chunked to stay under URL limits.
+    const byPath = new Map<string, string[]>();
+    for (const [id, path] of idToPath) pushId(byPath, path, id);
+    let updated = 0;
+    const errors: string[] = [];
+    for (const [path, ids] of byPath) {
+      for (let i = 0; i < ids.length; i += 200) {
+        const chunk = ids.slice(i, i + 200);
+        const { error } = await supabase.from(tableName).update({ image_path: path }).in('id', chunk);
+        if (error) errors.push(error.message);
+        else updated += chunk.length;
+      }
+    }
+
+    return NextResponse.json({
+      scanned,
+      updated,
+      matchedFiles: perFile.filter((r) => r.matched > 0).length,
+      unmatched: perFile.filter((r) => r.matched === 0).map((r) => r.name),
+      errors: errors.length ? errors : undefined,
+    });
+  }
+
   if (body.action === 'create-table') {
     const { tableName, columns } = body as {
       tableName: string;
