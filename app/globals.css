@@ -219,3 +219,11 @@ html.light ::-webkit-scrollbar-thumb:hover {
     @apply bg-background text-foreground font-sans;
   }
 }
+
+/* react-zoom-pan-pinch: make the wrapper/content fill their parent so the
+   full-screen record image zoom viewer sizes correctly. */
+.react-transform-wrapper,
+.react-transform-component {
+  width: 100% !important;
+  height: 100% !important;
+}
