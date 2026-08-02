@@ -73,6 +73,21 @@ export interface Collection {
   parent_slug: string | null;
   display_type: 'table' | 'book';
   citation_template: string | null;
+  // Default archival source / provenance shown on every record in the
+  // collection (a record-level override can replace it). Null until set.
+  source_information: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Per-record override for the generated citation and/or the collection's
+// source information. Absent row = use the collection defaults.
+export interface RecordCitationOverride {
+  id: string;
+  table_name: string;
+  record_id: string;
+  citation: string | null;
+  source_information: string | null;
   created_at: string;
   updated_at: string;
 }

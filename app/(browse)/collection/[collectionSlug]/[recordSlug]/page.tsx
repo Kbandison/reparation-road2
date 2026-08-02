@@ -9,6 +9,7 @@ import { ImageViewer } from '@/components/collection/image-viewer';
 import { OcrDisplay } from '@/components/collection/ocr-display';
 import { BookmarkButton } from '@/components/collection/bookmark-button';
 import { RelatedRecords } from '@/components/collection/related-records';
+import { RecordCitation } from '@/components/collection/record-citation';
 import { AccessGate } from '@/components/collection/access-gate';
 import { ActivityTracker } from '@/components/collection/activity-tracker';
 import { Breadcrumbs } from '@/components/shared/breadcrumbs';
@@ -107,6 +108,9 @@ export default async function RecordDetailPage({ params }: Props) {
         {/* Sidebar */}
         <div className="space-y-8">
           <RelatedRecords records={relatedRecords} currentRecordId={record.id} />
+          <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden">
+            <RecordCitation collection={collection} record={record} />
+          </div>
         </div>
       </div>
     </>
