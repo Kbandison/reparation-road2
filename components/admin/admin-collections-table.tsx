@@ -31,7 +31,20 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Single-collection delete (per-row trash).
+  const [deleteTarget, setDeleteTarget] = useState<Collection | null>(null);
+  const [deleteRecordsToo, setDeleteRecordsToo] = useState(false);
+  const [deletingOne, setDeletingOne] = useState(false);
+  const [deleteOneError, setDeleteOneError] = useState<string | null>(null);
   const headerCbRef = useRef<HTMLInputElement>(null);
+
+  // Tables used by more than one collection — deleting all rows of a shared
+  // table (with no discriminator to scope it) would wipe the siblings too.
+  const tableCounts = new Map<string, number>();
+  collections.forEach((c) => {
+    if (c.table_name) tableCounts.set(c.table_name, (tableCounts.get(c.table_name) || 0) + 1);
+  });
+  const isSharedTable = (t: string | null) => !!t && (tableCounts.get(t) || 0) > 1;
 
   const allIds = collections.map((c) => c.id);
   const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
@@ -98,6 +111,56 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Delete failed');
       setDeleting(false);
+    }
+  };
+
+  const runSingleDelete = async () => {
+    const target = deleteTarget;
+    if (!target) return;
+    setDeletingOne(true);
+    setDeleteOneError(null);
+    try {
+      // Optionally wipe this collection's records first.
+      if (deleteRecordsToo && target.table_name) {
+        const rres = await fetch('/api/admin/records', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tableName: target.table_name,
+            all: true,
+            discriminatorColumn: target.discriminator_column,
+            discriminatorValue: target.discriminator_value,
+          }),
+        });
+        if (!rres.ok) {
+          const d = await rres.json().catch(() => ({}));
+          setDeleteOneError(d.error || 'Failed to delete records');
+          setDeletingOne(false);
+          return;
+        }
+      }
+
+      // Delete the collection entry (plus its child entries if it's a folder).
+      const ids = collectSubtreeIds(target);
+      const cres = await fetch('/api/admin/collections', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      const d = await cres.json().catch(() => ({}));
+      if (!cres.ok) {
+        setDeleteOneError(d.error || 'Delete failed');
+        setDeletingOne(false);
+        return;
+      }
+      setDeletingOne(false);
+      setDeleteTarget(null);
+      setDeleteRecordsToo(false);
+      toast.success(`Deleted ${target.name}`);
+      router.refresh();
+    } catch (err) {
+      setDeleteOneError(err instanceof Error ? err.message : 'Delete failed');
+      setDeletingOne(false);
     }
   };
 
@@ -271,15 +334,28 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
           {col.display_type}
         </td>
 
-        {/* Edit */}
+        {/* Actions */}
         <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-          <button
-            onClick={() => setEditing(col)}
-            aria-label={`Edit ${col.name}`}
-            className="p-1.5 rounded-lg text-brand-muted hover:text-brand-gold hover:bg-brand-card-hover/50 transition-colors"
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setEditing(col)}
+              aria-label={`Edit ${col.name}`}
+              className="p-1.5 rounded-lg text-brand-muted hover:text-brand-gold hover:bg-brand-card-hover/50 transition-colors"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                setDeleteRecordsToo(false);
+                setDeleteOneError(null);
+                setDeleteTarget(col);
+              }}
+              aria-label={`Delete ${col.name}`}
+              className="p-1.5 rounded-lg text-brand-muted hover:text-brand-burgundy hover:bg-brand-card-hover/50 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
         </td>
       </tr>
     );
@@ -412,6 +488,75 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
         )}
       </AdminConfirmDeleteModal>
     )}
+
+    {deleteTarget && (() => {
+      const childCount = collectSubtreeIds(deleteTarget).length - 1;
+      const hasRecords = !!deleteTarget.table_name && deleteTarget.record_count > 0;
+      const sharedNoDiscriminator =
+        isSharedTable(deleteTarget.table_name) && !deleteTarget.discriminator_value;
+      return (
+        <AdminConfirmDeleteModal
+          title="Delete collection"
+          confirmLabel={
+            deleteRecordsToo
+              ? `Delete collection + ${deleteTarget.record_count.toLocaleString()} records`
+              : 'Delete collection'
+          }
+          busy={deletingOne}
+          error={deleteOneError}
+          onConfirm={runSingleDelete}
+          onClose={() => {
+            setDeleteTarget(null);
+            setDeleteRecordsToo(false);
+          }}
+        >
+          Delete{' '}
+          <span className="font-semibold text-brand-cream">{deleteTarget.name}</span>
+          {childCount > 0 && (
+            <>
+              {' '}and its{' '}
+              <span className="font-semibold text-brand-cream">
+                {childCount} child collection{childCount === 1 ? '' : 's'}
+              </span>
+            </>
+          )}
+          .
+          {hasRecords ? (
+            sharedNoDiscriminator ? (
+              <span className="block mt-3 text-brand-muted">
+                By default only the collection entry is removed. This collection shares
+                its data table with others, so its {deleteTarget.record_count.toLocaleString()}{' '}
+                records are kept.
+              </span>
+            ) : (
+              <label className="flex items-start gap-2 mt-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={deleteRecordsToo}
+                  onChange={(e) => setDeleteRecordsToo(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded accent-brand-burgundy cursor-pointer"
+                />
+                <span className="text-brand-cream-muted">
+                  Also permanently delete this collection&rsquo;s{' '}
+                  <span className="font-semibold text-brand-cream">
+                    {deleteTarget.record_count.toLocaleString()} records
+                  </span>{' '}
+                  from{' '}
+                  <span className="font-mono text-brand-burgundy-light">
+                    {deleteTarget.table_name}
+                  </span>
+                  . This cannot be undone.
+                </span>
+              </label>
+            )
+          ) : (
+            <span className="block mt-3 text-brand-muted">
+              Removes the collection entry only. Underlying data tables are not deleted.
+            </span>
+          )}
+        </AdminConfirmDeleteModal>
+      );
+    })()}
     </>
   );
 }
