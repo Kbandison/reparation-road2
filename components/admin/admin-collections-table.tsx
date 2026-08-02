@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ChevronRight,
@@ -9,11 +9,13 @@ import {
   FileText,
   RefreshCw,
   Pencil,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { snakeCaseToTitleCase, formatNumber } from '@/lib/utils/format';
 import type { Collection } from '@/lib/types';
 import { AdminCollectionEditModal } from './admin-collection-edit-modal';
+import { AdminConfirmDeleteModal } from './admin-confirm-delete-modal';
 
 interface AdminCollectionsTableProps {
   collections: Collection[];
@@ -25,6 +27,67 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
   const [editing, setEditing] = useState<Collection | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const headerCbRef = useRef<HTMLInputElement>(null);
+
+  const allIds = collections.map((c) => c.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
+  const someSelected = selectedIds.size > 0;
+
+  useEffect(() => {
+    if (headerCbRef.current) {
+      headerCbRef.current.indeterminate = someSelected && !allSelected;
+    }
+  }, [someSelected, allSelected]);
+
+  const toggleRow = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(allIds));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const selectedNames = collections
+    .filter((c) => selectedIds.has(c.id))
+    .map((c) => c.name);
+
+  const deleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch('/api/admin/collections', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteError(data.error || 'Delete failed');
+        setDeleting(false);
+        return;
+      }
+      setDeleting(false);
+      setDeleteOpen(false);
+      clearSelection();
+      toast.success(`Deleted ${data.deleted} collection${data.deleted === 1 ? '' : 's'}`);
+      router.refresh();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Delete failed');
+      setDeleting(false);
+    }
+  };
 
   async function patchCollection(id: string, updates: Record<string, unknown>) {
     const res = await fetch(`/api/admin/collections/${id}`, {
@@ -110,8 +173,21 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
       <tr
         key={col.id}
         onClick={() => handleRowClick(col)}
-        className="border-b border-brand-gold/[0.04] hover:bg-brand-card-hover/50 transition-colors cursor-pointer"
+        className={`border-b border-brand-gold/[0.04] hover:bg-brand-card-hover/50 transition-colors cursor-pointer ${
+          selectedIds.has(col.id) ? 'bg-brand-gold/[0.05]' : ''
+        }`}
       >
+        {/* Select */}
+        <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selectedIds.has(col.id)}
+            onChange={() => toggleRow(col.id)}
+            className="w-4 h-4 rounded accent-brand-gold cursor-pointer align-middle"
+            aria-label={`Select ${col.name}`}
+          />
+        </td>
+
         {/* Name */}
         <td className="py-3 px-4 text-sm text-brand-cream font-medium">
           <div
@@ -199,7 +275,31 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
 
   return (
     <>
-    <div className="mb-4 flex justify-end">
+    <div className="mb-4 flex items-center gap-3">
+      {someSelected && (
+        <>
+          <span className="text-sm text-brand-cream font-medium">
+            {selectedIds.size} selected
+          </span>
+          <button
+            onClick={() => {
+              setDeleteError(null);
+              setDeleteOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-burgundy/90 text-white rounded-xl text-sm font-medium hover:bg-brand-burgundy transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete Selected
+          </button>
+          <button
+            onClick={clearSelection}
+            className="px-3 py-2 text-sm text-brand-muted hover:text-brand-cream transition-colors"
+          >
+            Clear
+          </button>
+        </>
+      )}
+      <div className="flex-1" />
       <button
         onClick={syncCounts}
         disabled={syncing}
@@ -213,6 +313,16 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
       <table className="w-full">
         <thead>
           <tr className="border-b border-brand-gold/[0.08]">
+            <th className="w-10 py-3 px-4">
+              <input
+                ref={headerCbRef}
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                className="w-4 h-4 rounded accent-brand-gold cursor-pointer align-middle"
+                aria-label="Select all collections"
+              />
+            </th>
             <th className="text-left py-3 px-4 text-xs font-semibold tracking-wide uppercase text-brand-muted">
               Name
             </th>
@@ -266,6 +376,29 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
           router.refresh();
         }}
       />
+    )}
+
+    {deleteOpen && (
+      <AdminConfirmDeleteModal
+        title="Delete collections"
+        confirmLabel={`Delete ${selectedIds.size} collection${selectedIds.size === 1 ? '' : 's'}`}
+        busy={deleting}
+        error={deleteError}
+        onConfirm={deleteSelected}
+        onClose={() => setDeleteOpen(false)}
+      >
+        This removes{' '}
+        <span className="font-semibold text-brand-cream">
+          {selectedIds.size} collection {selectedIds.size === 1 ? 'entry' : 'entries'}
+        </span>{' '}
+        from the browse tree. The underlying data tables and their records are{' '}
+        <span className="font-semibold text-brand-cream">not</span> deleted.
+        {selectedNames.length <= 6 && (
+          <span className="block mt-2 text-brand-muted">
+            {selectedNames.join(', ')}
+          </span>
+        )}
+      </AdminConfirmDeleteModal>
     )}
     </>
   );
