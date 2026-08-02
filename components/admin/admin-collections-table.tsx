@@ -120,8 +120,11 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
     setDeletingOne(true);
     setDeleteOneError(null);
     try {
-      // Optionally wipe this collection's records first.
-      if (deleteRecordsToo && target.table_name) {
+      const soleOwner = !!target.table_name && !isSharedTable(target.table_name);
+
+      // Shared table with a discriminator: drop just this collection's rows —
+      // the table itself has to stay for the other collections that use it.
+      if (deleteRecordsToo && target.table_name && !soleOwner) {
         const rres = await fetch('/api/admin/records', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
@@ -141,11 +144,15 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
       }
 
       // Delete the collection entry (plus its child entries if it's a folder).
+      // When the user opted in and this collection solely owns its table, drop
+      // the whole table (server re-checks it's unreferenced before dropping).
       const ids = collectSubtreeIds(target);
+      const dropTables =
+        deleteRecordsToo && soleOwner && target.table_name ? [target.table_name] : [];
       const cres = await fetch('/api/admin/collections', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids }),
+        body: JSON.stringify({ ids, dropTables }),
       });
       const d = await cres.json().catch(() => ({}));
       if (!cres.ok) {
@@ -156,7 +163,16 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
       setDeletingOne(false);
       setDeleteTarget(null);
       setDeleteRecordsToo(false);
-      toast.success(`Deleted ${target.name}`);
+      const dropped = Array.isArray(d.droppedTables) ? d.droppedTables : [];
+      const kept = Array.isArray(d.keptTables) ? d.keptTables : [];
+      toast.success(
+        dropped.length
+          ? `Deleted ${target.name} · dropped table ${dropped.join(', ')}`
+          : `Deleted ${target.name}`
+      );
+      if (kept.length) {
+        toast.error(`Kept table ${kept.join(', ')} — still referenced by another collection.`);
+      }
       router.refresh();
     } catch (err) {
       setDeleteOneError(err instanceof Error ? err.message : 'Delete failed');
@@ -490,18 +506,21 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
     )}
 
     {deleteTarget && (() => {
+      const table = deleteTarget.table_name;
       const childCount = collectSubtreeIds(deleteTarget).length - 1;
-      const hasRecords = !!deleteTarget.table_name && deleteTarget.record_count > 0;
-      const sharedNoDiscriminator =
-        isSharedTable(deleteTarget.table_name) && !deleteTarget.discriminator_value;
+      const recordCount = deleteTarget.record_count;
+      const soleOwner = !!table && !isSharedTable(table);
+      const shared = !!table && isSharedTable(table);
+      const canDeleteRows = shared && !!deleteTarget.discriminator_value && recordCount > 0;
+      const confirmLabel = deleteRecordsToo
+        ? soleOwner
+          ? 'Delete collection + table'
+          : `Delete collection + ${recordCount.toLocaleString()} records`
+        : 'Delete collection';
       return (
         <AdminConfirmDeleteModal
           title="Delete collection"
-          confirmLabel={
-            deleteRecordsToo
-              ? `Delete collection + ${deleteTarget.record_count.toLocaleString()} records`
-              : 'Delete collection'
-          }
+          confirmLabel={confirmLabel}
           busy={deletingOne}
           error={deleteOneError}
           onConfirm={runSingleDelete}
@@ -521,37 +540,64 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
             </>
           )}
           .
-          {hasRecords ? (
-            sharedNoDiscriminator ? (
-              <span className="block mt-3 text-brand-muted">
-                By default only the collection entry is removed. This collection shares
-                its data table with others, so its {deleteTarget.record_count.toLocaleString()}{' '}
-                records are kept.
+          {/* Sole owner of its table → offer to drop the whole table. */}
+          {soleOwner && (
+            <label className="flex items-start gap-2 mt-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deleteRecordsToo}
+                onChange={(e) => setDeleteRecordsToo(e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded accent-brand-burgundy cursor-pointer"
+              />
+              <span className="text-brand-cream-muted">
+                Also delete the data table{' '}
+                <span className="font-mono text-brand-burgundy-light">{table}</span>
+                {recordCount > 0 && (
+                  <>
+                    {' '}and its{' '}
+                    <span className="font-semibold text-brand-cream">
+                      {recordCount.toLocaleString()} records
+                    </span>
+                  </>
+                )}
+                . This cannot be undone.
               </span>
-            ) : (
-              <label className="flex items-start gap-2 mt-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={deleteRecordsToo}
-                  onChange={(e) => setDeleteRecordsToo(e.target.checked)}
-                  className="w-4 h-4 mt-0.5 rounded accent-brand-burgundy cursor-pointer"
-                />
-                <span className="text-brand-cream-muted">
-                  Also permanently delete this collection&rsquo;s{' '}
-                  <span className="font-semibold text-brand-cream">
-                    {deleteTarget.record_count.toLocaleString()} records
-                  </span>{' '}
-                  from{' '}
-                  <span className="font-mono text-brand-burgundy-light">
-                    {deleteTarget.table_name}
-                  </span>
-                  . This cannot be undone.
+            </label>
+          )}
+
+          {/* Shared table with a discriminator → can delete just this
+              collection's rows, but the shared table itself stays. */}
+          {canDeleteRows && (
+            <label className="flex items-start gap-2 mt-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deleteRecordsToo}
+                onChange={(e) => setDeleteRecordsToo(e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded accent-brand-burgundy cursor-pointer"
+              />
+              <span className="text-brand-cream-muted">
+                Also permanently delete this collection&rsquo;s{' '}
+                <span className="font-semibold text-brand-cream">
+                  {recordCount.toLocaleString()} records
                 </span>
-              </label>
-            )
-          ) : (
+                . The shared table{' '}
+                <span className="font-mono text-brand-burgundy-light">{table}</span>{' '}
+                is kept for other collections.
+              </span>
+            </label>
+          )}
+
+          {/* Shared, no discriminator → can't scope; keep the data. */}
+          {shared && !deleteTarget.discriminator_value && (
             <span className="block mt-3 text-brand-muted">
-              Removes the collection entry only. Underlying data tables are not deleted.
+              This collection shares its data table with others and can&rsquo;t be
+              scoped, so its records and table are kept.
+            </span>
+          )}
+
+          {!table && (
+            <span className="block mt-3 text-brand-muted">
+              Removes the collection entry only &mdash; no data table is attached.
             </span>
           )}
         </AdminConfirmDeleteModal>
