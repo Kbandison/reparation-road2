@@ -44,14 +44,16 @@ export async function GET(request: NextRequest) {
         ? [collection.display_columns[0]]
         : [];
 
-  const images: string[] = [];
+  // Each distinct scan, with the first record that appears on it — so the
+  // viewer can move the underlying record selection as pages are flipped.
+  const images: { path: string; id: string; slug: string | null }[] = [];
   const seen = new Set<string>();
   const pageSize = 1000;
   const MAX_ROWS = 20000; // safety cap for very large tables
   let from = 0;
 
   for (;;) {
-    let q = supabase.from(collection.table_name).select('image_path');
+    let q = supabase.from(collection.table_name).select('id, slug, image_path');
     if (collection.discriminator_column && collection.discriminator_value) {
       q = q.ilike(collection.discriminator_column, collection.discriminator_value);
     }
@@ -63,12 +65,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ images: [] });
     }
 
-    const rows = (data as { image_path?: unknown }[]) || [];
+    const rows = (data as { id?: unknown; slug?: unknown; image_path?: unknown }[]) || [];
     for (const r of rows) {
       const img = String(r.image_path ?? '').trim();
       if (!img || isPdfPath(img) || seen.has(img)) continue;
       seen.add(img);
-      images.push(img);
+      images.push({
+        path: img,
+        id: String(r.id ?? ''),
+        slug: r.slug != null ? String(r.slug) : null,
+      });
     }
 
     if (rows.length < pageSize || from + pageSize >= MAX_ROWS) break;
