@@ -54,6 +54,11 @@ export function RecordModal({
   // an oversize scan (see image-viewer). The full-screen zoom view handles its
   // own fallback via ZoomableImage's fallbackSrc.
   const [imgFailed, setImgFailed] = useState(false);
+  // Full-collection page scans, so full-screen can flip through EVERY image in
+  // the collection, not just the records loaded on the current page.
+  const [zoomImages, setZoomImages] = useState<string[] | null>(null);
+  const [zoomImagesSlug, setZoomImagesSlug] = useState<string | null>(null);
+  const [zoomIdx, setZoomIdx] = useState(-1);
 
   // Use override data when navigated, otherwise use props
   const activeCollection = overrideData?.collection ?? collection;
@@ -117,16 +122,28 @@ export function RecordModal({
     onNext?.();
   }, [onNext]);
 
-  // Full-screen paging — jump by distinct image, keeping the zoom view open.
+  // Full-screen paging. Prefer the full-collection scan list (spans every
+  // page); fall back to the record-list props when it isn't loaded.
+  const listReady =
+    zoomImages !== null && zoomImagesSlug === activeCollection.slug && zoomIdx >= 0;
+
   const handlePrevImage = useCallback(() => {
+    if (listReady && zoomIdx > 0) {
+      setZoomIdx((i) => Math.max(0, i - 1));
+      return;
+    }
     setOverrideData(null);
     onPrevImage?.();
-  }, [onPrevImage]);
+  }, [onPrevImage, listReady, zoomIdx]);
 
   const handleNextImage = useCallback(() => {
+    if (listReady && zoomImages && zoomIdx < zoomImages.length - 1) {
+      setZoomIdx((i) => i + 1);
+      return;
+    }
     setOverrideData(null);
     onNextImage?.();
-  }, [onNextImage]);
+  }, [onNextImage, listReady, zoomImages, zoomIdx]);
 
   const handleBack = useCallback(() => {
     setOverrideData(null);
@@ -165,6 +182,37 @@ export function RecordModal({
       document.body.style.overflow = '';
     };
   }, [handleKeyDown]);
+
+  // When entering full-screen, load every page scan for the collection so the
+  // viewer can flip through all of them. Position on the current record's page.
+  useEffect(() => {
+    if (!imageZoom || !activeCollection.slug) return;
+    const slug = activeCollection.slug;
+    if (zoomImages !== null && zoomImagesSlug === slug) {
+      setZoomIdx(zoomImages.indexOf(imagePath));
+      return;
+    }
+    let active = true;
+    fetch(`/api/collection-search/images?collection=${encodeURIComponent(slug)}`)
+      .then((r) => (r.ok ? r.json() : { images: [] }))
+      .then((d) => {
+        if (!active) return;
+        const imgs: string[] = Array.isArray(d.images) ? d.images : [];
+        setZoomImages(imgs);
+        setZoomImagesSlug(slug);
+        setZoomIdx(imgs.indexOf(imagePath));
+      })
+      .catch(() => {
+        if (!active) return;
+        setZoomImages([]);
+        setZoomImagesSlug(slug);
+        setZoomIdx(-1);
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageZoom, activeCollection.slug]);
 
   const modal = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -370,6 +418,24 @@ export function RecordModal({
     </div>
   );
 
+  // Full-screen image: prefer the collection-wide scan list (spans all pages);
+  // otherwise show the current record's image with record-list paging.
+  const overlayPath =
+    listReady && zoomImages && zoomIdx >= 0 && zoomIdx < zoomImages.length
+      ? zoomImages[zoomIdx]
+      : null;
+  const listActive = overlayPath !== null;
+  const overlaySrc = overlayPath
+    ? buildImageUrl(overlayPath, { width: 2400 }) ?? buildImageUrl(overlayPath)
+    : imageZoomUrl ?? imageUrl;
+  const overlayFallback = overlayPath
+    ? buildImageUrl(overlayPath) ?? undefined
+    : rawImageUrl ?? undefined;
+  const showPrevImage = listActive ? zoomIdx > 0 : !overrideData && !!hasPrevImage;
+  const showNextImage = listActive
+    ? zoomIdx < (zoomImages?.length ?? 0) - 1
+    : !overrideData && !!hasNextImage;
+
   const zoomOverlay = imageZoom && imageUrl && !isPdf ? (
     <div className="fixed inset-0 z-[110] bg-black/90">
       <button
@@ -380,8 +446,15 @@ export function RecordModal({
         <X className="w-5 h-5" />
       </button>
 
-      {/* Page navigation — jumps to the previous / next distinct scan. */}
-      {!overrideData && hasPrevImage && (
+      {/* Page counter across the whole collection. */}
+      {listActive && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-black/50 text-white text-xs font-medium tabular-nums">
+          {zoomIdx + 1} / {zoomImages!.length}
+        </div>
+      )}
+
+      {/* Page navigation — flips to the previous / next scan. */}
+      {showPrevImage && (
         <button
           onClick={handlePrevImage}
           aria-label="Previous page"
@@ -390,7 +463,7 @@ export function RecordModal({
           <ChevronLeft className="w-6 h-6" />
         </button>
       )}
-      {!overrideData && hasNextImage && (
+      {showNextImage && (
         <button
           onClick={handleNextImage}
           aria-label="Next page"
@@ -401,8 +474,9 @@ export function RecordModal({
       )}
 
       <ZoomableImage
-        src={(imageZoomUrl ?? imageUrl)!}
-        fallbackSrc={rawImageUrl ?? undefined}
+        key={overlaySrc ?? ''}
+        src={overlaySrc!}
+        fallbackSrc={overlayFallback}
         alt={String(title)}
       />
     </div>
