@@ -27,16 +27,22 @@ export function AdminCitationEditor({ collection }: AdminCitationEditorProps) {
 
   const [expanded, setExpanded] = useState(false);
   const [template, setTemplate] = useState(collection.citation_template || '');
+  const [sourceInfo, setSourceInfo] = useState(collection.source_information || '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const hasChanges = template !== (collection.citation_template || '');
+  const hasChanges =
+    template !== (collection.citation_template || '') ||
+    sourceInfo !== (collection.source_information || '');
 
   const handleSave = async () => {
     setSaving(true);
     await supabase
       .from('collections')
-      .update({ citation_template: template || null })
+      .update({
+        citation_template: template || null,
+        source_information: sourceInfo || null,
+      })
       .eq('id', collection.id);
     setSaving(false);
     setSaved(true);
@@ -72,9 +78,12 @@ export function AdminCitationEditor({ collection }: AdminCitationEditorProps) {
             <ChevronRight className="w-4 h-4 text-brand-muted" />
           )}
           <Quote className="w-4 h-4 text-brand-muted" />
-          <span className="text-sm font-medium text-brand-cream">Citation Template</span>
+          <span className="text-sm font-medium text-brand-cream">Citation &amp; Source</span>
           {collection.citation_template && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-brand-gold/10 text-brand-gold">Custom</span>
+          )}
+          {collection.source_information && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-brand-sage/10 text-brand-sage">Source</span>
           )}
         </div>
       </button>
@@ -114,6 +123,22 @@ export function AdminCitationEditor({ collection }: AdminCitationEditorProps) {
           <div className="bg-brand-bg border border-brand-gold/[0.06] rounded-xl p-3">
             <p className="text-[10px] text-brand-muted font-medium uppercase tracking-wide mb-1.5">Preview</p>
             <p className="text-xs text-brand-cream/70 italic leading-relaxed">{preview}</p>
+          </div>
+
+          {/* Source information */}
+          <div>
+            <p className="text-xs text-brand-muted mb-2">
+              Source information &mdash; the archival provenance shown on every record in
+              this collection (repository, record group, physical reference, etc.). A
+              record can override this individually.
+            </p>
+            <textarea
+              value={sourceInfo}
+              onChange={(e) => setSourceInfo(e.target.value)}
+              rows={3}
+              placeholder={'e.g. Georgia Archives, RG 4-2-46, Register of Free Persons of Color, 1819–1864.'}
+              className="w-full px-3 py-2 bg-brand-bg border border-brand-gold/[0.08] rounded-xl text-sm text-brand-cream placeholder:text-brand-muted/50 focus:outline-none focus:border-brand-gold/25 resize-y"
+            />
           </div>
 
           {/* Actions */}

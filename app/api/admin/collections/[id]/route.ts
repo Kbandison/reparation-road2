@@ -34,6 +34,8 @@ const ALLOWED_FIELDS = new Set([
   'search_columns',
   'title_columns',
   'sort_columns',
+  'citation_template',
+  'source_information',
 ]);
 
 export async function PATCH(

@@ -8,6 +8,9 @@ import {
   Loader2,
   Trash2,
   ImageIcon,
+  Quote,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { buildImageUrl } from '@/lib/collections/helpers';
@@ -57,6 +60,13 @@ export function AdminRecordEditModal({
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Per-record citation / source override.
+  const [citationOverride, setCitationOverride] = useState('');
+  const [sourceOverride, setSourceOverride] = useState('');
+  const [initialCitation, setInitialCitation] = useState('');
+  const [initialSource, setInitialSource] = useState('');
+  const [citationOpen, setCitationOpen] = useState(false);
+
   // Storage browser visibility
   const [storageOpen, setStorageOpen] = useState(false);
 
@@ -105,6 +115,8 @@ export function AdminRecordEditModal({
       }
     });
 
+    let recordId = record?.id ?? '';
+
     if (isNew) {
       const res = await fetch('/api/admin/records', {
         method: 'POST',
@@ -117,6 +129,7 @@ export function AdminRecordEditModal({
         setSaving(false);
         return;
       }
+      recordId = data.record?.id ?? '';
     } else {
       if (Object.keys(payload).length > 0) {
         const res = await fetch('/api/admin/records', {
@@ -130,6 +143,17 @@ export function AdminRecordEditModal({
           setSaving(false);
           return;
         }
+      }
+    }
+
+    // Save the citation / source override (needs the record id, now known even
+    // for a freshly-inserted record).
+    if (recordId) {
+      const citErr = await saveCitationOverride(recordId);
+      if (citErr) {
+        setError(citErr);
+        setSaving(false);
+        return;
       }
     }
 
@@ -204,6 +228,52 @@ export function AdminRecordEditModal({
     return () => document.removeEventListener('keydown', handleKey);
   }, [onClose, storageOpen]);
 
+  // Load any existing per-record citation/source override for this record.
+  useEffect(() => {
+    if (isNew || !record?.id || !collection.table_name) return;
+    let active = true;
+    supabase
+      .from('record_citations')
+      .select('citation, source_information')
+      .eq('table_name', collection.table_name)
+      .eq('record_id', record.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!active || !data) return;
+        setCitationOverride(data.citation || '');
+        setSourceOverride(data.source_information || '');
+        setInitialCitation(data.citation || '');
+        setInitialSource(data.source_information || '');
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record?.id, collection.table_name]);
+
+  // Persist the citation/source override when it changed. Returns an error
+  // message on failure, or null on success / no-op.
+  const saveCitationOverride = async (recordId: string): Promise<string | null> => {
+    if (citationOverride === initialCitation && sourceOverride === initialSource) {
+      return null;
+    }
+    const res = await fetch('/api/admin/record-citation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tableName: collection.table_name,
+        recordId,
+        citation: citationOverride,
+        sourceInformation: sourceOverride,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return data.error || 'Citation save failed';
+    }
+    return null;
+  };
+
   const editableColumns = columns.filter(
     (c) => !SYSTEM_FIELDS.has(c) && !IMAGE_FIELDS.has(c)
   );
@@ -243,7 +313,6 @@ export function AdminRecordEditModal({
                 Image
               </label>
 
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               {currentImageUrl && (
                 <div className="relative w-full max-h-56 rounded-xl overflow-hidden bg-brand-card flex items-center justify-center">
                   {/* Using <img> to avoid Next.js image optimizer issues with special chars in filenames */}
@@ -344,6 +413,70 @@ export function AdminRecordEditModal({
               </div>
             );
           })}
+
+          {/* Citation & source override */}
+          <div className="border-t border-brand-gold/[0.08] pt-5">
+            <button
+              type="button"
+              onClick={() => setCitationOpen((o) => !o)}
+              className="w-full flex items-center gap-1.5 text-xs text-brand-muted font-medium uppercase tracking-wide hover:text-brand-cream transition-colors"
+            >
+              {citationOpen ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" />
+              )}
+              <Quote className="w-3.5 h-3.5" />
+              Citation &amp; Source
+              {(citationOverride || sourceOverride) && (
+                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-md bg-brand-gold/10 text-brand-gold normal-case tracking-normal">
+                  Custom
+                </span>
+              )}
+            </button>
+
+            {citationOpen && (
+              <div className="mt-3 space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-brand-muted font-medium uppercase tracking-wide">
+                    Citation override
+                  </label>
+                  <textarea
+                    value={citationOverride}
+                    onChange={(e) => setCitationOverride(e.target.value)}
+                    rows={3}
+                    placeholder="Leave blank to use the collection's citation format."
+                    className="w-full bg-brand-bg border border-brand-gold/[0.08] rounded-xl px-3 py-2 text-sm text-brand-cream placeholder:text-brand-muted focus:outline-none focus:border-brand-gold/30 resize-y"
+                  />
+                  <p className="text-[11px] text-brand-muted">
+                    Replaces the auto-generated citation for this record only.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs text-brand-muted font-medium uppercase tracking-wide">
+                    Source information
+                  </label>
+                  <textarea
+                    value={sourceOverride}
+                    onChange={(e) => setSourceOverride(e.target.value)}
+                    rows={3}
+                    placeholder={
+                      collection.source_information
+                        ? `Leave blank to use the collection source:\n${collection.source_information}`
+                        : 'Repository, record group, physical reference…'
+                    }
+                    className="w-full bg-brand-bg border border-brand-gold/[0.08] rounded-xl px-3 py-2 text-sm text-brand-cream placeholder:text-brand-muted/60 focus:outline-none focus:border-brand-gold/30 resize-y"
+                  />
+                  <p className="text-[11px] text-brand-muted">
+                    {collection.source_information
+                      ? 'Overrides the collection source for this record only.'
+                      : 'No collection-level source is set yet (edit it on the collection page).'}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
 
           {error && (
             <div className="bg-brand-burgundy/10 border border-brand-burgundy/20 rounded-xl px-4 py-3 text-sm text-brand-burgundy-light">
