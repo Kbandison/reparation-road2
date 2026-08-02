@@ -43,11 +43,23 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
     }
   }, [someSelected, allSelected]);
 
-  const toggleRow = (id: string) => {
+  // A collection's own id plus every descendant's id. Selecting a folder
+  // selects its whole subtree so deleting it doesn't strand children (which the
+  // API's orphan guard would otherwise refuse).
+  const collectSubtreeIds = (col: Collection): string[] => {
+    const ids = [col.id];
+    for (const child of childrenMap.get(col.slug) || []) {
+      ids.push(...collectSubtreeIds(child));
+    }
+    return ids;
+  };
+
+  const toggleRow = (col: Collection) => {
+    const ids = collectSubtreeIds(col);
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const allOn = ids.every((id) => next.has(id));
+      ids.forEach((id) => (allOn ? next.delete(id) : next.add(id)));
       return next;
     });
   };
@@ -182,7 +194,7 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
           <input
             type="checkbox"
             checked={selectedIds.has(col.id)}
-            onChange={() => toggleRow(col.id)}
+            onChange={() => toggleRow(col)}
             className="w-4 h-4 rounded accent-brand-gold cursor-pointer align-middle"
             aria-label={`Select ${col.name}`}
           />
