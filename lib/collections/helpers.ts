@@ -146,3 +146,41 @@ export function getCategoryColor(category: string): string {
   };
   return colors[category] || 'bg-brand-muted/10 text-brand-muted';
 }
+
+/** The image reference a record points at (relative path or full URL), or ''. */
+export function imagePathOf(record: Record<string, unknown> | null | undefined): string {
+  if (!record) return '';
+  return String((record.image_path as string) || (record.image_url as string) || '');
+}
+
+// Consecutive records in a listing often share one page scan (e.g. several
+// registrations on the same page). These find the next/previous record whose
+// image is a *different* viewable scan, so full-screen paging jumps to the next
+// page rather than the next record (which would show the same image). Empty and
+// PDF references are skipped. Returns null when there's no further distinct
+// image in that direction.
+export function nextImageIndex(
+  records: Record<string, unknown>[],
+  idx: number
+): number | null {
+  const img = imagePathOf(records[idx]);
+  if (!img) return null;
+  for (let j = idx + 1; j < records.length; j++) {
+    const other = imagePathOf(records[j]);
+    if (other && other !== img && !isPdfPath(other)) return j;
+  }
+  return null;
+}
+
+export function prevImageIndex(
+  records: Record<string, unknown>[],
+  idx: number
+): number | null {
+  const img = imagePathOf(records[idx]);
+  if (!img) return null;
+  for (let j = idx - 1; j >= 0; j--) {
+    const other = imagePathOf(records[j]);
+    if (other && other !== img && !isPdfPath(other)) return j;
+  }
+  return null;
+}

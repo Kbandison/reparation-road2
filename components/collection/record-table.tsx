@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { Collection, CollectionRecord } from '@/lib/types';
 import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
 import { trackActivity } from '@/lib/hooks/use-activity';
-import { getRecordTitle } from '@/lib/collections/helpers';
+import { getRecordTitle, nextImageIndex, prevImageIndex } from '@/lib/collections/helpers';
 import { RecordModal } from '@/components/collection/record-modal';
 
 interface RecordTableProps {
@@ -96,17 +96,25 @@ export function RecordTable({ collection, records }: RecordTableProps) {
       </div>
 
       {/* Record Detail Modal */}
-      {selectedRecord && (
-        <RecordModal
-          collection={collection}
-          record={selectedRecord}
-          onClose={() => setSelectedIdx(null)}
-          onPrev={selectedIdx! > 0 ? () => setSelectedIdx(selectedIdx! - 1) : undefined}
-          onNext={selectedIdx! < records.length - 1 ? () => setSelectedIdx(selectedIdx! + 1) : undefined}
-          hasPrev={selectedIdx! > 0}
-          hasNext={selectedIdx! < records.length - 1}
-        />
-      )}
+      {selectedRecord && (() => {
+        const prevImg = prevImageIndex(records, selectedIdx!);
+        const nextImg = nextImageIndex(records, selectedIdx!);
+        return (
+          <RecordModal
+            collection={collection}
+            record={selectedRecord}
+            onClose={() => setSelectedIdx(null)}
+            onPrev={selectedIdx! > 0 ? () => setSelectedIdx(selectedIdx! - 1) : undefined}
+            onNext={selectedIdx! < records.length - 1 ? () => setSelectedIdx(selectedIdx! + 1) : undefined}
+            hasPrev={selectedIdx! > 0}
+            hasNext={selectedIdx! < records.length - 1}
+            onPrevImage={prevImg !== null ? () => setSelectedIdx(prevImg) : undefined}
+            onNextImage={nextImg !== null ? () => setSelectedIdx(nextImg) : undefined}
+            hasPrevImage={prevImg !== null}
+            hasNextImage={nextImg !== null}
+          />
+        );
+      })()}
     </>
   );
 }

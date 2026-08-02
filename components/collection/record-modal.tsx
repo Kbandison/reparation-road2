@@ -20,6 +20,12 @@ interface RecordModalProps {
   onNext?: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
+  // Full-screen paging: jump to the record whose image is the previous / next
+  // distinct scan (skipping records that share the current page image).
+  onPrevImage?: () => void;
+  onNextImage?: () => void;
+  hasPrevImage?: boolean;
+  hasNextImage?: boolean;
 }
 
 const HIDDEN_FIELDS = new Set([
@@ -35,6 +41,10 @@ export function RecordModal({
   onNext,
   hasPrev,
   hasNext,
+  onPrevImage,
+  onNextImage,
+  hasPrevImage,
+  hasNextImage,
 }: RecordModalProps) {
   // Internal navigation override state
   const [overrideData, setOverrideData] = useState<{ collection: Collection; record: CollectionRecord } | null>(null);
@@ -107,6 +117,17 @@ export function RecordModal({
     onNext?.();
   }, [onNext]);
 
+  // Full-screen paging — jump by distinct image, keeping the zoom view open.
+  const handlePrevImage = useCallback(() => {
+    setOverrideData(null);
+    onPrevImage?.();
+  }, [onPrevImage]);
+
+  const handleNextImage = useCallback(() => {
+    setOverrideData(null);
+    onNextImage?.();
+  }, [onNextImage]);
+
   const handleBack = useCallback(() => {
     setOverrideData(null);
   }, []);
@@ -120,12 +141,20 @@ export function RecordModal({
         else handleClose();
         return;
       }
-      if (!overrideData && !imageZoom) {
+      if (overrideData) return;
+      if (imageZoom) {
+        // In full-screen, the arrows page through distinct images/pages.
+        if (e.key === 'ArrowLeft' && hasPrevImage) handlePrevImage();
+        if (e.key === 'ArrowRight' && hasNextImage) handleNextImage();
+      } else {
         if (e.key === 'ArrowLeft' && hasPrev && onPrev) handlePrev();
         if (e.key === 'ArrowRight' && hasNext && onNext) handleNext();
       }
     },
-    [handleClose, handlePrev, handleNext, overrideData, hasPrev, hasNext, onPrev, onNext, imageZoom]
+    [
+      handleClose, handlePrev, handleNext, handlePrevImage, handleNextImage,
+      overrideData, hasPrev, hasNext, onPrev, onNext, hasPrevImage, hasNextImage, imageZoom,
+    ]
   );
 
   useEffect(() => {
@@ -350,6 +379,27 @@ export function RecordModal({
       >
         <X className="w-5 h-5" />
       </button>
+
+      {/* Page navigation — jumps to the previous / next distinct scan. */}
+      {!overrideData && hasPrevImage && (
+        <button
+          onClick={handlePrevImage}
+          aria-label="Previous page"
+          className="absolute left-4 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+        >
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+      )}
+      {!overrideData && hasNextImage && (
+        <button
+          onClick={handleNextImage}
+          aria-label="Next page"
+          className="absolute right-4 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+        >
+          <ChevronRight className="w-6 h-6" />
+        </button>
+      )}
+
       <ZoomableImage
         src={(imageZoomUrl ?? imageUrl)!}
         fallbackSrc={rawImageUrl ?? undefined}
