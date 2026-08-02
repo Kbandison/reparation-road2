@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { X, ChevronLeft, ChevronRight, ArrowLeft, Loader2, ZoomIn, ExternalLink } from 'lucide-react';
@@ -55,10 +55,14 @@ export function RecordModal({
   // own fallback via ZoomableImage's fallbackSrc.
   const [imgFailed, setImgFailed] = useState(false);
   // Full-collection page scans, so full-screen can flip through EVERY image in
-  // the collection, not just the records loaded on the current page.
-  const [zoomImages, setZoomImages] = useState<string[] | null>(null);
+  // the collection, not just the records loaded on the current page. Each entry
+  // carries the first record on that scan, so flipping can move the record too.
+  const [zoomImages, setZoomImages] = useState<
+    { path: string; id: string; slug: string | null }[] | null
+  >(null);
   const [zoomImagesSlug, setZoomImagesSlug] = useState<string | null>(null);
   const [zoomIdx, setZoomIdx] = useState(-1);
+  const syncPathRef = useRef<string | null>(null);
 
   // Use override data when navigated, otherwise use props
   const activeCollection = overrideData?.collection ?? collection;
@@ -127,23 +131,57 @@ export function RecordModal({
   const listReady =
     zoomImages !== null && zoomImagesSlug === activeCollection.slug && zoomIdx >= 0;
 
+  // Move the underlying record to follow the scan being viewed. Loads the first
+  // record on that page in the background; a ref guards against out-of-order
+  // responses when flipping quickly.
+  const syncRecordToImage = useCallback(
+    (item: { id: string; slug: string | null; path: string }) => {
+      const key = item.id || item.slug;
+      if (!key) return;
+      syncPathRef.current = item.path;
+      fetch(
+        `/api/collection-search/record?collection=${encodeURIComponent(
+          activeCollection.slug
+        )}&id=${encodeURIComponent(key)}`
+      )
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!d?.record || syncPathRef.current !== item.path) return;
+          setOverrideData({ collection: d.collection, record: d.record });
+        })
+        .catch(() => {});
+    },
+    [activeCollection.slug]
+  );
+
+  const pageZoom = useCallback(
+    (delta: -1 | 1) => {
+      if (!zoomImages) return;
+      const next = zoomIdx + delta;
+      if (next < 0 || next >= zoomImages.length) return;
+      setZoomIdx(next);
+      syncRecordToImage(zoomImages[next]);
+    },
+    [zoomImages, zoomIdx, syncRecordToImage]
+  );
+
   const handlePrevImage = useCallback(() => {
     if (listReady && zoomIdx > 0) {
-      setZoomIdx((i) => Math.max(0, i - 1));
+      pageZoom(-1);
       return;
     }
     setOverrideData(null);
     onPrevImage?.();
-  }, [onPrevImage, listReady, zoomIdx]);
+  }, [onPrevImage, listReady, zoomIdx, pageZoom]);
 
   const handleNextImage = useCallback(() => {
     if (listReady && zoomImages && zoomIdx < zoomImages.length - 1) {
-      setZoomIdx((i) => i + 1);
+      pageZoom(1);
       return;
     }
     setOverrideData(null);
     onNextImage?.();
-  }, [onNextImage, listReady, zoomImages, zoomIdx]);
+  }, [onNextImage, listReady, zoomImages, zoomIdx, pageZoom]);
 
   const handleBack = useCallback(() => {
     setOverrideData(null);
@@ -188,8 +226,9 @@ export function RecordModal({
   useEffect(() => {
     if (!imageZoom || !activeCollection.slug) return;
     const slug = activeCollection.slug;
+    syncPathRef.current = imagePath;
     if (zoomImages !== null && zoomImagesSlug === slug) {
-      setZoomIdx(zoomImages.indexOf(imagePath));
+      setZoomIdx(zoomImages.findIndex((im) => im.path === imagePath));
       return;
     }
     let active = true;
@@ -197,10 +236,12 @@ export function RecordModal({
       .then((r) => (r.ok ? r.json() : { images: [] }))
       .then((d) => {
         if (!active) return;
-        const imgs: string[] = Array.isArray(d.images) ? d.images : [];
+        const imgs: { path: string; id: string; slug: string | null }[] = Array.isArray(d.images)
+          ? d.images
+          : [];
         setZoomImages(imgs);
         setZoomImagesSlug(slug);
-        setZoomIdx(imgs.indexOf(imagePath));
+        setZoomIdx(imgs.findIndex((im) => im.path === imagePath));
       })
       .catch(() => {
         if (!active) return;
@@ -422,7 +463,7 @@ export function RecordModal({
   // otherwise show the current record's image with record-list paging.
   const overlayPath =
     listReady && zoomImages && zoomIdx >= 0 && zoomIdx < zoomImages.length
-      ? zoomImages[zoomIdx]
+      ? zoomImages[zoomIdx].path
       : null;
   const listActive = overlayPath !== null;
   const overlaySrc = overlayPath
