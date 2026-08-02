@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { snakeCaseToTitleCase } from '@/lib/utils/format';
 import { AdminRecordEditModal } from '@/components/admin/admin-record-edit-modal';
 import { AdminBulkEditModal } from '@/components/admin/admin-bulk-edit-modal';
+import { AdminConfirmDeleteModal } from '@/components/admin/admin-confirm-delete-modal';
 import type { Collection, CollectionRecord } from '@/lib/types';
 
 interface AdminRecordsTableProps {
@@ -24,6 +25,9 @@ export function AdminRecordsTable({ collection, records, totalCount }: AdminReco
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectAll, setSelectAll] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const headerCbRef = useRef<HTMLInputElement>(null);
 
   // Get all columns from the first record, excluding system fields for display
@@ -109,6 +113,44 @@ export function AdminRecordsTable({ collection, records, totalCount }: AdminReco
     router.refresh();
   };
 
+  const affectedCount = selectAll ? totalCount : selectedIds.size;
+
+  const deleteSelected = async () => {
+    if (!collection.table_name || affectedCount === 0) return;
+    setDeleting(true);
+    setDeleteError(null);
+
+    const body: Record<string, unknown> = { tableName: collection.table_name };
+    if (selectAll) {
+      body.all = true;
+      body.discriminatorColumn = collection.discriminator_column;
+      body.discriminatorValue = collection.discriminator_value;
+    } else {
+      body.ids = [...selectedIds];
+    }
+
+    try {
+      const res = await fetch('/api/admin/records', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteError(data.error || 'Delete failed');
+        setDeleting(false);
+        return;
+      }
+      setDeleting(false);
+      setBulkDeleteOpen(false);
+      clearSelection();
+      router.refresh();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Delete failed');
+      setDeleting(false);
+    }
+  };
+
   return (
     <>
       {/* Add Record button */}
@@ -146,6 +188,17 @@ export function AdminRecordsTable({ collection, records, totalCount }: AdminReco
           >
             <Pencil className="w-3.5 h-3.5 mr-1.5" />
             Bulk Edit
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              setDeleteError(null);
+              setBulkDeleteOpen(true);
+            }}
+            className="bg-brand-burgundy text-white hover:bg-brand-burgundy/85"
+          >
+            <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+            Delete
           </Button>
           <Button
             size="sm"
@@ -279,6 +332,28 @@ export function AdminRecordsTable({ collection, records, totalCount }: AdminReco
           onClose={() => setBulkOpen(false)}
           onSaved={handleBulkSaved}
         />
+      )}
+
+      {/* Bulk Delete confirmation */}
+      {bulkDeleteOpen && (
+        <AdminConfirmDeleteModal
+          title="Delete records"
+          confirmLabel={`Delete ${affectedCount.toLocaleString()} record${affectedCount === 1 ? '' : 's'}`}
+          busy={deleting}
+          error={deleteError}
+          onConfirm={deleteSelected}
+          onClose={() => setBulkDeleteOpen(false)}
+        >
+          This permanently deletes{' '}
+          <span className="font-semibold text-brand-cream">
+            {affectedCount.toLocaleString()}
+          </span>{' '}
+          record{affectedCount === 1 ? '' : 's'} from{' '}
+          <span className="font-mono text-brand-burgundy-light">
+            {collection.table_name}
+          </span>
+          . This cannot be undone.
+        </AdminConfirmDeleteModal>
       )}
     </>
   );
