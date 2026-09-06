@@ -31,8 +31,40 @@ export const NEWSLETTER_FROM =
 export const NEWSLETTER_REPLY_TO =
   process.env.NEWSLETTER_REPLY_TO || 'hello@reparationroad.org';
 
-export const SITE_URL =
-  process.env.NEXT_PUBLIC_APP_URL || 'https://reparationroad.org';
+const CANONICAL_URL = 'https://www.reparationroad.org';
+
+/**
+ * Base URL for links inside emails.
+ *
+ * Guarded rather than trusted. NEXT_PUBLIC_APP_URL is correctly set to
+ * localhost for development, so copying a local env file into a hosted
+ * environment silently produces confirmation and unsubscribe links pointing at
+ * localhost — which is exactly what happened on the first production send.
+ *
+ * A wrong URL on a web page is a redeploy away from fixed. A wrong URL in an
+ * email is permanent the moment it lands in someone's inbox, so this refuses a
+ * local address whenever it is not actually running locally, and says so loudly
+ * enough to be found in the logs.
+ */
+function resolveSiteUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  const isLocal =
+    !configured || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?/i.test(configured);
+
+  if (isLocal && process.env.NODE_ENV === 'production') {
+    console.error(
+      `[newsletter] NEXT_PUBLIC_APP_URL is ${configured ?? 'unset'} in a production ` +
+        `build — email links would point at localhost. Falling back to ${CANONICAL_URL}. ` +
+        `Fix the environment variable; this also affects Stripe redirect URLs, which have ` +
+        `no such fallback.`,
+    );
+    return CANONICAL_URL;
+  }
+
+  return configured || CANONICAL_URL;
+}
+
+export const SITE_URL = resolveSiteUrl();
 
 // CAN-SPAM requires a physical postal address in every marketing email.
 export const POSTAL_ADDRESS =
