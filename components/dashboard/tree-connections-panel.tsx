@@ -7,6 +7,7 @@ import { Loader2, Users, Send, MessageSquare, ExternalLink } from 'lucide-react'
 import { Avatar } from '@/components/forum/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 
 type Confidence = 'strong' | 'probable' | 'possible';
 
@@ -18,6 +19,7 @@ interface SharedPerson {
   birthPlace: string | null;
   theirBirthYear: number | null;
   confidence: Confidence;
+  nameFrequency: number;
 }
 
 interface Overlap {
@@ -45,6 +47,7 @@ const CONFIDENCE: Record<Confidence, { label: string; className: string }> = {
 export function TreeConnectionsPanel({ currentUserId }: { currentUserId: string }) {
   const [loading, setLoading] = useState(true);
   const [sharing, setSharing] = useState(false);
+  const [includeLiving, setIncludeLiving] = useState(false);
   const [overlaps, setOverlaps] = useState<Overlap[]>([]);
   const [busy, setBusy] = useState(false);
   const [openThread, setOpenThread] = useState<string | null>(null);
@@ -57,6 +60,7 @@ export function TreeConnectionsPanel({ currentUserId }: { currentUserId: string 
     if (!res.ok) return;
     const data = await res.json();
     setSharing(data.sharing);
+    setIncludeLiving(Boolean(data.includeLiving));
     setOverlaps(data.overlaps ?? []);
   }, []);
 
@@ -79,6 +83,28 @@ export function TreeConnectionsPanel({ currentUserId }: { currentUserId: string 
       setSharing(enabled);
       await load();
       toast.success(enabled ? 'Tree sharing is on' : 'Tree sharing is off');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setLiving(next: boolean) {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/tree-connections', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeLiving: next }),
+      });
+      if (!res.ok) {
+        toast.error('Could not save that');
+        return;
+      }
+      setIncludeLiving(next);
+      await load();
+      toast.success(
+        next ? 'Living relatives are now matchable' : 'Living relatives are hidden',
+      );
     } finally {
       setBusy(false);
     }
@@ -164,10 +190,15 @@ export function TreeConnectionsPanel({ currentUserId }: { currentUserId: string 
         */}
         <p className="text-sm text-brand-muted leading-relaxed mt-3">
           <strong className="text-brand-cream">What gets shared:</strong> the names,
-          dates and places of everyone in your trees &mdash; including living
-          relatives &mdash; become visible to other researchers whose trees contain
-          the same people. Matching is mutual, so you only see others while they can
-          also see you. You can switch this off at any time.
+          dates and places of people in your trees become visible to other
+          researchers whose trees contain the same people. Matching is mutual, so
+          you only see others while they can also see you. You can switch this off
+          at any time.
+        </p>
+        <p className="text-sm text-brand-muted leading-relaxed mt-3">
+          Anyone who may still be living is held back by default &mdash; no death
+          date, and either born within the last hundred years or carrying no dates
+          at all. You can include them afterwards if you want to.
         </p>
         <Button
           onClick={() => toggleSharing(true)}
@@ -198,6 +229,25 @@ export function TreeConnectionsPanel({ currentUserId }: { currentUserId: string 
         >
           Turn off sharing
         </button>
+      </div>
+
+      <div className="flex items-start gap-3 mb-5 pb-5 border-b border-brand-gold/[0.08]">
+        <Checkbox
+          id="include-living"
+          checked={includeLiving}
+          disabled={busy}
+          onCheckedChange={(v) => setLiving(v === true)}
+          className="mt-0.5 border-brand-gold/40 data-[state=checked]:bg-brand-gold data-[state=checked]:border-brand-gold data-[state=checked]:text-brand-bg"
+        />
+        <label htmlFor="include-living" className="cursor-pointer">
+          <span className="block text-sm text-brand-cream">
+            Include relatives who may still be living
+          </span>
+          <span className="block text-xs text-brand-muted mt-0.5">
+            Off by default. People with no death date, born within the last hundred
+            years or with no dates at all, are withheld from matching.
+          </span>
+        </label>
       </div>
 
       {overlaps.length === 0 ? (
@@ -255,6 +305,14 @@ export function TreeConnectionsPanel({ currentUserId }: { currentUserId: string 
                         >
                           {CONFIDENCE[p.confidence].label}
                         </span>
+                        {p.nameFrequency <= 3 && (
+                          <span
+                            className="text-[10px] px-2 py-0.5 rounded-full bg-brand-burgundy/20 text-brand-burgundy-light"
+                            title="Few people across all shared trees carry this name"
+                          >
+                            Rare name
+                          </span>
+                        )}
                       </li>
                     ))}
                     {o.people.length > 5 && (

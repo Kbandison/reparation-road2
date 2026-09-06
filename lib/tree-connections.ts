@@ -26,6 +26,7 @@ interface OverlapRow {
   other_display_name: string | null;
   other_avatar_url: string | null;
   confidence: MatchConfidence;
+  name_frequency: number;
 }
 
 export interface SharedPerson {
@@ -37,6 +38,8 @@ export interface SharedPerson {
   theirBirthYear: number | null;
   theirBirthPlace: string | null;
   confidence: MatchConfidence;
+  /** How many people across all shared trees carry this name. Low is rare. */
+  nameFrequency: number;
 }
 
 export interface ResearcherOverlap {
@@ -47,9 +50,24 @@ export interface ResearcherOverlap {
   people: SharedPerson[];
   /** Best confidence across the shared people — what the card leads with. */
   bestConfidence: MatchConfidence;
+  /** Rarest name shared with this researcher; drives ordering between cards. */
+  rarestName: number;
 }
 
 const RANK: Record<MatchConfidence, number> = { strong: 3, probable: 2, possible: 1 };
+
+/**
+ * Order matches by how much they actually tell you.
+ *
+ * Confidence first, then rarity. Confidence alone falls apart once two trees
+ * overlap heavily — a thousand equally-strong matches come back in whatever
+ * order the database produced them. A shared Pinkard is a lead; a shared John
+ * Smith is a coincidence, and sorting cannot tell them apart without knowing
+ * how common the name is.
+ */
+function compareMatches(a: SharedPerson, b: SharedPerson): number {
+  return RANK[b.confidence] - RANK[a.confidence] || a.nameFrequency - b.nameFrequency;
+}
 
 function personName(given: string | null, surname: string | null): string {
   return [given, surname].filter(Boolean).join(' ').trim() || 'Unnamed';
@@ -87,6 +105,7 @@ export async function getOverlapsByResearcher(
         avatarUrl: row.other_avatar_url,
         people: [],
         bestConfidence: 'possible',
+        rarestName: Number.MAX_SAFE_INTEGER,
       };
       byUser.set(row.other_user_id, entry);
     }
@@ -112,21 +131,25 @@ export async function getOverlapsByResearcher(
       theirBirthYear: row.other_birth_year,
       theirBirthPlace: row.other_birth_place,
       confidence: row.confidence,
+      nameFrequency: row.name_frequency ?? 1,
     });
 
     if (RANK[row.confidence] > RANK[entry.bestConfidence]) {
       entry.bestConfidence = row.confidence;
     }
+    if ((row.name_frequency ?? 1) < entry.rarestName) {
+      entry.rarestName = row.name_frequency ?? 1;
+    }
   }
 
   return [...byUser.values()]
-    .map((entry) => ({
-      ...entry,
-      people: entry.people.sort((a, b) => RANK[b.confidence] - RANK[a.confidence]),
-    }))
+    .map((entry) => ({ ...entry, people: entry.people.sort(compareMatches) }))
     .sort(
       (a, b) =>
         RANK[b.bestConfidence] - RANK[a.bestConfidence] ||
+        // The researcher sharing your rarest name is the one worth contacting,
+        // not the one sharing the most names.
+        a.rarestName - b.rarestName ||
         b.people.length - a.people.length,
     );
 }
