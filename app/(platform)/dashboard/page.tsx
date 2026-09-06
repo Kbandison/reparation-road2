@@ -6,6 +6,9 @@ import { Bookmark, CalendarDays, MessageSquare, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { formatDate } from '@/lib/utils/format';
 import { BookmarkLink } from '@/components/collection/bookmark-link';
+import { DashboardProfileCard } from '@/components/dashboard/profile-card';
+import { TreeConnectionsPanel } from '@/components/dashboard/tree-connections-panel';
+import type { Profile } from '@/lib/types';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -17,7 +20,9 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('first_name, last_name, email')
+    .select(
+      'id, first_name, last_name, email, handle, display_name, bio, avatar_url, research_surnames, research_regions',
+    )
     .eq('id', user!.id)
     .single();
 
@@ -51,8 +56,14 @@ export default async function DashboardPage() {
     <>
       <PageHeader
         title={`Welcome back, ${profile?.first_name || 'Researcher'}`}
-        description="Your research hub — bookmarks, upcoming sessions, and community activity."
+        description="Your research hub — your profile, researchers you overlap with, and your activity."
       />
+
+      {profile && <DashboardProfileCard profile={profile as Profile} />}
+
+      <div className="mb-10">
+        <TreeConnectionsPanel currentUserId={user!.id} />
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-10">
