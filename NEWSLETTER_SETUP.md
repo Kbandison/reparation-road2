@@ -74,9 +74,21 @@ once it is configured.
 
 ## 6. Deploy
 
-`vercel.json` schedules the reconcile job hourly. It only ever looks at rows
-that are currently `subscribed`, so it can never re-subscribe someone who opted
-out.
+`vercel.json` schedules the reconcile job daily at 05:00 UTC. It only ever looks
+at rows that are currently `subscribed`, so it can never re-subscribe someone who
+opted out.
+
+Daily, not hourly, because the Hobby plan caps cron frequency at once per day —
+an hourly expression makes the deploy fail outright. The gap is tolerable: a row
+that failed to reach Resend only matters if an issue ships before the next pass.
+To run it on demand:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  https://www.reparationroad.org/api/cron/newsletter-reconcile
+```
+
+On Pro, change the schedule to `0 * * * *` for hourly.
 
 ## What exists now
 

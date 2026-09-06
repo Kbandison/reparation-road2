@@ -10,6 +10,13 @@ import { syncContactToResend, newsletterConfigured } from '@/lib/newsletter';
  * everyone whose consent is recorded here but whose contact was never confirmed
  * in the audience, and pushes them again.
  *
+ * Runs daily rather than hourly: Vercel's Hobby plan caps cron at once per day.
+ * That is a tolerable gap because a stuck row only matters if a newsletter goes
+ * out before the next pass, and issues ship weekly at most. It can also be
+ * triggered by hand at any time — GET this path with the CRON_SECRET as a
+ * bearer token. If the schedule ever needs to be tighter, it is a Pro-plan
+ * change plus one line in vercel.json.
+ *
  * The one rule this job must never break: it only ever looks at rows that are
  * currently 'subscribed'. Anyone unsubscribed or cleaned is invisible to it, so
  * there is no path by which a reconcile pass can re-subscribe someone who opted
