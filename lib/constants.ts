@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Mail,
   Library,
   Search,
   MessageSquare,
@@ -41,6 +42,7 @@ export const adminNavItems: NavItem[] = [
   { label: 'Related Records', href: '/admin/related-records', icon: Link2 },
   { label: 'Forum', href: '/admin/forum', icon: MessageSquare },
   { label: 'Bookings', href: '/admin/bookings', icon: CalendarDays },
+  { label: 'Newsletter', href: '/admin/newsletter', icon: Mail },
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { label: 'Settings', href: '/admin/settings', icon: Settings },

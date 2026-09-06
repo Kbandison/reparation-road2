@@ -5,10 +5,10 @@ Everything runs on Resend, which the site already uses. No new vendor.
 Code is in place and builds; the steps below are the parts that need a human —
 running SQL, adding DNS records, and pasting keys.
 
-## 1. Run the migration
+## 1. Run the migrations
 
-Paste `newsletter_migration.sql` into the Supabase SQL editor and run it. It is
-idempotent, so re-running is safe.
+Paste `newsletter_migration.sql` into the Supabase SQL editor and run it, then
+`newsletter_issues_migration.sql`. Both are idempotent, so re-running is safe.
 
 It adds consent columns to `profiles`, creates `newsletter_subscribers` for
 signups with no account, and creates `newsletter_events` as the consent audit
@@ -108,6 +108,9 @@ On Pro, change the schedule to `0 * * * *` for hourly.
 | `/newsletter/confirm`, `/newsletter/unsubscribe` | Landing pages for email links |
 | Footer form, signup checkbox, settings toggle | The three ways consent is given or withdrawn |
 | `lib/email-theme.ts` | Shared light palette and card frame for every branded email |
+| `lib/newsletter-issue.ts` | Generates "New This Week" from the archive; renders an issue |
+| `app/api/admin/newsletter/issues` | Draft CRUD, preview, test send, and the real send |
+| `/admin/newsletter` | Where an issue is written and sent |
 
 ## Email appearance
 
@@ -165,11 +168,40 @@ email is verified. This keeps mistyped addresses out of the sending list.
 often the readers most worth keeping. See the comment in
 `app/api/stripe/webhook/route.ts`.
 
+## Writing an issue
+
+`/admin/newsletter`. Start a new issue and the archive pre-fills what it can:
+the record count added since the **last sent issue**, and any collections
+published since then. Those numbers are frozen into the issue when it sends, so
+an issue that said "12 new collections" keeps saying that afterwards.
+
+The written sections — From the Archives, Can You Help Identify This Person?,
+Research Tip, Updates — are yours. Empty sections are omitted rather than
+rendered blank.
+
+Send a test to yourself first. A test does not mark the issue as sent, and it
+renders from the **saved** draft, so save before testing.
+
+Sending is per-recipient rather than one broadcast, because each unsubscribe
+link is signed for one address. Messages go out in batches of 100.
+
+Two deliberate limits:
+
+- A sent issue cannot be edited or deleted. It is the record of what landed in
+  people's inboxes.
+- Pressing send claims the issue first, so two admins clicking at the same
+  moment cannot mail the list twice.
+
+The first issue omits the "new records" line entirely — with no previous issue
+to compare against, the only honest options are silence or announcing the whole
+archive as though it arrived that week.
+
 ## Still to build
 
-- Composing and sending an issue (the recurring template, and generating
-  "New This Week" from the collection record counts).
 - The 3-email welcome sequence beyond the first message.
-- An admin screen over `/api/admin/newsletter`.
 - Rate limiting on the public subscribe endpoint. It has a honeypot and a
   5-minute resend cooldown per address, but no global limit.
+- Send resumption. A very large list could exceed the 300s function limit
+  mid-send; the issue is marked sent with a partial count rather than
+  re-sending to people who already received it. Fine for thousands, worth
+  revisiting before tens of thousands.
