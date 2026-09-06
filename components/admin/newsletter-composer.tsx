@@ -53,6 +53,69 @@ const SEGMENTS = [
   { value: 'no_account', label: 'Newsletter-only (no account)' },
 ];
 
+/**
+ * The written half of an issue, described once and rendered generically.
+ *
+ * Only one section is on screen at a time, so the picker carries a written/empty
+ * marker for each — otherwise it is far too easy to send an issue having
+ * forgotten a section you never scrolled to.
+ */
+const SECTIONS: {
+  key: keyof Sections;
+  label: string;
+  hint: string;
+  fields: {
+    name: string;
+    kind: 'input' | 'textarea';
+    label: string;
+    placeholder: string;
+    rows?: number;
+  }[];
+}[] = [
+  {
+    key: 'from_archives',
+    label: 'From the Archives',
+    hint: 'One person, family or document worth slowing down for.',
+    fields: [
+      { name: 'title', kind: 'input', label: 'Headline', placeholder: 'The Perryman family, twice recorded' },
+      { name: 'body', kind: 'textarea', label: 'Body', placeholder: 'Blank line between paragraphs.', rows: 8 },
+      { name: 'link', kind: 'input', label: 'Link to the record', placeholder: 'Optional' },
+    ],
+  },
+  {
+    key: 'mystery',
+    label: 'Can You Help Identify This Person?',
+    hint: 'Link a forum thread so answers land somewhere permanent.',
+    fields: [
+      { name: 'body', kind: 'textarea', label: 'The record, and what you cannot work out', placeholder: 'What it shows, and where it stops.', rows: 6 },
+      { name: 'link', kind: 'input', label: 'Forum thread URL', placeholder: 'https://www.reparationroad.org/forum/thread/...' },
+    ],
+  },
+  {
+    key: 'research_tip',
+    label: 'Research Tip',
+    hint: 'A record type, a search technique, a common dead end.',
+    fields: [
+      { name: 'title', kind: 'input', label: 'Headline', placeholder: 'Reading a Freedmen\u2019s Bureau ration list' },
+      { name: 'body', kind: 'textarea', label: 'Body', placeholder: 'One short lesson.', rows: 7 },
+    ],
+  },
+  {
+    key: 'updates',
+    label: 'Updates',
+    hint: 'Site improvements, partnerships, events.',
+    fields: [
+      { name: 'body', kind: 'textarea', label: 'Body', placeholder: 'What changed since last time.', rows: 6 },
+    ],
+  },
+];
+
+/** A section counts as written once any of its fields has content. */
+function isFilled(sections: Sections, key: keyof Sections): boolean {
+  const section = sections[key] as Record<string, string> | undefined;
+  return Boolean(section && Object.values(section).some((v) => v?.trim()));
+}
+
 const card = 'bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6';
 const field = 'bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold';
 
@@ -68,6 +131,7 @@ export function NewsletterComposer() {
   const [showPreview, setShowPreview] = useState(false);
   // Sending the whole list is irreversible, so it takes two deliberate clicks.
   const [confirmSend, setConfirmSend] = useState(false);
+  const [activeSection, setActiveSection] = useState<keyof Sections>('from_archives');
 
   const loadList = useCallback(async () => {
     const res = await fetch('/api/admin/newsletter/issues');
@@ -362,97 +426,78 @@ export function NewsletterComposer() {
           </div>
 
           <div className={`${card} space-y-5`}>
-            <div>
-              <h3 className="font-display text-lg font-semibold text-brand-cream">
-                From the Archives
-              </h3>
-              <p className="text-xs text-brand-muted mt-0.5">
-                One person, family or document worth slowing down for.
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="space-y-2 flex-1 min-w-[240px]">
+                <Label>Section</Label>
+                <Select
+                  value={activeSection}
+                  onValueChange={(v) => setActiveSection(v as keyof Sections)}
+                >
+                  <SelectTrigger className={field}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SECTIONS.map((sec) => (
+                      <SelectItem key={sec.key} value={sec.key}>
+                        <span className="flex items-center gap-2">
+                          <span
+                            aria-hidden="true"
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                              isFilled(issue.sections, sec.key)
+                                ? 'bg-brand-sage'
+                                : 'bg-brand-muted/40'
+                            }`}
+                          />
+                          {sec.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-brand-muted pb-2">
+                {SECTIONS.filter((sec) => isFilled(issue.sections, sec.key)).length} of{' '}
+                {SECTIONS.length} written
               </p>
             </div>
-            <Input
-              value={issue.sections.from_archives?.title ?? ''}
-              disabled={sent}
-              onChange={(e) => setSection('from_archives', { title: e.target.value })}
-              placeholder="Headline"
-              className={field}
-            />
-            <Textarea
-              value={issue.sections.from_archives?.body ?? ''}
-              disabled={sent}
-              onChange={(e) => setSection('from_archives', { body: e.target.value })}
-              rows={6}
-              placeholder="Blank line between paragraphs."
-              className={`${field} resize-y`}
-            />
-            <Input
-              value={issue.sections.from_archives?.link ?? ''}
-              disabled={sent}
-              onChange={(e) => setSection('from_archives', { link: e.target.value })}
-              placeholder="Link to the record (optional)"
-              className={field}
-            />
-          </div>
 
-          <div className={`${card} space-y-5`}>
-            <div>
-              <h3 className="font-display text-lg font-semibold text-brand-cream">
-                Can You Help Identify This Person?
-              </h3>
-              <p className="text-xs text-brand-muted mt-0.5">
-                Link a forum thread so answers land somewhere permanent.
-              </p>
-            </div>
-            <Textarea
-              value={issue.sections.mystery?.body ?? ''}
-              disabled={sent}
-              onChange={(e) => setSection('mystery', { body: e.target.value })}
-              rows={4}
-              placeholder="What the record shows, and what you can't work out."
-              className={`${field} resize-y`}
-            />
-            <Input
-              value={issue.sections.mystery?.link ?? ''}
-              disabled={sent}
-              onChange={(e) => setSection('mystery', { link: e.target.value })}
-              placeholder="Forum thread URL"
-              className={field}
-            />
-          </div>
+            {SECTIONS.filter((sec) => sec.key === activeSection).map((sec) => (
+              <div key={sec.key} className="space-y-4 border-t border-brand-gold/[0.08] pt-5">
+                <p className="text-xs text-brand-muted">{sec.hint}</p>
 
-          <div className={`${card} space-y-5`}>
-            <h3 className="font-display text-lg font-semibold text-brand-cream">
-              Research Tip
-            </h3>
-            <Input
-              value={issue.sections.research_tip?.title ?? ''}
-              disabled={sent}
-              onChange={(e) => setSection('research_tip', { title: e.target.value })}
-              placeholder="Headline"
-              className={field}
-            />
-            <Textarea
-              value={issue.sections.research_tip?.body ?? ''}
-              disabled={sent}
-              onChange={(e) => setSection('research_tip', { body: e.target.value })}
-              rows={5}
-              placeholder="A record type, a search technique, a common dead end."
-              className={`${field} resize-y`}
-            />
-          </div>
+                {sec.fields.map((f) => {
+                  const current =
+                    (issue.sections[sec.key] as Record<string, string> | undefined)?.[f.name] ?? '';
+                  return (
+                    <div key={f.name} className="space-y-2">
+                      <Label>{f.label}</Label>
+                      {f.kind === 'textarea' ? (
+                        <Textarea
+                          value={current}
+                          disabled={sent}
+                          rows={f.rows}
+                          placeholder={f.placeholder}
+                          onChange={(e) => setSection(sec.key, { [f.name]: e.target.value })}
+                          className={`${field} resize-y`}
+                        />
+                      ) : (
+                        <Input
+                          value={current}
+                          disabled={sent}
+                          placeholder={f.placeholder}
+                          onChange={(e) => setSection(sec.key, { [f.name]: e.target.value })}
+                          className={field}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
 
-          <div className={`${card} space-y-5`}>
-            <h3 className="font-display text-lg font-semibold text-brand-cream">
-              Updates
-            </h3>
-            <Textarea
-              value={issue.sections.updates?.body ?? ''}
-              disabled={sent}
-              onChange={(e) => setSection('updates', { body: e.target.value })}
-              rows={4}
-              placeholder="Site improvements, partnerships, events."
-              className={`${field} resize-y`}
-            />
+                <p className="text-[11px] text-brand-muted/70">
+                  Sections left empty are omitted from the issue, not rendered blank.
+                </p>
+              </div>
+            ))}
           </div>
 
           {/* ---------------- Actions ---------------- */}
