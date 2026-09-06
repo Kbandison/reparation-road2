@@ -21,7 +21,7 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://reparationroad.org'),
+  metadataBase: new URL('https://www.reparationroad.org'),
   title: {
     default: 'Reparation Road — Restoring History Through Research and Advocacy',
     template: '%s | Reparation Road',
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://reparationroad.org',
+    url: 'https://www.reparationroad.org',
     siteName: 'Reparation Road',
     title: 'Reparation Road — Restoring History Through Research and Advocacy',
     description:
@@ -80,8 +80,8 @@ const jsonLd = {
       '@type': 'Organization',
       '@id': 'https://reparationroad.org/#organization',
       name: 'Reparation Road',
-      url: 'https://reparationroad.org',
-      logo: 'https://reparationroad.org/icon-512.png',
+      url: 'https://www.reparationroad.org',
+      logo: 'https://www.reparationroad.org/icon-512.png',
       description:
         'A cultural and historical resource dedicated to uncovering Black history and empowering communities through research, education, and digital preservation.',
       slogan: 'I am because we are.',
@@ -89,7 +89,7 @@ const jsonLd = {
     {
       '@type': 'WebSite',
       '@id': 'https://reparationroad.org/#website',
-      url: 'https://reparationroad.org',
+      url: 'https://www.reparationroad.org',
       name: 'Reparation Road',
       publisher: { '@id': 'https://reparationroad.org/#organization' },
       potentialAction: {

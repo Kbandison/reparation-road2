@@ -1,5 +1,11 @@
 import { Resend } from 'resend';
 import {
+  EMAIL,
+  emailButton,
+  emailShell,
+  emailSignoff,
+} from '@/lib/email-theme';
+import {
   NEWSLETTER_FROM,
   NEWSLETTER_REPLY_TO,
   POSTAL_ADDRESS,
@@ -19,29 +25,13 @@ const resend = new Resend(process.env.RESEND_API_KEY);
  * carries an unsubscribe link, and carries a postal address.
  */
 
-function shell(body: string, footer: string): string {
-  return `
-    <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto;">
-      <div style="background-color: #0F0D0B; padding: 32px; border-radius: 16px;">
-        ${body}
-        <div style="border-top: 1px solid #C8956C33; margin-top: 32px; padding-top: 20px;">
-          ${footer}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 /** Footer for anything sent to a confirmed subscriber. */
 function marketingFooter(email: string): string {
   return `
-    <p style="color: #A8A29E; font-size: 12px; margin: 0 0 12px;">
-      &mdash; The Reparation Road Team<br/>
-      <a href="${SITE_URL}" style="color: #C8956C; text-decoration: none;">reparationroad.org</a>
-    </p>
-    <p style="color: #78716C; font-size: 11px; line-height: 1.6; margin: 0;">
+    ${emailSignoff(SITE_URL)}
+    <p style="color: ${EMAIL.faint}; font-size: 11px; line-height: 1.6; margin: 12px 0 0;">
       You are receiving The Road Report because you subscribed at reparationroad.org.<br/>
-      <a href="${unsubscribeUrl(email)}" style="color: #A8A29E;">Unsubscribe</a>
+      <a href="${unsubscribeUrl(email)}" style="color: ${EMAIL.faint};">Unsubscribe</a>
       &nbsp;·&nbsp; ${POSTAL_ADDRESS}
     </p>
   `;
@@ -89,29 +79,22 @@ export function sendConfirmationEmail(email: string, token: string) {
   return send('confirm', {
     to: email,
     subject: 'Confirm your subscription to The Road Report',
-    html: shell(
+    html: emailShell(
       `
-        <h1 style="color: #C8956C; font-size: 24px; margin: 0 0 8px;">One More Step</h1>
-        <p style="color: #F5F0E8; font-size: 16px; margin: 0 0 24px;">Confirm your email to start receiving The Road Report.</p>
-        <p style="color: #A8A29E; font-size: 14px; line-height: 1.6;">
+        <h1 style="color: ${EMAIL.heading}; font-size: 24px; margin: 0 0 8px;">One More Step</h1>
+        <p style="color: ${EMAIL.strong}; font-size: 16px; margin: 0 0 24px;">Confirm your email to start receiving The Road Report.</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
           Someone &mdash; we hope you &mdash; asked to receive The Road Report, our newsletter about the records
           we uncover and publish at Reparation Road. Click below to confirm.
         </p>
-        <p style="margin: 28px 0;">
-          <a href="${link}" style="background-color: #C8956C; color: #0F0D0B; font-size: 15px; font-weight: bold; text-decoration: none; padding: 13px 26px; border-radius: 12px; display: inline-block;">
-            Confirm Subscription
-          </a>
-        </p>
-        <p style="color: #78716C; font-size: 12px; line-height: 1.6;">
+        ${emailButton(link, 'Confirm Subscription')}
+        <p style="color: ${EMAIL.muted}; font-size: 12px; line-height: 1.6;">
           If you didn&rsquo;t request this, ignore this email and nothing further will be sent.
         </p>
       `,
       `
-        <p style="color: #A8A29E; font-size: 12px; margin: 0;">
-          &mdash; The Reparation Road Team<br/>
-          <a href="${SITE_URL}" style="color: #C8956C; text-decoration: none;">reparationroad.org</a>
-        </p>
-        <p style="color: #78716C; font-size: 11px; margin: 10px 0 0;">${POSTAL_ADDRESS}</p>
+        ${emailSignoff(SITE_URL)}
+        <p style="color: ${EMAIL.faint}; font-size: 11px; margin: 10px 0 0;">${POSTAL_ADDRESS}</p>
       `,
     ),
   });
@@ -128,25 +111,21 @@ export function sendNewsletterWelcomeEmail(email: string, firstName?: string | n
       'List-Unsubscribe': `<${unsubscribeUrl(email)}>`,
       'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
     },
-    html: shell(
+    html: emailShell(
       `
-        <h1 style="color: #C8956C; font-size: 24px; margin: 0 0 8px;">Welcome to The Road Report</h1>
-        <p style="color: #F5F0E8; font-size: 16px; margin: 0 0 24px;">Notes from the archive, sent as we uncover them.</p>
-        <p style="color: #A8A29E; font-size: 14px; line-height: 1.6;">Hi ${firstName || 'there'},</p>
-        <p style="color: #A8A29E; font-size: 14px; line-height: 1.6;">
+        <h1 style="color: ${EMAIL.heading}; font-size: 24px; margin: 0 0 8px;">Welcome to The Road Report</h1>
+        <p style="color: ${EMAIL.strong}; font-size: 16px; margin: 0 0 24px;">Notes from the archive, sent as we uncover them.</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">Hi ${firstName || 'there'},</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
           Thank you for subscribing. Each issue brings you what we&rsquo;ve added to the archive, a record
           worth slowing down for, a research tip, and at least one person we still haven&rsquo;t been able
           to identify &mdash; where your eyes might succeed where ours haven&rsquo;t.
         </p>
-        <p style="color: #A8A29E; font-size: 14px; line-height: 1.6;">
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
           While you wait for the first issue, there are already thousands of records to search.
         </p>
-        <p style="margin: 26px 0;">
-          <a href="${SITE_URL}/collection" style="background-color: #C8956C; color: #0F0D0B; font-size: 15px; font-weight: bold; text-decoration: none; padding: 13px 26px; border-radius: 12px; display: inline-block;">
-            Browse the Collections
-          </a>
-        </p>
-        <p style="color: #A8A29E; font-size: 14px; line-height: 1.6;">
+        ${emailButton(`${SITE_URL}/collection`, 'Browse the Collections')}
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
           Reply to this email any time. If you have family records of your own, we would genuinely like to see them.
         </p>
       `,

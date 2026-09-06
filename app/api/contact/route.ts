@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Resend, type CreateEmailOptions } from 'resend';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { EMAIL, emailShell, emailSignoff } from '@/lib/email-theme';
 import {
   absorbSubscriberRow,
   normalizeEmail,
@@ -109,34 +110,27 @@ export async function POST(request: Request) {
       from: FROM,
       to: [body.email],
       subject: 'Welcome to Reparation Road!',
-      html: `
-        <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #0F0D0B; padding: 32px; border-radius: 16px;">
-            <h1 style="color: #C8956C; font-size: 24px; margin: 0 0 8px;">Welcome to Reparation Road</h1>
-            <p style="color: #F5F0E8; font-size: 16px; margin: 0 0 24px;">Your journey into history begins here.</p>
-            <p style="color: #A8A29E; font-size: 14px; line-height: 1.6;">Hi ${body.firstName || 'there'},</p>
-            <p style="color: #A8A29E; font-size: 14px; line-height: 1.6;">
-              Thank you for creating an account with Reparation Road. You now have access to our growing digital archive of historical records documenting the African American experience.
-            </p>
-            <p style="color: #F5F0E8; font-size: 14px; font-weight: bold; margin: 24px 0 12px;">Here&rsquo;s what you can do:</p>
-            <ul style="color: #A8A29E; font-size: 14px; line-height: 1.8; padding-left: 20px;">
-              <li>Browse our free collections of census, military, and church records</li>
-              <li>Search across all collections by name, location, or keyword</li>
-              <li>Bookmark records and build your research library</li>
-              <li>Join our community forum to connect with other researchers</li>
-            </ul>
-            <p style="color: #A8A29E; font-size: 14px; line-height: 1.6; margin-top: 24px;">
-              Want access to all collections? <a href="https://reparationroad.org/membership" style="color: #C8956C;">Upgrade to Premium</a> for full access to every record in our archive.
-            </p>
-            <div style="border-top: 1px solid #C8956C33; margin-top: 32px; padding-top: 20px;">
-              <p style="color: #A8A29E; font-size: 12px; margin: 0;">
-                &mdash; The Reparation Road Team<br/>
-                <a href="https://reparationroad.org" style="color: #C8956C; text-decoration: none;">reparationroad.org</a>
-              </p>
-            </div>
-          </div>
-        </div>
-      `,
+      html: emailShell(
+        `
+          <h1 style="color: ${EMAIL.heading}; font-size: 24px; margin: 0 0 8px;">Welcome to Reparation Road</h1>
+          <p style="color: ${EMAIL.strong}; font-size: 16px; margin: 0 0 24px;">Your journey into history begins here.</p>
+          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">Hi ${body.firstName || 'there'},</p>
+          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
+            Thank you for creating an account with Reparation Road. You now have access to our growing digital archive of historical records documenting the African American experience.
+          </p>
+          <p style="color: ${EMAIL.strong}; font-size: 14px; font-weight: bold; margin: 24px 0 12px;">Here&rsquo;s what you can do:</p>
+          <ul style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.8; padding-left: 20px;">
+            <li>Browse our free collections of census, military, and church records</li>
+            <li>Search across all collections by name, location, or keyword</li>
+            <li>Bookmark records and build your research library</li>
+            <li>Join our community forum to connect with other researchers</li>
+          </ul>
+          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6; margin-top: 24px;">
+            Want access to all collections? <a href="https://reparationroad.org/membership" style="color: ${EMAIL.link};">Upgrade to Premium</a> for full access to every record in our archive.
+          </p>
+        `,
+        emailSignoff('https://reparationroad.org'),
+      ),
     });
 
     // Notify owner of new signup
