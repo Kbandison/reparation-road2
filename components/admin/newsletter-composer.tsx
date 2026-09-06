@@ -173,6 +173,16 @@ export function NewsletterComposer() {
     await openIssue(created.id);
   }
 
+  /** The editor's current state, as the API expects it. */
+  function currentPatch(): Partial<Issue> {
+    return {
+      subject: issue!.subject,
+      preview_text: issue!.preview_text ?? '',
+      segment: issue!.segment,
+      sections: issue!.sections,
+    };
+  }
+
   async function save(patch: Partial<Issue>) {
     if (!issue) return;
     setSaving(true);
@@ -197,6 +207,10 @@ export function NewsletterComposer() {
 
   async function refreshPreview() {
     if (!issue) return;
+    // Both preview and test render server-side from the stored draft. Saving
+    // first is the difference between showing what you wrote and showing what
+    // you last remembered to save.
+    if (issue.status !== 'sent') await save(currentPatch());
     const res = await fetch(`/api/admin/newsletter/issues/${issue.id}`);
     if (res.ok) {
       const data = await res.json();
@@ -207,6 +221,7 @@ export function NewsletterComposer() {
 
   async function sendTest() {
     if (!issue || !testEmail.trim()) return;
+    await save(currentPatch());
     setSending(true);
     try {
       const res = await fetch(`/api/admin/newsletter/issues/${issue.id}/send`, {
@@ -559,8 +574,8 @@ export function NewsletterComposer() {
                     </Button>
                   </div>
                   <p className="text-[11px] text-brand-muted/70">
-                    A test doesn&rsquo;t mark the issue as sent. Save first &mdash; the test
-                    uses what&rsquo;s stored, not what&rsquo;s on screen.
+                    Saves the draft first, so the test always matches what you see.
+                    Sending a test doesn&rsquo;t mark the issue as sent.
                   </p>
                 </div>
 

@@ -153,8 +153,14 @@ export function renderIssueHtml(
   );
 
   // --- New this week ---
-  if (stats && (stats.newRecords || stats.newCollections.length)) {
-    parts.push(sectionHeading('New This Week'));
+  // Guarded on the archive existing, not on there being something new. Gating
+  // this on newRecords made the no-delta branch below unreachable, so the very
+  // first issue — the one case that branch was written for — silently shipped
+  // with no archive section at all.
+  if (stats && stats.totalRecords > 0) {
+    // Nothing is "new" without a previous issue to measure against, so the
+    // heading changes rather than the section disappearing.
+    parts.push(sectionHeading(stats.newRecords ? 'New This Week' : 'The Archive'));
 
     if (stats.newRecords) {
       parts.push(
