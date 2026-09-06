@@ -159,14 +159,42 @@ export async function POST(request: Request) {
     const bookingUser = await sendEmail('booking-user', {
       from: FROM,
       to: [body.email],
-      subject: 'Your Research Session is Booked!',
-      html: `
-        <h2>Booking Confirmed</h2>
-        <p>Hi ${body.name},</p>
-        <p>Your <strong>${body.sessionType}</strong> session has been booked for <strong>${body.date}</strong> at <strong>${body.time}</strong>.</p>
-        <p>We look forward to helping you discover your history.</p>
-        <p>&mdash; The Reparation Road Team</p>
-      `,
+      subject: 'Your Research Session is Booked',
+      html: emailShell(
+        `
+          <h1 style="color: ${EMAIL.heading}; font-size: 24px; margin: 0 0 8px;">Your Session Is Booked</h1>
+          <p style="color: ${EMAIL.strong}; font-size: 16px; margin: 0 0 24px;">We&rsquo;re looking forward to it.</p>
+
+          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">Hi ${body.name},</p>
+          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
+            Your research session is confirmed. Here are the details:
+          </p>
+
+          <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; margin: 22px 0; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid ${EMAIL.rule}; color: ${EMAIL.muted}; font-size: 13px; width: 40%;">Session</td>
+              <td style="padding: 10px 0; border-bottom: 1px solid ${EMAIL.rule}; color: ${EMAIL.strong}; font-size: 14px; font-weight: bold;">${body.sessionType}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid ${EMAIL.rule}; color: ${EMAIL.muted}; font-size: 13px;">Date</td>
+              <td style="padding: 10px 0; border-bottom: 1px solid ${EMAIL.rule}; color: ${EMAIL.strong}; font-size: 14px; font-weight: bold;">${body.date}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; color: ${EMAIL.muted}; font-size: 13px;">Time</td>
+              <td style="padding: 10px 0; color: ${EMAIL.strong}; font-size: 14px; font-weight: bold;">${body.time}</td>
+            </tr>
+          </table>
+
+          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
+            Come with whatever you already have &mdash; names, dates, places, family stories, documents.
+            Even fragments give us somewhere to start.
+          </p>
+          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
+            Need to reschedule or cancel? Just reply to this email and we&rsquo;ll sort it out.
+          </p>
+        `,
+        emailSignoff('https://www.reparationroad.org'),
+      ),
     });
 
     // Notify owner of new booking
