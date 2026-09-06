@@ -107,6 +107,47 @@ On Pro, change the schedule to `0 * * * *` for hourly.
 | `app/api/admin/newsletter` | Segment sizes and list health |
 | `/newsletter/confirm`, `/newsletter/unsubscribe` | Landing pages for email links |
 | Footer form, signup checkbox, settings toggle | The three ways consent is given or withdrawn |
+| `lib/email-theme.ts` | Shared light palette and card frame for every branded email |
+
+## Email appearance
+
+Emails are light, not dark like the site. An inbox is a light surface, and a dark
+card dropped into one reads as an advertisement rather than correspondence. The
+brand gold carries the identity instead of the background.
+
+The gold is adjusted rather than reused: `#C8956C` sits at roughly 2:1 on a cream
+card and is unreadable as text. Headings and links use `#8A5A2B` — same hue, about
+6:1. The original gold survives as a button fill with dark text on it.
+
+All three templates share `lib/email-theme.ts`. They previously lived in three
+files and had drifted; change the palette there and every email follows. The
+shell emits a full document with `color-scheme` meta tags so Gmail and Outlook
+dark modes don't invert a light email into pairings nobody designed.
+
+The booking confirmation in `app/api/contact/route.ts` is still unstyled plain
+HTML — it predates this and was never themed either way.
+
+## One behaviour that surprises people
+
+Someone who already has an account cannot be re-subscribed by posting their
+address to the footer endpoint, because their consent lives on their `profiles`
+row rather than in `newsletter_subscribers`. On confirmation, `absorbSubscriberRow`
+folds the standalone row into the account so one person is never two records.
+
+If you need to re-run the flow for an existing account holder (to re-send the
+welcome sequence, say), reset the newsletter columns on their profile — not just
+the subscriber table:
+
+```sql
+update profiles set
+  newsletter_status = 'unsubscribed',
+  newsletter_opted_in_at = null,
+  newsletter_opt_in_source = null,
+  resend_contact_id = null,
+  newsletter_synced_at = null,
+  newsletter_pending_opt_in = false
+where email = 'someone@example.com';
+```
 
 ## Decisions worth confirming with the client
 
