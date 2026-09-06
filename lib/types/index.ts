@@ -11,6 +11,15 @@ export interface Profile {
   subscription_period_start: string | null;
   subscription_period_end: string | null;
   subscription_cancel_at_period_end: boolean;
+  // Newsletter consent. Deliberately independent of subscription_status —
+  // cancelling a membership is not an unsubscribe, and unsubscribing is not a
+  // cancellation. Present once newsletter_migration.sql is run.
+  newsletter_status?: 'subscribed' | 'unsubscribed' | 'cleaned';
+  newsletter_opted_in_at?: string | null;
+  newsletter_opt_in_source?: string | null;
+  newsletter_pending_opt_in?: boolean;
+  newsletter_unsubscribed_at?: string | null;
+  resend_contact_id?: string | null;
   // Forum identity (present once the migration is run; default-safe otherwise).
   handle?: string | null;
   display_name?: string | null;

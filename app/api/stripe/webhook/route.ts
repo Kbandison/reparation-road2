@@ -111,6 +111,11 @@ export async function POST(request: Request) {
     case 'customer.subscription.deleted': {
       const subscription = event.data.object as unknown as { customer: string };
 
+      // Note what is deliberately absent here: newsletter_status.
+      // Ending a paid membership is not a request to stop receiving the
+      // newsletter, and a former member is often the reader most worth keeping.
+      // Consent only ever changes through an action the person took about the
+      // newsletter itself.
       await supabase
         .from('profiles')
         .update({

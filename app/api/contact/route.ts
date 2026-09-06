@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import { Resend, type CreateEmailOptions } from 'resend';
 import { createAdminClient } from '@/lib/supabase/admin';
+import {
+  absorbSubscriberRow,
+  normalizeEmail,
+  recordConsentEvent,
+  requestIp,
+} from '@/lib/newsletter';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = 'Reparation Road <noreply@reparationroad.org>';
@@ -53,6 +59,44 @@ export async function POST(request: Request) {
         .from('profiles')
         .update(updates)
         .eq('id', body.userId);
+
+      // They may already be on the list from the footer form. Collapse the two
+      // records before touching consent, so an earlier opt-in isn't overwritten
+      // by a later signup where they left the box unticked.
+      if (body.email) {
+        await absorbSubscriberRow(body.email, body.userId);
+      }
+
+      // Newsletter consent is deliberately not implied by having an account.
+      // Nothing happens here unless the box on the signup form was ticked.
+      //
+      // Even then the address is only held as pending: the account's own email
+      // is still unverified at this point, and adding an unverified address to
+      // the sending audience is how a list fills up with typos. The auth
+      // callback completes the subscription once they click the link Supabase
+      // sent them.
+      if (body.newsletterOptIn === true && body.email) {
+        await supabase
+          .from('profiles')
+          .update({
+            newsletter_pending_opt_in: true,
+            newsletter_opt_in_source: 'signup_checkbox',
+          })
+          .eq('id', body.userId);
+
+        // The consent itself happened now, on the signup form — record it with
+        // that timestamp rather than the later one, and note what it was
+        // waiting on.
+        await recordConsentEvent({
+          email: normalizeEmail(body.email),
+          event: 'subscribed',
+          source: 'signup_checkbox',
+          profileId: body.userId,
+          ip: requestIp(request),
+          userAgent: request.headers.get('user-agent'),
+          metadata: { pending_email_verification: true },
+        });
+      }
     }
     return NextResponse.json({ success: true });
   }

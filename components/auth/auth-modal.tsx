@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { X, Loader2, CheckCircle } from 'lucide-react';
 import { OAuthButtons } from '@/components/auth/oauth-buttons';
@@ -198,6 +199,9 @@ function SignupForm({
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [donorCode, setDonorCode] = useState('');
+  // Unticked by default. A pre-ticked box is not valid consent under GDPR, and
+  // a genealogy audience reliably includes UK and EU researchers.
+  const [newsletterOptIn, setNewsletterOptIn] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -246,9 +250,11 @@ function SignupForm({
         new Blob([JSON.stringify({
           type: 'welcome-profile',
           userId: signUpData.user.id,
+          email,
           firstName,
           lastName,
           donorCode: donorCode.trim() || undefined,
+          newsletterOptIn,
         })], { type: 'application/json' })
       );
     }
@@ -375,6 +381,23 @@ function SignupForm({
             onChange={(e) => setDonorCode(e.target.value)}
             className="bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold"
           />
+        </div>
+
+        <div className="flex items-start gap-3 pt-1">
+          <Checkbox
+            id="modal-newsletter-opt-in"
+            checked={newsletterOptIn}
+            onCheckedChange={(checked) => setNewsletterOptIn(checked === true)}
+            className="mt-0.5 border-brand-gold/40 data-[state=checked]:bg-brand-gold data-[state=checked]:border-brand-gold data-[state=checked]:text-brand-bg"
+          />
+          <label
+            htmlFor="modal-newsletter-opt-in"
+            className="text-xs text-brand-muted leading-relaxed cursor-pointer"
+          >
+            Send me{' '}
+            <span className="text-brand-cream">The Road Report</span> &mdash; new
+            records, research tips, and stories from the archive. Unsubscribe any time.
+          </label>
         </div>
 
         <Button

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Loader2, ImagePlus, ExternalLink } from 'lucide-react';
+import { NewsletterPreferenceCard } from '@/components/newsletter/newsletter-preference-card';
 
 export default function SettingsPage() {
   const { profile } = useUser();
@@ -176,6 +177,9 @@ export default function SettingsPage() {
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Changes'}
           </Button>
         </form>
+
+        {/* Email preferences */}
+        <NewsletterPreferenceCard />
 
         {/* Community profile */}
         <form onSubmit={handleSaveCommunity} className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 space-y-4">

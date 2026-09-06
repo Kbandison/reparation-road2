@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { SocialLinks } from '@/components/shared/social-links';
+import { NewsletterSignup } from '@/components/newsletter/newsletter-signup';
 
 const exploreLinks = [
   { label: 'Collection', href: '/collection' },
@@ -24,6 +25,12 @@ export function Footer() {
   return (
     <footer className="border-t border-brand-gold/10 bg-brand-bg">
       <div className="max-w-7xl mx-auto px-6 py-16">
+        {/* Newsletter — the one path onto the list that doesn't require an account */}
+        <NewsletterSignup
+          variant="banner"
+          className="border-b border-brand-gold/10 pb-12 mb-12"
+        />
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
           {/* Brand */}
           <div className="md:col-span-1">

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { absorbSubscriberRow, subscribeProfile } from '@/lib/newsletter';
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -34,6 +35,40 @@ export async function GET(request: Request) {
               .update({ first_name: firstName, last_name: lastName })
               .eq('id', user.id);
           }
+        }
+
+        // Complete a newsletter opt-in that was taken on the signup form.
+        //
+        // Reaching this point means the address is verified — they clicked the
+        // link Supabase sent them, or signed in through a provider that already
+        // verified it. Only now does the contact go to Resend.
+        if (user.email) {
+          const admin = createAdminClient();
+          const { data: consent } = await admin
+            .from('profiles')
+            .select('newsletter_pending_opt_in, first_name, last_name')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          if (consent?.newsletter_pending_opt_in) {
+            await subscribeProfile({
+              profileId: user.id,
+              email: user.email,
+              firstName: consent.first_name,
+              lastName: consent.last_name,
+              source: 'signup_checkbox',
+            });
+
+            await admin
+              .from('profiles')
+              .update({ newsletter_pending_opt_in: false })
+              .eq('id', user.id);
+          }
+
+          // An OAuth signup never passes through the welcome-profile handler,
+          // so this is where a pre-existing footer subscription gets folded in
+          // for those accounts.
+          await absorbSubscriberRow(user.email, user.id);
         }
 
         // Send welcome email for first-time OAuth users
