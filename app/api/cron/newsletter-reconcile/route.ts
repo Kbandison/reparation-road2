@@ -127,9 +127,17 @@ export async function GET(request: Request) {
     .lt('confirm_sent_at', thirtyDaysAgo)
     .not('confirm_token', 'is', null);
 
+  // Expired rate-limit rows are dead weight. This job already runs daily and
+  // already holds a service-role client, so it does the sweep rather than
+  // earning a cron entry of its own — Hobby allows very few.
+  const { data: sweptRows } = await supabase.rpc('sweep_rate_limits', {
+    p_older_than_seconds: 86400,
+  });
+
   const summary = {
     repaired,
     failed,
+    rateLimitRowsSwept: sweptRows ?? 0,
     expiredConfirmations: expired ?? 0,
     // Both queries are capped, so a large backlog drains over successive runs
     // rather than being silently truncated to whatever fit in one pass.

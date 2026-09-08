@@ -17,11 +17,15 @@ Setup and architecture: [NEWSLETTER_SETUP.md](NEWSLETTER_SETUP.md).
 
 ## Gaps, in priority order
 
-- [ ] **Rate limiting on `POST /api/newsletter/subscribe`.** Currently a honeypot
-      and a 5-minute per-address cooldown, nothing more. Confirmed no global
-      limit. This is the only item with an attacker rather than an inconvenience
-      behind it: a script cycling addresses burns Resend quota and can get the
-      sending domain flagged. Fix before the footer form sees real traffic.
+- [x] **Rate limiting on `POST /api/newsletter/subscribe`.** Done 2026-09-08.
+      Postgres-backed (`rate_limits` table + `check_rate_limit`), 5/hour per IP
+      and 100/hour globally. Requires `rate_limits_migration.sql`.
+- [x] **Rate limiting on `POST /api/contact`.** Found while doing the above and
+      more serious: the route has no authentication and sends to a
+      caller-supplied address, so it was an open relay for Reparation Road mail
+      on the same domain that carries password resets. It cannot be
+      authenticated — the welcome email is sent before the account exists — so
+      volume is the only available lever. 10/hour per IP, 200/hour globally.
 - [ ] **Welcome sequence emails 2 and 3.** Only the welcome exists. Plan was:
       day 0 welcome, day 2-3 "Getting Started With the Database", then "What
       We're Building". Needs a scheduled sender — the daily reconcile cron is
@@ -33,6 +37,16 @@ Setup and architecture: [NEWSLETTER_SETUP.md](NEWSLETTER_SETUP.md).
       issue sent with a partial count rather than double-sending. Correct at
       thousands, wrong at tens of thousands. Needs per-recipient send tracking
       to resume safely.
+
+## Found while working, not yet fixed
+
+- [ ] **`/api/contact` type `welcome-profile` accepts a caller-supplied
+      `userId`** and writes `first_name`, `last_name` and donor status to it with
+      no authentication. The donor code is validated so status cannot be
+      granted, but anyone who knows a profile UUID can rename that account.
+      Rate limiting caps the volume; it does not close the hole. The fix is to
+      derive the user from the session instead of the request body, which means
+      touching the signup flow — deliberately not done in passing.
 
 ## One-time manual tasks
 

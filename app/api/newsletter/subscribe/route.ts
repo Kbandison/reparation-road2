@@ -8,6 +8,7 @@ import {
   requestIp,
 } from '@/lib/newsletter';
 import { sendConfirmationEmail } from '@/lib/newsletter-emails';
+import { checkRateLimits, rateLimitHeaders } from '@/lib/rate-limit';
 import { confirmSubscriber } from '@/lib/newsletter-confirm';
 
 /**
@@ -28,6 +29,23 @@ const GENERIC_RESPONSE = {
   message: 'Check your email for a link to confirm your subscription.',
 };
 
+/**
+ * Limits on the public signup endpoint.
+ *
+ * The honeypot and the per-address cooldown that were already here both stop
+ * the lazy case and neither stops the real one: a script cycling addresses
+ * trips neither. Left unbounded that burns the Resend quota and gets the
+ * sending domain flagged, which takes the newsletter down for everyone and is
+ * slow to undo.
+ *
+ * Per-IP is deliberately generous — a household or library behind one address
+ * might legitimately sign up a few people — while the global ceiling is what
+ * actually caps the damage from a distributed flood, since it does not care how
+ * many addresses the traffic comes from.
+ */
+const PER_IP = { limit: 5, windowSeconds: 3600 };
+const GLOBAL = { limit: 100, windowSeconds: 3600 };
+
 export async function POST(request: Request) {
   let body: { email?: string; firstName?: string; website?: string };
   try {
@@ -38,6 +56,20 @@ export async function POST(request: Request) {
 
   // Honeypot: a hidden field real people never fill in. Bots fill everything.
   if (body.website) return NextResponse.json(GENERIC_RESPONSE);
+
+  const ip = requestIp(request) || 'unknown';
+  const gate = await checkRateLimits([
+    { key: `newsletter:subscribe:ip:${ip}`, ...PER_IP },
+    { key: 'newsletter:subscribe:global', ...GLOBAL },
+  ]);
+
+  if (!gate.allowed) {
+    console.warn(`[newsletter] rate limit hit from ${ip}`);
+    return NextResponse.json(
+      { error: 'Too many signups from here just now. Please try again shortly.' },
+      { status: 429, headers: rateLimitHeaders(gate) },
+    );
+  }
 
   const rawEmail = body.email || '';
   if (!isValidEmail(rawEmail)) {
@@ -50,7 +82,6 @@ export async function POST(request: Request) {
   const email = normalizeEmail(rawEmail);
   const firstName = body.firstName?.trim() || null;
   const supabase = createAdminClient();
-  const ip = requestIp(request);
   const userAgent = request.headers.get('user-agent');
 
   // An address removed for a hard bounce or a spam complaint is not re-added by

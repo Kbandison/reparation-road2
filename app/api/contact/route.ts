@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { Resend, type CreateEmailOptions } from 'resend';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { EMAIL, emailShell, emailSignoff } from '@/lib/email-theme';
+import { checkRateLimits, rateLimitHeaders } from '@/lib/rate-limit';
 import {
   absorbSubscriberRow,
   normalizeEmail,
@@ -38,7 +39,34 @@ async function sendEmail(
   }
 }
 
+/**
+ * Limits for the public mail endpoint.
+ *
+ * This route has no authentication and cannot have any: the welcome email is
+ * sent before the account exists, so there is nobody to authenticate yet. That
+ * makes it a relay — anyone can ask it to send Reparation Road mail to an
+ * address of their choosing, from the same domain that carries password resets
+ * and receipts. Abuse would take those down with it.
+ *
+ * Volume is the only lever available, so it is the one used.
+ */
+const CONTACT_PER_IP = { limit: 10, windowSeconds: 3600 };
+const CONTACT_GLOBAL = { limit: 200, windowSeconds: 3600 };
+
 export async function POST(request: Request) {
+  const gate = await checkRateLimits([
+    { key: `contact:ip:${requestIp(request) || 'unknown'}`, ...CONTACT_PER_IP },
+    { key: 'contact:global', ...CONTACT_GLOBAL },
+  ]);
+
+  if (!gate.allowed) {
+    console.warn(`[contact] rate limit hit from ${requestIp(request) || 'unknown'}`);
+    return NextResponse.json(
+      { error: 'Too many requests just now. Please try again shortly.' },
+      { status: 429, headers: rateLimitHeaders(gate) },
+    );
+  }
+
   const body = await request.json();
 
   if (body.type === 'welcome-profile') {
