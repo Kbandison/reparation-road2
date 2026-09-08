@@ -1,14 +1,8 @@
 import { NextResponse } from 'next/server';
 import { Resend, type CreateEmailOptions } from 'resend';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { EMAIL, emailShell, emailSignoff } from '@/lib/email-theme';
 import { checkRateLimits, rateLimitHeaders } from '@/lib/rate-limit';
-import {
-  absorbSubscriberRow,
-  normalizeEmail,
-  recordConsentEvent,
-  requestIp,
-} from '@/lib/newsletter';
+import { requestIp } from '@/lib/newsletter';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = 'Reparation Road <noreply@reparationroad.org>';
@@ -69,118 +63,12 @@ export async function POST(request: Request) {
 
   const body = await request.json();
 
-  if (body.type === 'welcome-profile') {
-    // Update profile names + donor status (called after user creation)
-    if (body.userId) {
-      const supabase = createAdminClient();
-      const updates: Record<string, unknown> = {
-        first_name: body.firstName || null,
-        last_name: body.lastName || null,
-      };
-
-      // Validate donor code
-      const DONOR_CODE = process.env.DONOR_CODE || 'RRDONOR0326';
-      if (body.donorCode && body.donorCode.toUpperCase() === DONOR_CODE.toUpperCase()) {
-        updates.subscription_status = 'donor';
-      }
-
-      await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', body.userId);
-
-      // They may already be on the list from the footer form. Collapse the two
-      // records before touching consent, so an earlier opt-in isn't overwritten
-      // by a later signup where they left the box unticked.
-      if (body.email) {
-        await absorbSubscriberRow(body.email, body.userId);
-      }
-
-      // Newsletter consent is deliberately not implied by having an account.
-      // Nothing happens here unless the box on the signup form was ticked.
-      //
-      // Even then the address is only held as pending: the account's own email
-      // is still unverified at this point, and adding an unverified address to
-      // the sending audience is how a list fills up with typos. The auth
-      // callback completes the subscription once they click the link Supabase
-      // sent them.
-      if (body.newsletterOptIn === true && body.email) {
-        await supabase
-          .from('profiles')
-          .update({
-            newsletter_pending_opt_in: true,
-            newsletter_opt_in_source: 'signup_checkbox',
-          })
-          .eq('id', body.userId);
-
-        // The consent itself happened now, on the signup form — record it with
-        // that timestamp rather than the later one, and note what it was
-        // waiting on.
-        await recordConsentEvent({
-          email: normalizeEmail(body.email),
-          event: 'subscribed',
-          source: 'signup_checkbox',
-          profileId: body.userId,
-          ip: requestIp(request),
-          userAgent: request.headers.get('user-agent'),
-          metadata: { pending_email_verification: true },
-        });
-      }
-    }
-    return NextResponse.json({ success: true });
-  }
-
-  if (body.type === 'welcome') {
-    const userName = [body.firstName, body.lastName].filter(Boolean).join(' ') || 'Unknown';
-
-    // Welcome email to user
-    const welcomeUser = await sendEmail('welcome-user', {
-      from: FROM,
-      to: [body.email],
-      subject: 'Welcome to Reparation Road!',
-      html: emailShell(
-        `
-          <h1 style="color: ${EMAIL.heading}; font-size: 24px; margin: 0 0 8px;">Welcome to Reparation Road</h1>
-          <p style="color: ${EMAIL.strong}; font-size: 16px; margin: 0 0 24px;">Your journey into history begins here.</p>
-          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">Hi ${body.firstName || 'there'},</p>
-          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
-            Thank you for creating an account with Reparation Road. You now have access to our growing digital archive of historical records documenting the African American experience.
-          </p>
-          <p style="color: ${EMAIL.strong}; font-size: 14px; font-weight: bold; margin: 24px 0 12px;">Here&rsquo;s what you can do:</p>
-          <ul style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.8; padding-left: 20px;">
-            <li>Browse our free collections of census, military, and church records</li>
-            <li>Search across all collections by name, location, or keyword</li>
-            <li>Bookmark records and build your research library</li>
-            <li>Join our community forum to connect with other researchers</li>
-          </ul>
-          <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6; margin-top: 24px;">
-            Want access to all collections? <a href="https://reparationroad.org/membership" style="color: ${EMAIL.link};">Upgrade to Premium</a> for full access to every record in our archive.
-          </p>
-        `,
-        emailSignoff('https://reparationroad.org'),
-      ),
-    });
-
-    // Notify owner of new signup
-    const welcomeAdmin = await sendEmail('welcome-admin', {
-      from: FROM,
-      to: [ADMIN_EMAIL],
-      subject: `New Signup: ${userName}`,
-      html: `
-        <h2>New User Signup</h2>
-        <p><strong>Name:</strong> ${userName}</p>
-        <p><strong>Email:</strong> ${body.email}</p>
-        <p><strong>Date:</strong> ${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })}</p>
-        <p><a href="https://reparationroad.org/admin/users">View in Admin Panel</a></p>
-      `,
-    });
-
-    // Signup shouldn't fail just because an email didn't send.
-    return NextResponse.json({
-      success: true,
-      emailSent: welcomeUser.ok && welcomeAdmin.ok,
-    });
-  }
+  // 'welcome' and 'welcome-profile' used to live here. Both are gone rather
+  // than fixed: one wrote to a profile id supplied by the caller, and the other
+  // mailed an address supplied by the caller, neither with any authentication.
+  // Account setup now happens in app/(auth)/auth/callback, which has a real
+  // session and therefore does not have to take the caller's word for who they
+  // are. Nothing that remains here can write to a user record.
 
   if (body.type === 'booking') {
     // Booking confirmation email to user

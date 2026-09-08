@@ -219,44 +219,28 @@ function SignupForm({
 
     setLoading(true);
 
-    // Send welcome email BEFORE signUp — signUp triggers immediate auth redirect
-    try {
-      await fetch('/api/contact', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'welcome', email, firstName, lastName }),
-      });
-    } catch {
-      // Don't block signup if email fails
-    }
-
     const supabase = createClient();
-    const { data: signUpData, error } = await supabase.auth.signUp({
+    // Everything the account needs travels as user metadata rather than a
+    // follow-up request carrying a user id. The auth callback reads it once a
+    // real session exists, so nothing here is a claim the server has to take on
+    // trust — including the donor code, which is validated server-side.
+    const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { first_name: firstName, last_name: lastName } },
+      options: {
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          donor_code: donorCode.trim() || undefined,
+          newsletter_opt_in: newsletterOptIn,
+        },
+      },
     });
 
     if (error) {
       toast.error(error.message);
       setLoading(false);
       return;
-    }
-
-    // Update profile names + donor status via server (bypasses RLS)
-    if (signUpData.user) {
-      navigator.sendBeacon(
-        '/api/contact',
-        new Blob([JSON.stringify({
-          type: 'welcome-profile',
-          userId: signUpData.user.id,
-          email,
-          firstName,
-          lastName,
-          donorCode: donorCode.trim() || undefined,
-          newsletterOptIn,
-        })], { type: 'application/json' })
-      );
     }
 
     setSuccess(true);

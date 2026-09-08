@@ -38,15 +38,17 @@ Setup and architecture: [NEWSLETTER_SETUP.md](NEWSLETTER_SETUP.md).
       thousands, wrong at tens of thousands. Needs per-recipient send tracking
       to resume safely.
 
-## Found while working, not yet fixed
+## Found while working
 
-- [ ] **`/api/contact` type `welcome-profile` accepts a caller-supplied
-      `userId`** and writes `first_name`, `last_name` and donor status to it with
-      no authentication. The donor code is validated so status cannot be
-      granted, but anyone who knows a profile UUID can rename that account.
-      Rate limiting caps the volume; it does not close the hole. The fix is to
-      derive the user from the session instead of the request body, which means
-      touching the signup flow — deliberately not done in passing.
+- [x] **`/api/contact` unauthenticated writes and sends.** Fixed 2026-09-08.
+      `welcome-profile` accepted a caller-supplied `userId` and wrote names and
+      donor status to it; `welcome` mailed a caller-supplied address. Both
+      branches are gone rather than patched — account setup now happens in the
+      auth callback, where a session exists. The signup form passes what it
+      collects through Supabase user metadata, so the donor code is validated
+      server-side and nothing arrives as a claim about who the caller is.
+      Verified: both attacks now return 400 with no write and no mail.
+      Requires `contact_auth_fix_migration.sql`.
 
 ## One-time manual tasks
 
