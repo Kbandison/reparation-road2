@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { syncContactToResend, newsletterConfigured } from '@/lib/newsletter';
+import { runWelcomeSequence } from '@/lib/newsletter-sequence';
 
 /**
  * Repair subscriptions that never reached Resend.
@@ -127,6 +128,11 @@ export async function GET(request: Request) {
     .lt('confirm_sent_at', thirtyDaysAgo)
     .not('confirm_token', 'is', null);
 
+  // --- Welcome sequence -----------------------------------------------------
+  // Runs here rather than on its own schedule: the Hobby plan allows very few
+  // cron entries, and daily is ample for a two-day and a seven-day email.
+  const sequence = await runWelcomeSequence();
+
   // Expired rate-limit rows are dead weight. This job already runs daily and
   // already holds a service-role client, so it does the sweep rather than
   // earning a cron entry of its own — Hobby allows very few.
@@ -138,11 +144,16 @@ export async function GET(request: Request) {
     repaired,
     failed,
     rateLimitRowsSwept: sweptRows ?? 0,
+    sequenceSent: sequence.sent,
+    sequenceFailed: sequence.failed,
+    sequenceDue: sequence.due,
     expiredConfirmations: expired ?? 0,
     // Both queries are capped, so a large backlog drains over successive runs
     // rather than being silently truncated to whatever fit in one pass.
     truncated:
-      (profiles?.length ?? 0) === BATCH_SIZE || (subscribers?.length ?? 0) === BATCH_SIZE,
+      (profiles?.length ?? 0) === BATCH_SIZE ||
+      (subscribers?.length ?? 0) === BATCH_SIZE ||
+      sequence.truncated,
   };
 
   console.log('[newsletter:reconcile]', JSON.stringify(summary));

@@ -133,3 +133,114 @@ export function sendNewsletterWelcomeEmail(email: string, firstName?: string | n
     ),
   });
 }
+
+/**
+ * Step 2 — sent a couple of days in.
+ *
+ * The welcome said what The Road Report is. This one is about the archive
+ * itself, because someone who has searched it once is far likelier to still be
+ * reading in a month than someone who has only received email.
+ */
+export function sendGettingStartedEmail(email: string, firstName?: string | null) {
+  return send('sequence-2', {
+    to: email,
+    subject: 'Getting started with the archive',
+    headers: {
+      'List-Unsubscribe': `<${unsubscribeUrl(email)}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    },
+    html: emailShell(
+      `
+        <h1 style="color: ${EMAIL.heading}; font-size: 24px; margin: 0 0 8px;">Where to Start</h1>
+        <p style="color: ${EMAIL.strong}; font-size: 16px; margin: 0 0 24px;">Four ways into the archive.</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">Hi ${firstName || 'there'},</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
+          Most people arrive with one name and no idea where it leads. That is the
+          right place to begin &mdash; here is how to make the archive give it up.
+        </p>
+
+        <p style="color: ${EMAIL.strong}; font-size: 14px; font-weight: bold; margin: 26px 0 8px;">Search a surname on its own first</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6; margin: 0 0 18px;">
+          Given names were recorded inconsistently and spelled by ear. A surname
+          alone returns more, and the extra results are often the useful ones.
+        </p>
+
+        <p style="color: ${EMAIL.strong}; font-size: 14px; font-weight: bold; margin: 0 0 8px;">Browse by place, not just by name</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6; margin: 0 0 18px;">
+          Families stayed put more often than they moved. A county with one
+          confirmed ancestor is usually holding several more.
+        </p>
+
+        <p style="color: ${EMAIL.strong}; font-size: 14px; font-weight: bold; margin: 0 0 8px;">Read the whole document, not the index entry</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6; margin: 0 0 18px;">
+          Names of neighbours, witnesses and employers sit in the margins of these
+          records. Those margins are frequently where a line continues.
+        </p>
+
+        <p style="color: ${EMAIL.strong}; font-size: 14px; font-weight: bold; margin: 0 0 8px;">Bookmark as you go</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6; margin: 0 0 18px;">
+          A record you cannot place today often makes sense three records later.
+          Saved ones are waiting on your dashboard.
+        </p>
+
+        ${emailButton(`${SITE_URL}/search`, 'Search the archive')}
+
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
+          Stuck on a particular line? Reply to this email &mdash; a real person reads it.
+        </p>
+      `,
+      marketingFooter(email),
+    ),
+  });
+}
+
+/**
+ * Step 3 — sent about a week in.
+ *
+ * Why the work exists and how to take part. Deliberately last: it asks for
+ * something, and asking before the archive has proved useful is how a list
+ * teaches people to ignore it.
+ */
+export function sendWhatWereBuildingEmail(email: string, firstName?: string | null) {
+  return send('sequence-3', {
+    to: email,
+    subject: 'What we’re building at Reparation Road',
+    headers: {
+      'List-Unsubscribe': `<${unsubscribeUrl(email)}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    },
+    html: emailShell(
+      `
+        <h1 style="color: ${EMAIL.heading}; font-size: 24px; margin: 0 0 8px;">What We&rsquo;re Building</h1>
+        <p style="color: ${EMAIL.strong}; font-size: 16px; margin: 0 0 24px;">And how you can be part of it.</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">Hi ${firstName || 'there'},</p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
+          Records of Black families in America were kept unevenly, stored carelessly,
+          and in many cases deliberately destroyed. What survives is scattered across
+          county courthouses, church basements and private collections &mdash; findable
+          in theory, unreachable in practice for most families.
+        </p>
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
+          Reparation Road exists to change that. Every record we digitise, transcribe
+          and publish is one more family able to trace a line that was meant to be
+          untraceable.
+        </p>
+
+        <p style="color: ${EMAIL.strong}; font-size: 14px; font-weight: bold; margin: 26px 0 12px;">Three ways to take part</p>
+        <ul style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.8; padding-left: 20px;">
+          <li><strong style="color: ${EMAIL.strong};">Join the forum.</strong> Other researchers are working the same counties and surnames you are.</li>
+          <li><strong style="color: ${EMAIL.strong};">Build your family tree.</strong> Import a GEDCOM or start from one name, and we will match it against the archive as it grows.</li>
+          <li><strong style="color: ${EMAIL.strong};">Become a member.</strong> Membership funds the digitisation directly &mdash; more records, sooner.</li>
+        </ul>
+
+        ${emailButton(`${SITE_URL}/about`, 'Read our story')}
+
+        <p style="color: ${EMAIL.text}; font-size: 14px; line-height: 1.6;">
+          And if your family holds documents, photographs or Bibles that belong in an
+          archive like this one, we would genuinely like to hear from you. Just reply.
+        </p>
+      `,
+      marketingFooter(email),
+    ),
+  });
+}

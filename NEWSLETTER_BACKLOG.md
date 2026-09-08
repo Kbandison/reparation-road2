@@ -26,10 +26,11 @@ Setup and architecture: [NEWSLETTER_SETUP.md](NEWSLETTER_SETUP.md).
       on the same domain that carries password resets. It cannot be
       authenticated — the welcome email is sent before the account exists — so
       volume is the only available lever. 10/hour per IP, 200/hour globally.
-- [ ] **Welcome sequence emails 2 and 3.** Only the welcome exists. Plan was:
-      day 0 welcome, day 2-3 "Getting Started With the Database", then "What
-      We're Building". Needs a scheduled sender — the daily reconcile cron is
-      the obvious place to hang it off.
+- [x] **Welcome sequence emails 2 and 3.** Done 2026-09-08. Day 2 "Getting
+      started with the archive", day 7 "What we're building". Driven by the
+      daily reconcile cron. Subscribers older than 30 days are skipped, so
+      turning it on does not mail the entire back catalogue. Requires
+      `newsletter_sequence_migration.sql`.
 - [ ] **List-health screen.** `/api/admin/newsletter` already returns segment
       counts plus an `unsynced` figure; nothing displays it. A stuck sync is
       currently invisible unless someone queries by hand.
