@@ -236,3 +236,61 @@ export async function getOrCreateConversation(
   }
   return data;
 }
+
+/**
+ * The researchers who also hold one specific individual.
+ *
+ * Powers the panel on a person's page, where the useful question is not "how
+ * many" but "who, and can I talk to them".
+ */
+export async function getResearchersForIndividual(
+  userId: string,
+  individualId: string,
+): Promise<ResearcherOverlap[]> {
+  const all = await getOverlapsByResearcher(userId);
+  return all
+    .map((researcher) => ({
+      ...researcher,
+      people: researcher.people.filter((p) => p.individualId === individualId),
+    }))
+    .filter((researcher) => researcher.people.length > 0);
+}
+
+/**
+ * Tell someone a message arrived.
+ *
+ * Reuses the forum's notification table so there is one bell rather than two.
+ * Never throws: a missing notification must not lose a message that was
+ * actually delivered.
+ */
+export async function notifyNewMessage(input: {
+  recipientId: string;
+  senderId: string;
+  conversationId: string;
+}): Promise<void> {
+  try {
+    const supabase = createAdminClient();
+
+    // One unread notification per conversation. A back-and-forth exchange
+    // should not stack ten separate alerts for the same thread.
+    const { data: existing } = await supabase
+      .from('forum_notifications')
+      .select('id')
+      .eq('user_id', input.recipientId)
+      .eq('conversation_id', input.conversationId)
+      .eq('is_read', false)
+      .maybeSingle();
+
+    if (existing) return;
+
+    await supabase.from('forum_notifications').insert({
+      user_id: input.recipientId,
+      actor_id: input.senderId,
+      type: 'message',
+      conversation_id: input.conversationId,
+      is_read: false,
+    });
+  } catch (e) {
+    console.error('[tree-connections] could not create notification:', e);
+  }
+}

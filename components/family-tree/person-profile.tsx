@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { fullName, initials, lifespan } from '@/lib/family-tree/display';
 import type { TreeIndividual, TreeArchiveMatch, TreeSource, TreeMedia } from '@/lib/types';
+import { PersonConnections } from '@/components/family-tree/person-connections';
 
 export interface RelRef {
   id: string;
@@ -606,6 +607,8 @@ export function PersonProfile({
         </div>
       )}
 
+
+      <PersonConnections individualId={person.id} personName={name} />
     </div>
   );
 }

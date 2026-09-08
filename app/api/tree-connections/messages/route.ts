@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getOrCreateConversation, isSharingEnabled } from '@/lib/tree-connections';
+import {
+  getOrCreateConversation,
+  isSharingEnabled,
+  notifyNewMessage,
+} from '@/lib/tree-connections';
 
 /**
  * Messages between two researchers who share people.
@@ -164,6 +168,18 @@ export async function POST(request: Request) {
     .from('tree_conversations')
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', conversationId);
+
+  const { data: participants } = await admin
+    .from('tree_conversations')
+    .select('user_a, user_b')
+    .eq('id', conversationId)
+    .maybeSingle();
+
+  if (participants) {
+    const recipientId =
+      participants.user_a === user.id ? participants.user_b : participants.user_a;
+    await notifyNewMessage({ recipientId, senderId: user.id, conversationId });
+  }
 
   return NextResponse.json({ conversationId, message });
 }

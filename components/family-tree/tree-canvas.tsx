@@ -58,7 +58,14 @@ const PAD = 90;
 const json = { 'Content-Type': 'application/json' };
 
 // Shared inner card content (avatar, name, dates, place, archive badge).
-function PersonCardInner({ p }: { p: TreeIndividual }) {
+function PersonCardInner({
+  p,
+  overlapCount = 0,
+}: {
+  p: TreeIndividual;
+  /** Other researchers holding this same person. 0 hides the badge. */
+  overlapCount?: number;
+}) {
   const sexClass =
     p.sex === 'M'
       ? 'bg-brand-sage/20 text-brand-sage'
@@ -101,6 +108,16 @@ function PersonCardInner({ p }: { p: TreeIndividual }) {
           <Link2 className="w-3 h-3" />
         </span>
       )}
+      {overlapCount > 0 && (
+        // Opposite corner from the archive badge so the two never collide on a
+        // person who is both linked and shared.
+        <span
+          className="absolute -top-2 -left-2 flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-brand-gold text-brand-bg text-[10px] font-semibold tabular-nums"
+          title={`${overlapCount} other researcher${overlapCount === 1 ? '' : 's'} have this person`}
+        >
+          {overlapCount}
+        </span>
+      )}
     </>
   );
 }
@@ -128,6 +145,27 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openRelatives, setOpenRelatives] = useState<string | null>(null);
+
+  // How many other researchers hold each person. Empty when sharing is off,
+  // which is the common case, so the badge simply never appears.
+  const [overlapCounts, setOverlapCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/tree-connections/counts');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setOverlapCounts(data.counts ?? {});
+      } catch {
+        // A missing badge is not worth surfacing an error over.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Background archive matching (auto-runs after import / on load).
   const [matchProgress, setMatchProgress] = useState<{ done: number; remaining: number } | null>(null);
@@ -680,7 +718,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
                   )}
                   style={{ left: pos.x, top: pos.y, width: CARD_W, minHeight: CARD_H, zIndex: openRelatives === id ? 40 : undefined }}
                 >
-                  <PersonCardInner p={p} />
+                  <PersonCardInner p={p} overlapCount={overlapCounts[p.id] ?? 0} />
 
                   {/* Home / set-focal control (top-left) */}
                   {isFocal ? (
@@ -774,7 +812,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
                 )}
                 style={{ left: p.pos_x, top: p.pos_y, width: CARD_W, minHeight: CARD_H }}
               >
-                <PersonCardInner p={p} />
+                <PersonCardInner p={p} overlapCount={overlapCounts[p.id] ?? 0} />
               </div>
             ))}
       </div>
