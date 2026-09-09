@@ -32,7 +32,12 @@ alter table public.profiles
 -- a shared Pinkard means far more than a shared John Smith, and surfacing the
 -- rare ones first is the difference between a discovery and a wall of names.
 
-create or replace function public.find_tree_overlaps(p_user_id uuid)
+-- Dropped rather than replaced: this version returns an extra column
+-- (name_frequency), and CREATE OR REPLACE cannot change a function's return
+-- type. Postgres rejects the whole statement with 42P13 otherwise.
+drop function if exists public.find_tree_overlaps(uuid);
+
+create function public.find_tree_overlaps(p_user_id uuid)
 returns table (
   my_individual_id uuid,
   my_tree_id uuid,
