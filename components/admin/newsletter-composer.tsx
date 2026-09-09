@@ -125,9 +125,11 @@ export function NewsletterComposer() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [issue, setIssue] = useState<Issue | null>(null);
   const [preview, setPreview] = useState('');
+  // How many this issue has already reached; non-zero means a paused send.
+  const [delivered, setDelivered] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [sendingNow, setSendingNow] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   // Sending the whole list is irreversible, so it takes two deliberate clicks.
@@ -161,6 +163,7 @@ export function NewsletterComposer() {
     setIssue(data.issue);
     setStats(data.stats);
     setPreview(data.preview);
+    setDelivered(data.delivered ?? 0);
     setConfirmSend(false);
     setShowPreview(false);
   }
@@ -225,7 +228,7 @@ export function NewsletterComposer() {
   async function sendTest() {
     if (!issue || !testEmail.trim()) return;
     await save(currentPatch());
-    setSending(true);
+    setSendingNow(true);
     try {
       const res = await fetch(`/api/admin/newsletter/issues/${issue.id}/send`, {
         method: 'POST',
@@ -237,13 +240,13 @@ export function NewsletterComposer() {
         res.ok ? `Test sent to ${data.to}` : data.error || 'Test failed',
       );
     } finally {
-      setSending(false);
+      setSendingNow(false);
     }
   }
 
   async function sendIssue() {
     if (!issue) return;
-    setSending(true);
+    setSendingNow(true);
     try {
       const res = await fetch(`/api/admin/newsletter/issues/${issue.id}/send`, {
         method: 'POST',
@@ -255,15 +258,21 @@ export function NewsletterComposer() {
         toast.error(data.error || 'Send failed');
         return;
       }
-      toast.success(
-        data.failed
-          ? `Sent to ${data.sent} of ${data.total} — ${data.failed} failed`
-          : `Sent to ${data.sent} subscriber${data.sent === 1 ? '' : 's'}`,
-      );
+      if (data.partial) {
+        toast.success(
+          `Sent ${data.sent} so far — ${data.remaining} remaining. Press resume to continue.`,
+        );
+      } else {
+        toast.success(
+          data.failed
+            ? `Sent to ${data.sent} of ${data.total} — ${data.failed} failed`
+            : `Sent to ${data.sent} subscriber${data.sent === 1 ? '' : 's'}`,
+        );
+      }
       await loadList();
       await openIssue(issue.id);
     } finally {
-      setSending(false);
+      setSendingNow(false);
       setConfirmSend(false);
     }
   }
@@ -297,6 +306,9 @@ export function NewsletterComposer() {
   }
 
   const sent = issue?.status === 'sent';
+  const sending = issue?.status === 'sending';
+  // Editing mid-send would change what later recipients receive.
+  const locked = sent || sending;
 
   return (
     <>
@@ -390,7 +402,30 @@ export function NewsletterComposer() {
           </div>
         ) : (
           <div className="space-y-6">
-            {sent && (
+            {sending && (
+            <div className="rounded-2xl border border-brand-gold/30 bg-brand-gold/[0.07] px-5 py-4">
+              <p className="text-sm text-brand-cream">
+                This send is paused. {delivered.toLocaleString()} recipient
+                {delivered === 1 ? '' : 's'} already have it.
+              </p>
+              <p className="text-xs text-brand-muted mt-1">
+                Resuming picks up where it stopped &mdash; nobody receives it twice.
+              </p>
+              <Button
+                onClick={sendIssue}
+                disabled={sending && sendingNow}
+                className="mt-3 bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
+              >
+                {sendingNow ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <><Send className="w-4 h-4 mr-1.5" /> Resume send</>
+                )}
+              </Button>
+            </div>
+          )}
+
+          {sent && (
               <div className="rounded-2xl border border-brand-sage/30 bg-brand-sage/[0.07] px-5 py-4">
                 <p className="text-sm text-brand-cream flex items-center gap-2">
                   <Check className="w-4 h-4 text-brand-sage" />
@@ -408,7 +443,7 @@ export function NewsletterComposer() {
                 <Label>Subject</Label>
                 <Input
                   value={issue.subject}
-                  disabled={sent}
+                  disabled={locked}
                   onChange={(e) => setIssue({ ...issue, subject: e.target.value })}
                   placeholder="Free Persons of Color, and a name we can't place"
                   className={field}
@@ -418,7 +453,7 @@ export function NewsletterComposer() {
                 <Label>Preview line</Label>
                 <Input
                   value={issue.preview_text ?? ''}
-                  disabled={sent}
+                  disabled={locked}
                   onChange={(e) => setIssue({ ...issue, preview_text: e.target.value })}
                   placeholder="Shown next to the subject in most inboxes"
                   className={field}
@@ -428,7 +463,7 @@ export function NewsletterComposer() {
                 <Label>Send to</Label>
                 <Select
                   value={issue.segment}
-                  disabled={sent}
+                  disabled={locked}
                   onValueChange={(v) => setIssue({ ...issue, segment: v })}
                 >
                   <SelectTrigger className={field}>
@@ -494,7 +529,7 @@ export function NewsletterComposer() {
                         {f.kind === 'textarea' ? (
                           <Textarea
                             value={current}
-                            disabled={sent}
+                            disabled={locked}
                             rows={f.rows}
                             placeholder={f.placeholder}
                             onChange={(e) => setSection(sec.key, { [f.name]: e.target.value })}
@@ -503,7 +538,7 @@ export function NewsletterComposer() {
                         ) : (
                           <Input
                             value={current}
-                            disabled={sent}
+                            disabled={locked}
                             placeholder={f.placeholder}
                             onChange={(e) => setSection(sec.key, { [f.name]: e.target.value })}
                             className={field}
@@ -572,7 +607,7 @@ export function NewsletterComposer() {
                       <Button
                         variant="outline"
                         onClick={sendTest}
-                        disabled={sending || !testEmail.trim()}
+                        disabled={sendingNow || !testEmail.trim()}
                         className="border-brand-gold/25 text-brand-cream rounded-xl shrink-0"
                       >
                         Send test
@@ -603,10 +638,10 @@ export function NewsletterComposer() {
                         </p>
                         <Button
                           onClick={sendIssue}
-                          disabled={sending}
+                          disabled={sendingNow}
                           className="bg-brand-burgundy text-brand-cream hover:bg-brand-burgundy-light rounded-xl"
                         >
-                          {sending ? (
+                          {sendingNow ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             'Yes, send it'

@@ -25,12 +25,19 @@ export async function GET(
   // current ones, because that is what it will send with.
   const stats = issue.status === 'sent' ? issue.auto_stats : await getIssueStats();
 
+  // How many this issue has already reached. Drives the resume prompt, and is
+  // the only place a paused send's progress is visible.
+  const { count: deliveredCount } = await supabase
+    .from('newsletter_issue_sends')
+    .select('id', { count: 'exact', head: true })
+    .eq('issue_id', id);
+
   const preview = renderIssueHtml(
     { subject: issue.subject || 'Untitled issue', sections: issue.sections, auto_stats: stats },
     { email: 'preview@reparationroad.org' },
   );
 
-  return NextResponse.json({ issue, stats, preview });
+  return NextResponse.json({ issue, stats, preview, delivered: deliveredCount ?? 0 });
 }
 
 export async function PATCH(

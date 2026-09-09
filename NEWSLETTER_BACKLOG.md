@@ -36,10 +36,14 @@ Setup and architecture: [NEWSLETTER_SETUP.md](NEWSLETTER_SETUP.md).
       the send confirmation, so the number of people an issue reaches is visible
       before it goes rather than after. `getSegmentCounts` was rewritten to one
       pass — it previously scanned both tables once per segment, six times over.
-- [ ] **Send resumption.** A send that exceeds the 300s function limit marks the
-      issue sent with a partial count rather than double-sending. Correct at
-      thousands, wrong at tens of thousands. Needs per-recipient send tracking
-      to resume safely.
+- [x] **Send resumption.** Done 2026-09-08. The earlier note here was wrong: a
+      timeout did not mark the issue sent, it left it at `sending` forever with
+      no record of who had received it and no way to retry, since claiming
+      required `draft`. Now each delivered address is recorded as its batch
+      succeeds, the loop stops at 240s of its own accord so the bookkeeping
+      always runs, and a claim older than 15 minutes can be taken over. Pressing
+      resume continues from where it stopped. Requires
+      `newsletter_issue_sends_migration.sql`.
 
 ## Found while working
 
