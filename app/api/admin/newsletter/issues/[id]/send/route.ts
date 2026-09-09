@@ -202,7 +202,10 @@ export async function POST(
     const { error: recordError } = await supabase
       .from('newsletter_issue_sends')
       .upsert(
-        chunk.map((r) => ({ issue_id: id, email: r.email })),
+        // Lowercased explicitly. The unique index is on the raw column so that
+        // ON CONFLICT can match it, which only stays correct while every write
+        // normalises first.
+        chunk.map((r) => ({ issue_id: id, email: r.email.toLowerCase() })),
         { onConflict: 'issue_id,email', ignoreDuplicates: true },
       );
 

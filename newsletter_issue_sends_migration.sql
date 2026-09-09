@@ -22,8 +22,13 @@ create table if not exists public.newsletter_issue_sends (
 
 -- Both the resume filter and the guarantee that a resumed run cannot re-send to
 -- someone who already has the issue.
+--
+-- Indexed on the raw column, not lower(email): ON CONFLICT can only use an
+-- index whose columns it names exactly, and a functional index makes the upsert
+-- that records each batch fail with 42P10. Every write path normalises the
+-- address first, so this is equivalent in practice.
 create unique index if not exists newsletter_issue_sends_unique_idx
-  on public.newsletter_issue_sends (issue_id, lower(email));
+  on public.newsletter_issue_sends (issue_id, email);
 
 alter table public.newsletter_issue_sends enable row level security;
 
