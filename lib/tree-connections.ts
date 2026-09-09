@@ -29,6 +29,43 @@ interface OverlapRow {
   name_frequency: number;
 }
 
+/** PostgREST caps a response at 1000 rows, so every page is asked for. */
+const PAGE_SIZE = 1000;
+
+/**
+ * Every overlap row for a user.
+ *
+ * Paginated, not because the result is expected to be huge, but because a plain
+ * .rpc() silently returns the first 1000 and says nothing about the rest. Two of
+ * the three trees here already produce 1,112 rows, so the unpaginated version
+ * was quietly dropping matches — the kind of wrong that looks exactly like
+ * working.
+ *
+ * If this grows past a few thousand, the fix is to aggregate in SQL rather than
+ * to raise the page size; the callers only ever want it grouped.
+ */
+async function fetchAllOverlaps(userId: string): Promise<OverlapRow[]> {
+  const supabase = createAdminClient();
+  const rows: OverlapRow[] = [];
+
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .rpc('find_tree_overlaps', { p_user_id: userId })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error('[tree-connections] overlap lookup failed:', error);
+      return rows;
+    }
+    if (!data || data.length === 0) break;
+
+    rows.push(...(data as OverlapRow[]));
+    if (data.length < PAGE_SIZE) break;
+  }
+
+  return rows;
+}
+
 export interface SharedPerson {
   individualId: string;
   treeId: string;
@@ -83,19 +120,9 @@ function personName(given: string | null, surname: string | null): string {
 export async function getOverlapsByResearcher(
   userId: string,
 ): Promise<ResearcherOverlap[]> {
-  const supabase = createAdminClient();
-  const { data, error } = await supabase.rpc('find_tree_overlaps', {
-    p_user_id: userId,
-  });
-
-  if (error) {
-    console.error('[tree-connections] overlap lookup failed:', error);
-    return [];
-  }
-
   const byUser = new Map<string, ResearcherOverlap>();
 
-  for (const row of (data ?? []) as OverlapRow[]) {
+  for (const row of await fetchAllOverlaps(userId)) {
     let entry = byUser.get(row.other_user_id);
     if (!entry) {
       entry = {
@@ -163,18 +190,8 @@ export async function getOverlapsByResearcher(
 export async function getOverlapCountsByIndividual(
   userId: string,
 ): Promise<Record<string, number>> {
-  const supabase = createAdminClient();
-  const { data, error } = await supabase.rpc('find_tree_overlaps', {
-    p_user_id: userId,
-  });
-
-  if (error) {
-    console.error('[tree-connections] overlap counts failed:', error);
-    return {};
-  }
-
   const researchersPerIndividual = new Map<string, Set<string>>();
-  for (const row of (data ?? []) as OverlapRow[]) {
+  for (const row of await fetchAllOverlaps(userId)) {
     const set = researchersPerIndividual.get(row.my_individual_id) ?? new Set();
     set.add(row.other_user_id);
     researchersPerIndividual.set(row.my_individual_id, set);
