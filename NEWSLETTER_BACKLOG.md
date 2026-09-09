@@ -31,9 +31,11 @@ Setup and architecture: [NEWSLETTER_SETUP.md](NEWSLETTER_SETUP.md).
       daily reconcile cron. Subscribers older than 30 days are skipped, so
       turning it on does not mail the entire back catalogue. Requires
       `newsletter_sequence_migration.sql`.
-- [ ] **List-health screen.** `/api/admin/newsletter` already returns segment
-      counts plus an `unsynced` figure; nothing displays it. A stuck sync is
-      currently invisible unless someone queries by hand.
+- [x] **List-health screen.** Done 2026-09-08. Sits above the composer on
+      `/admin/newsletter`. Segment sizes also appear in the send selector and in
+      the send confirmation, so the number of people an issue reaches is visible
+      before it goes rather than after. `getSegmentCounts` was rewritten to one
+      pass — it previously scanned both tables once per segment, six times over.
 - [ ] **Send resumption.** A send that exceeds the 300s function limit marks the
       issue sent with a partial count rather than double-sending. Correct at
       thousands, wrong at tens of thousands. Needs per-recipient send tracking

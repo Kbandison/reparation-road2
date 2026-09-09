@@ -134,13 +134,52 @@ export interface SegmentCounts {
   unsynced: number;
 }
 
-/** List health for the admin panel. */
+/**
+ * List health for the admin panel.
+ *
+ * One pass over the data, not one per segment. The obvious version calls
+ * getRecipients() for each of the six segments, which paginates both tables six
+ * times to answer a question about the same rows — and the cost grows with the
+ * list, exactly when someone is most likely to be looking at this screen.
+ */
 export async function getSegmentCounts(): Promise<SegmentCounts> {
   const supabase = createAdminClient();
 
+  const profiles: ProfileRow[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('email, first_name, subscription_status, stripe_customer_id')
+      .eq('newsletter_status', 'subscribed')
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(`[newsletter] segment counts failed: ${error.message}`);
+    if (!data || data.length === 0) break;
+    profiles.push(...(data as ProfileRow[]));
+    if (data.length < PAGE_SIZE) break;
+  }
+
+  let accountlessSubscribed = 0;
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('newsletter_subscribers')
+      .select('email')
+      .eq('status', 'subscribed')
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(`[newsletter] segment counts failed: ${error.message}`);
+    if (!data || data.length === 0) break;
+    accountlessSubscribed += data.length;
+    if (data.length < PAGE_SIZE) break;
+  }
+
   const segments = {} as Record<NewsletterSegment, number>;
   for (const segment of Object.keys(SEGMENT_LABELS) as NewsletterSegment[]) {
-    segments[segment] = (await getRecipients(segment)).length;
+    if (segment === 'no_account') {
+      segments[segment] = accountlessSubscribed;
+    } else if (segment === 'all') {
+      segments[segment] = profiles.length + accountlessSubscribed;
+    } else {
+      segments[segment] = profiles.filter((row) => matchesSegment(row, segment)).length;
+    }
   }
 
   const count = async (
@@ -161,33 +200,35 @@ export async function getSegmentCounts(): Promise<SegmentCounts> {
     profilesCleaned,
     subscribersCleaned,
     pendingConfirmation,
+    unsyncedProfiles,
+    unsyncedSubscribers,
   ] = await Promise.all([
     count('profiles', 'newsletter_status', 'unsubscribed'),
     count('newsletter_subscribers', 'status', 'unsubscribed'),
     count('profiles', 'newsletter_status', 'cleaned'),
     count('newsletter_subscribers', 'status', 'cleaned'),
     count('newsletter_subscribers', 'status', 'pending'),
+    // Consent recorded here but never mirrored into Resend. Anything above zero
+    // for long means the reconcile cron is not running.
+    supabase
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('newsletter_status', 'subscribed')
+      .is('newsletter_synced_at', null)
+      .then((r) => r.count ?? 0),
+    supabase
+      .from('newsletter_subscribers')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'subscribed')
+      .is('synced_at', null)
+      .then((r) => r.count ?? 0),
   ]);
-
-  // Consent recorded here but not yet mirrored into Resend. Anything above zero
-  // for long means the reconcile cron is not running.
-  const { count: unsyncedProfiles } = await supabase
-    .from('profiles')
-    .select('id', { count: 'exact', head: true })
-    .eq('newsletter_status', 'subscribed')
-    .is('newsletter_synced_at', null);
-
-  const { count: unsyncedSubscribers } = await supabase
-    .from('newsletter_subscribers')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'subscribed')
-    .is('synced_at', null);
 
   return {
     segments,
     unsubscribed: profilesUnsubscribed + subscribersUnsubscribed,
     cleaned: profilesCleaned + subscribersCleaned,
     pendingConfirmation,
-    unsynced: (unsyncedProfiles ?? 0) + (unsyncedSubscribers ?? 0),
+    unsynced: unsyncedProfiles + unsyncedSubscribers,
   };
 }

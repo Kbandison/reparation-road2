@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { NewsletterListHealth } from '@/components/admin/newsletter-list-health';
 import {
   Select,
   SelectContent,
@@ -132,6 +133,8 @@ export function NewsletterComposer() {
   // Sending the whole list is irreversible, so it takes two deliberate clicks.
   const [confirmSend, setConfirmSend] = useState(false);
   const [activeSection, setActiveSection] = useState<keyof Sections>('from_archives');
+  // Segment sizes, so the send selector can say who an issue actually reaches.
+  const [segmentCounts, setSegmentCounts] = useState<Record<string, number>>({});
 
   const loadList = useCallback(async () => {
     const res = await fetch('/api/admin/newsletter/issues');
@@ -296,353 +299,363 @@ export function NewsletterComposer() {
   const sent = issue?.status === 'sent';
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[300px_1fr] items-start">
-      {/* ---------------- Issues list ---------------- */}
-      <div className="space-y-4">
-        <Button
-          onClick={createDraft}
-          className="w-full bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
-        >
-          <Plus className="w-4 h-4 mr-1.5" /> New issue
-        </Button>
+    <>
+      <NewsletterListHealth onCounts={setSegmentCounts} />
+      <div className="grid gap-6 lg:grid-cols-[300px_1fr] items-start">
+        {/* ---------------- Issues list ---------------- */}
+        <div className="space-y-4">
+          <Button
+            onClick={createDraft}
+            className="w-full bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
+          >
+            <Plus className="w-4 h-4 mr-1.5" /> New issue
+          </Button>
 
-        {stats && (
-          <div className={card}>
-            <h3 className="font-body text-xs font-semibold tracking-widest uppercase text-brand-gold mb-3">
-              From the archive
-            </h3>
-            <dl className="space-y-2 text-sm">
-              <div className="flex justify-between gap-3">
-                <dt className="text-brand-muted">Total records</dt>
-                <dd className="text-brand-cream tabular-nums">
-                  {stats.totalRecords.toLocaleString()}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-brand-muted">New since last issue</dt>
-                <dd className="text-brand-cream tabular-nums">
-                  {stats.newRecords === null ? '—' : stats.newRecords.toLocaleString()}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-brand-muted">New collections</dt>
-                <dd className="text-brand-cream tabular-nums">
-                  {stats.newCollections.length}
-                </dd>
-              </div>
-            </dl>
-            {stats.newRecords === null && (
-              <p className="text-[11px] text-brand-muted/70 mt-3 leading-relaxed">
-                No previous issue to compare against, so the record count is left out
-                of the first send rather than announcing the whole archive as new.
+          {stats && (
+            <div className={card}>
+              <h3 className="font-body text-xs font-semibold tracking-widest uppercase text-brand-gold mb-3">
+                From the archive
+              </h3>
+              <dl className="space-y-2 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-brand-muted">Total records</dt>
+                  <dd className="text-brand-cream tabular-nums">
+                    {stats.totalRecords.toLocaleString()}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-brand-muted">New since last issue</dt>
+                  <dd className="text-brand-cream tabular-nums">
+                    {stats.newRecords === null ? '—' : stats.newRecords.toLocaleString()}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-brand-muted">New collections</dt>
+                  <dd className="text-brand-cream tabular-nums">
+                    {stats.newCollections.length}
+                  </dd>
+                </div>
+              </dl>
+              {stats.newRecords === null && (
+                <p className="text-[11px] text-brand-muted/70 mt-3 leading-relaxed">
+                  No previous issue to compare against, so the record count is left out
+                  of the first send rather than announcing the whole archive as new.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {issues.map((i) => (
+              <button
+                key={i.id}
+                onClick={() => openIssue(i.id)}
+                className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${
+                  issue?.id === i.id
+                    ? 'border-brand-gold/40 bg-brand-gold/[0.06]'
+                    : 'border-brand-gold/[0.08] hover:border-brand-gold/25'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm text-brand-cream truncate">
+                    {i.subject || 'Untitled issue'}
+                  </span>
+                  <span
+                    className={`text-[10px] uppercase tracking-wider shrink-0 ${
+                      i.status === 'sent' ? 'text-brand-sage' : 'text-brand-muted'
+                    }`}
+                  >
+                    {i.status}
+                  </span>
+                </div>
+                <p className="text-[11px] text-brand-muted mt-1">
+                  {i.sent_at
+                    ? `Sent to ${i.recipient_count ?? 0} · ${new Date(i.sent_at).toLocaleDateString()}`
+                    : `Edited ${new Date(i.updated_at).toLocaleDateString()}`}
+                </p>
+              </button>
+            ))}
+            {issues.length === 0 && (
+              <p className="text-sm text-brand-muted px-1">
+                No issues yet. Start one and the archive will fill in what it can.
               </p>
             )}
           </div>
-        )}
-
-        <div className="space-y-2">
-          {issues.map((i) => (
-            <button
-              key={i.id}
-              onClick={() => openIssue(i.id)}
-              className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${
-                issue?.id === i.id
-                  ? 'border-brand-gold/40 bg-brand-gold/[0.06]'
-                  : 'border-brand-gold/[0.08] hover:border-brand-gold/25'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm text-brand-cream truncate">
-                  {i.subject || 'Untitled issue'}
-                </span>
-                <span
-                  className={`text-[10px] uppercase tracking-wider shrink-0 ${
-                    i.status === 'sent' ? 'text-brand-sage' : 'text-brand-muted'
-                  }`}
-                >
-                  {i.status}
-                </span>
-              </div>
-              <p className="text-[11px] text-brand-muted mt-1">
-                {i.sent_at
-                  ? `Sent to ${i.recipient_count ?? 0} · ${new Date(i.sent_at).toLocaleDateString()}`
-                  : `Edited ${new Date(i.updated_at).toLocaleDateString()}`}
-              </p>
-            </button>
-          ))}
-          {issues.length === 0 && (
-            <p className="text-sm text-brand-muted px-1">
-              No issues yet. Start one and the archive will fill in what it can.
-            </p>
-          )}
         </div>
-      </div>
 
-      {/* ---------------- Editor ---------------- */}
-      {!issue ? (
-        <div className={`${card} text-sm text-brand-muted`}>
-          Select an issue, or start a new one.
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {sent && (
-            <div className="rounded-2xl border border-brand-sage/30 bg-brand-sage/[0.07] px-5 py-4">
-              <p className="text-sm text-brand-cream flex items-center gap-2">
-                <Check className="w-4 h-4 text-brand-sage" />
-                Sent to {issue.recipient_count ?? 0} subscribers on{' '}
-                {issue.sent_at ? new Date(issue.sent_at).toLocaleString() : ''}.
-              </p>
-              <p className="text-xs text-brand-muted mt-1">
-                Kept as a record of what went out, so it can no longer be edited.
-              </p>
-            </div>
-          )}
-
-          <div className={`${card} space-y-4`}>
-            <div className="space-y-2">
-              <Label>Subject</Label>
-              <Input
-                value={issue.subject}
-                disabled={sent}
-                onChange={(e) => setIssue({ ...issue, subject: e.target.value })}
-                placeholder="Free Persons of Color, and a name we can't place"
-                className={field}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Preview line</Label>
-              <Input
-                value={issue.preview_text ?? ''}
-                disabled={sent}
-                onChange={(e) => setIssue({ ...issue, preview_text: e.target.value })}
-                placeholder="Shown next to the subject in most inboxes"
-                className={field}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Send to</Label>
-              <Select
-                value={issue.segment}
-                disabled={sent}
-                onValueChange={(v) => setIssue({ ...issue, segment: v })}
-              >
-                <SelectTrigger className={field}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SEGMENTS.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      {s.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        {/* ---------------- Editor ---------------- */}
+        {!issue ? (
+          <div className={`${card} text-sm text-brand-muted`}>
+            Select an issue, or start a new one.
           </div>
+        ) : (
+          <div className="space-y-6">
+            {sent && (
+              <div className="rounded-2xl border border-brand-sage/30 bg-brand-sage/[0.07] px-5 py-4">
+                <p className="text-sm text-brand-cream flex items-center gap-2">
+                  <Check className="w-4 h-4 text-brand-sage" />
+                  Sent to {issue.recipient_count ?? 0} subscribers on{' '}
+                  {issue.sent_at ? new Date(issue.sent_at).toLocaleString() : ''}.
+                </p>
+                <p className="text-xs text-brand-muted mt-1">
+                  Kept as a record of what went out, so it can no longer be edited.
+                </p>
+              </div>
+            )}
 
-          <div className={`${card} space-y-5`}>
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div className="space-y-2 flex-1 min-w-[240px]">
-                <Label>Section</Label>
+            <div className={`${card} space-y-4`}>
+              <div className="space-y-2">
+                <Label>Subject</Label>
+                <Input
+                  value={issue.subject}
+                  disabled={sent}
+                  onChange={(e) => setIssue({ ...issue, subject: e.target.value })}
+                  placeholder="Free Persons of Color, and a name we can't place"
+                  className={field}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Preview line</Label>
+                <Input
+                  value={issue.preview_text ?? ''}
+                  disabled={sent}
+                  onChange={(e) => setIssue({ ...issue, preview_text: e.target.value })}
+                  placeholder="Shown next to the subject in most inboxes"
+                  className={field}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Send to</Label>
                 <Select
-                  value={activeSection}
-                  onValueChange={(v) => setActiveSection(v as keyof Sections)}
+                  value={issue.segment}
+                  disabled={sent}
+                  onValueChange={(v) => setIssue({ ...issue, segment: v })}
                 >
                   <SelectTrigger className={field}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {SECTIONS.map((sec) => (
-                      <SelectItem key={sec.key} value={sec.key}>
-                        <span className="flex items-center gap-2">
-                          <span
-                            aria-hidden="true"
-                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                              isFilled(issue.sections, sec.key)
-                                ? 'bg-brand-sage'
-                                : 'bg-brand-muted/40'
-                            }`}
-                          />
-                          {sec.label}
-                        </span>
+                    {SEGMENTS.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <p className="text-xs text-brand-muted pb-2">
-                {SECTIONS.filter((sec) => isFilled(issue.sections, sec.key)).length} of{' '}
-                {SECTIONS.length} written
-              </p>
             </div>
 
-            {SECTIONS.filter((sec) => sec.key === activeSection).map((sec) => (
-              <div key={sec.key} className="space-y-4 border-t border-brand-gold/[0.08] pt-5">
-                <p className="text-xs text-brand-muted">{sec.hint}</p>
-
-                {sec.fields.map((f) => {
-                  const current =
-                    (issue.sections[sec.key] as Record<string, string> | undefined)?.[f.name] ?? '';
-                  return (
-                    <div key={f.name} className="space-y-2">
-                      <Label>{f.label}</Label>
-                      {f.kind === 'textarea' ? (
-                        <Textarea
-                          value={current}
-                          disabled={sent}
-                          rows={f.rows}
-                          placeholder={f.placeholder}
-                          onChange={(e) => setSection(sec.key, { [f.name]: e.target.value })}
-                          className={`${field} resize-y`}
-                        />
-                      ) : (
-                        <Input
-                          value={current}
-                          disabled={sent}
-                          placeholder={f.placeholder}
-                          onChange={(e) => setSection(sec.key, { [f.name]: e.target.value })}
-                          className={field}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-
-                <p className="text-[11px] text-brand-muted/70">
-                  Sections left empty are omitted from the issue, not rendered blank.
+            <div className={`${card} space-y-5`}>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="space-y-2 flex-1 min-w-[240px]">
+                  <Label>Section</Label>
+                  <Select
+                    value={activeSection}
+                    onValueChange={(v) => setActiveSection(v as keyof Sections)}
+                  >
+                    <SelectTrigger className={field}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SECTIONS.map((sec) => (
+                        <SelectItem key={sec.key} value={sec.key}>
+                          <span className="flex items-center gap-2">
+                            <span
+                              aria-hidden="true"
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                isFilled(issue.sections, sec.key)
+                                  ? 'bg-brand-sage'
+                                  : 'bg-brand-muted/40'
+                              }`}
+                            />
+                            {sec.label}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-xs text-brand-muted pb-2">
+                  {SECTIONS.filter((sec) => isFilled(issue.sections, sec.key)).length} of{' '}
+                  {SECTIONS.length} written
                 </p>
               </div>
-            ))}
-          </div>
 
-          {/* ---------------- Actions ---------------- */}
-          <div className={`${card} space-y-4`}>
-            <div className="flex flex-wrap gap-3">
-              {!sent && (
-                <Button
-                  onClick={() =>
-                    save({
-                      subject: issue.subject,
-                      preview_text: issue.preview_text ?? '',
-                      segment: issue.segment,
-                      sections: issue.sections,
-                    })
-                  }
-                  disabled={saving}
-                  className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
-                >
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save draft'}
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                onClick={refreshPreview}
-                className="border-brand-gold/25 text-brand-cream rounded-xl"
-              >
-                <Eye className="w-4 h-4 mr-1.5" /> Preview
-              </Button>
-              {!sent && (
-                <Button
-                  variant="outline"
-                  onClick={() => remove(issue.id)}
-                  className="border-brand-burgundy/40 text-brand-burgundy-light rounded-xl ml-auto"
-                >
-                  <Trash2 className="w-4 h-4 mr-1.5" /> Delete
-                </Button>
-              )}
-            </div>
+              {SECTIONS.filter((sec) => sec.key === activeSection).map((sec) => (
+                <div key={sec.key} className="space-y-4 border-t border-brand-gold/[0.08] pt-5">
+                  <p className="text-xs text-brand-muted">{sec.hint}</p>
 
-            {!sent && (
-              <>
-                <div className="border-t border-brand-gold/[0.08] pt-4 space-y-2">
-                  <Label>Send a test first</Label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <Input
-                      type="email"
-                      value={testEmail}
-                      onChange={(e) => setTestEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      className={field}
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={sendTest}
-                      disabled={sending || !testEmail.trim()}
-                      className="border-brand-gold/25 text-brand-cream rounded-xl shrink-0"
-                    >
-                      Send test
-                    </Button>
-                  </div>
+                  {sec.fields.map((f) => {
+                    const current =
+                      (issue.sections[sec.key] as Record<string, string> | undefined)?.[f.name] ?? '';
+                    return (
+                      <div key={f.name} className="space-y-2">
+                        <Label>{f.label}</Label>
+                        {f.kind === 'textarea' ? (
+                          <Textarea
+                            value={current}
+                            disabled={sent}
+                            rows={f.rows}
+                            placeholder={f.placeholder}
+                            onChange={(e) => setSection(sec.key, { [f.name]: e.target.value })}
+                            className={`${field} resize-y`}
+                          />
+                        ) : (
+                          <Input
+                            value={current}
+                            disabled={sent}
+                            placeholder={f.placeholder}
+                            onChange={(e) => setSection(sec.key, { [f.name]: e.target.value })}
+                            className={field}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+
                   <p className="text-[11px] text-brand-muted/70">
-                    Saves the draft first, so the test always matches what you see.
-                    Sending a test doesn&rsquo;t mark the issue as sent.
+                    Sections left empty are omitted from the issue, not rendered blank.
                   </p>
                 </div>
+              ))}
+            </div>
 
-                <div className="border-t border-brand-gold/[0.08] pt-4">
-                  {confirmSend ? (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <p className="text-sm text-brand-cream">
-                        Send to{' '}
-                        <strong>
-                          {SEGMENTS.find((s) => s.value === issue.segment)?.label}
-                        </strong>
-                        ? This can&rsquo;t be undone.
-                      </p>
+            {/* ---------------- Actions ---------------- */}
+            <div className={`${card} space-y-4`}>
+              <div className="flex flex-wrap gap-3">
+                {!sent && (
+                  <Button
+                    onClick={() =>
+                      save({
+                        subject: issue.subject,
+                        preview_text: issue.preview_text ?? '',
+                        segment: issue.segment,
+                        sections: issue.sections,
+                      })
+                    }
+                    disabled={saving}
+                    className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
+                  >
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save draft'}
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={refreshPreview}
+                  className="border-brand-gold/25 text-brand-cream rounded-xl"
+                >
+                  <Eye className="w-4 h-4 mr-1.5" /> Preview
+                </Button>
+                {!sent && (
+                  <Button
+                    variant="outline"
+                    onClick={() => remove(issue.id)}
+                    className="border-brand-burgundy/40 text-brand-burgundy-light rounded-xl ml-auto"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1.5" /> Delete
+                  </Button>
+                )}
+              </div>
+
+              {!sent && (
+                <>
+                  <div className="border-t border-brand-gold/[0.08] pt-4 space-y-2">
+                    <Label>Send a test first</Label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Input
+                        type="email"
+                        value={testEmail}
+                        onChange={(e) => setTestEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        className={field}
+                      />
                       <Button
-                        onClick={sendIssue}
-                        disabled={sending}
-                        className="bg-brand-burgundy text-brand-cream hover:bg-brand-burgundy-light rounded-xl"
+                        variant="outline"
+                        onClick={sendTest}
+                        disabled={sending || !testEmail.trim()}
+                        className="border-brand-gold/25 text-brand-cream rounded-xl shrink-0"
                       >
-                        {sending ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          'Yes, send it'
-                        )}
+                        Send test
                       </Button>
-                      <button
-                        onClick={() => setConfirmSend(false)}
-                        className="text-xs text-brand-muted hover:text-brand-cream"
-                      >
-                        Cancel
-                      </button>
                     </div>
-                  ) : (
-                    <Button
-                      onClick={() => setConfirmSend(true)}
-                      disabled={!issue.subject.trim()}
-                      className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
-                    >
-                      <Send className="w-4 h-4 mr-1.5" /> Send issue
-                    </Button>
-                  )}
+                    <p className="text-[11px] text-brand-muted/70">
+                      Saves the draft first, so the test always matches what you see.
+                      Sending a test doesn&rsquo;t mark the issue as sent.
+                    </p>
+                  </div>
+
+                  <div className="border-t border-brand-gold/[0.08] pt-4">
+                    {confirmSend ? (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <p className="text-sm text-brand-cream">
+                          Send to{' '}
+                          <strong>
+                            {SEGMENTS.find((s) => s.value === issue.segment)?.label}
+                          </strong>
+                          {segmentCounts[issue.segment] !== undefined && (
+                            <>
+                              {' '}&mdash;{' '}
+                              <strong>{segmentCounts[issue.segment]}</strong>{' '}
+                              {segmentCounts[issue.segment] === 1 ? 'person' : 'people'}
+                            </>
+                          )}
+                          ? This can&rsquo;t be undone.
+                        </p>
+                        <Button
+                          onClick={sendIssue}
+                          disabled={sending}
+                          className="bg-brand-burgundy text-brand-cream hover:bg-brand-burgundy-light rounded-xl"
+                        >
+                          {sending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            'Yes, send it'
+                          )}
+                        </Button>
+                        <button
+                          onClick={() => setConfirmSend(false)}
+                          className="text-xs text-brand-muted hover:text-brand-cream"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        onClick={() => setConfirmSend(true)}
+                        disabled={!issue.subject.trim()}
+                        className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
+                      >
+                        <Send className="w-4 h-4 mr-1.5" /> Send issue
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {showPreview && (
+              <div className={card}>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-display text-lg font-semibold text-brand-cream">
+                    Preview
+                  </h3>
+                  <button
+                    onClick={() => setShowPreview(false)}
+                    className="text-xs text-brand-muted hover:text-brand-cream"
+                  >
+                    Hide
+                  </button>
                 </div>
-              </>
+                <iframe
+                  title="Newsletter preview"
+                  srcDoc={preview}
+                  className="w-full h-[640px] rounded-xl border border-brand-gold/[0.08] bg-white"
+                />
+              </div>
             )}
           </div>
-
-          {showPreview && (
-            <div className={card}>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-display text-lg font-semibold text-brand-cream">
-                  Preview
-                </h3>
-                <button
-                  onClick={() => setShowPreview(false)}
-                  className="text-xs text-brand-muted hover:text-brand-cream"
-                >
-                  Hide
-                </button>
-              </div>
-              <iframe
-                title="Newsletter preview"
-                srcDoc={preview}
-                className="w-full h-[640px] rounded-xl border border-brand-gold/[0.08] bg-white"
-              />
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </>
   );
 }
