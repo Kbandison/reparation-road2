@@ -166,8 +166,12 @@ export function TreeCanvas({
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openRelatives, setOpenRelatives] = useState<string | null>(null);
-  // The id of a relative created moments ago, so its modal opens ready to type.
-  const [justCreated, setJustCreated] = useState<string | null>(null);
+  // A relative being drafted against an anchor. Null until "Add parent" and
+  // again once it is saved or abandoned.
+  const [draft, setDraft] = useState<{
+    kind: 'parent' | 'child' | 'spouse';
+    anchorId: string;
+  } | null>(null);
 
   // How many other researchers hold each person. Empty when sharing is off,
   // which is the common case, so the badge simply never appears.
@@ -494,25 +498,29 @@ export function TreeCanvas({
     }
   }
 
-  async function addRelative(kind: 'parent' | 'child' | 'spouse') {
+  // Opens a blank form. Nothing is written until Create, so cancelling leaves
+  // no half-made "New person" behind — which is what the immediate POST did.
+  function addRelative(kind: 'parent' | 'child' | 'spouse') {
     if (!selectedId) return;
+    setDraft({ kind, anchorId: selectedId });
+  }
+
+  async function createRelative(patch: Partial<TreeIndividual>) {
+    if (!draft) return;
     const res = await fetch('/api/family-tree/individuals', {
       method: 'POST',
       headers: json,
       body: JSON.stringify({
+        ...patch,
         tree_id: tree.id,
-        given_name: 'New',
-        surname: 'person',
-        relation: { kind, anchor_id: selectedId },
+        relation: { kind: draft.kind, anchor_id: draft.anchorId },
       }),
     });
     const data = await res.json();
     if (data.individual) setIndividuals((p) => [...p, data.individual]);
     if (data.relationship) setRelationships((r) => [...r, data.relationship]);
-    if (data.individual) {
-      setSelectedId(data.individual.id);
-      setJustCreated(data.individual.id);
-    }
+    setDraft(null);
+    if (data.individual) setSelectedId(data.individual.id);
   }
 
   async function deletePerson() {
@@ -872,8 +880,22 @@ export function TreeCanvas({
       )}
 
       {/* Editor panel */}
+      {draft && (
+        <PersonPreview
+          key={`draft-${draft.anchorId}-${draft.kind}`}
+          person={{ tree_id: tree.id } as TreeIndividual}
+          ownerName={ownerName}
+          canEdit
+          isNew
+          draftLabel={`New ${draft.kind}`}
+          onSave={createRelative}
+          onClose={() => setDraft(null)}
+        />
+      )}
+
       {selected && (
         <PersonPreview
+          key={selected.id}
           person={selected}
           ownerName={ownerName}
           ownerHandle={ownerHandle}
@@ -882,11 +904,7 @@ export function TreeCanvas({
           onAddRelative={canEdit ? addRelative : undefined}
           onDelete={canEdit ? deletePerson : undefined}
           onSave={canEdit ? savePerson : undefined}
-          startInEdit={canEdit && justCreated === selected.id}
-          onClose={() => {
-            setSelectedId(null);
-            setJustCreated(null);
-          }}
+          onClose={() => setSelectedId(null)}
         />
       )}
 

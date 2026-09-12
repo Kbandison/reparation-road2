@@ -71,6 +71,8 @@ export function PersonPreview({
   onDelete,
   onSave,
   startInEdit = false,
+  isNew = false,
+  draftLabel,
 }: {
   person: TreeIndividual;
   onClose: () => void;
@@ -84,13 +86,17 @@ export function PersonPreview({
   onAddRelative?: (kind: 'parent' | 'child' | 'spouse') => void;
   onDelete?: () => Promise<void>;
   onSave?: (patch: Partial<TreeIndividual>) => Promise<void>;
-  /** A just-created relative opens straight into the fields — it is called
-   *  "New person" and the only reason to be looking at it is to name it. */
   startInEdit?: boolean;
+  /** A relative being drafted. Nothing exists in the database yet, so there is
+   *  nothing to delete, link to, or hang another relative off — and Cancel
+   *  leaves no trace. */
+  isNew?: boolean;
+  /** What is being added, for the heading: "New parent", "New spouse". */
+  draftLabel?: string;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [editing, setEditing] = useState(startInEdit);
+  const [editing, setEditing] = useState(startInEdit || isNew);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Partial<TreeIndividual>>(person);
 
@@ -152,9 +158,11 @@ export function PersonPreview({
           )}
           <div className="min-w-0 pr-6">
             <h2 className="font-display text-xl font-semibold text-brand-cream leading-tight">
-              {fullName(person)}
+              {isNew ? draftLabel ?? 'New person' : fullName(person)}
             </h2>
-            <p className="text-xs text-brand-muted mt-1">In {ownerName}&rsquo;s tree</p>
+            <p className="text-xs text-brand-muted mt-1">
+              {isNew ? 'Not saved yet' : `In ${ownerName}’s tree`}
+            </p>
           </div>
         </div>
 
@@ -211,10 +219,20 @@ export function PersonPreview({
                 disabled={saving}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold px-4 py-1.5 text-sm font-medium text-brand-bg hover:bg-brand-gold-light"
               >
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save'}
+                {saving ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : isNew ? (
+                  'Create'
+                ) : (
+                  'Save'
+                )}
               </button>
               <button
                 onClick={() => {
+                  if (isNew) {
+                    onClose();
+                    return;
+                  }
                   setForm(person);
                   setEditing(false);
                 }}
@@ -247,7 +265,7 @@ export function PersonPreview({
           </Link>
         )}
 
-        {canEdit && (
+        {canEdit && !isNew && (
           <div className="mt-5 border-t border-brand-gold/[0.08] pt-4 space-y-3">
             <div className="flex flex-wrap items-center gap-4">
               {!editing && (
@@ -327,7 +345,7 @@ export function PersonPreview({
           </div>
         )}
 
-        {!canEdit && (
+        {!canEdit && !isNew && (
           <div className="mt-5 border-t border-brand-gold/[0.08] pt-4">
             <Link
               href={`/forum/u/${ownerHandle}/tree/${person.id}`}
@@ -338,7 +356,7 @@ export function PersonPreview({
           </div>
         )}
 
-        {yourCopy && (
+        {yourCopy && !isNew && (
           <div className="mt-5 border-t border-brand-gold/[0.08] pt-4">
             <p className="text-sm text-brand-cream inline-flex items-center gap-2">
               <Users className="w-4 h-4 text-brand-gold" />
