@@ -9,6 +9,7 @@ import { FollowButton } from '@/components/forum/follow-button';
 import { deriveBadges } from '@/lib/forum/badges';
 import { Award, MessageSquare, ArrowBigUp, MapPin, Users } from 'lucide-react';
 import type { Profile, ForumThread } from '@/lib/types';
+import { ProfileTreePanel } from '@/components/forum/profile-tree-panel';
 
 interface Props {
   params: Promise<{ handle: string }>;
@@ -166,6 +167,15 @@ export default async function ProfilePage({ params }: Props) {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="mb-6">
+        <ProfileTreePanel
+          profileId={profile.id}
+          profileName={displayName(profile)}
+          sharingEnabled={Boolean(profile.tree_sharing_enabled)}
+          viewerId={user?.id ?? null}
+        />
       </div>
 
       {/* Post history */}

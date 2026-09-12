@@ -94,6 +94,12 @@ export function DashboardProfileCard({ profile }: { profile: Profile }) {
   const surnameList = surnames.split(',').map((s) => s.trim()).filter(Boolean);
   const regionList = regions.split(',').map((s) => s.trim()).filter(Boolean);
 
+  const missing = [
+    !avatarUrl && 'a photo',
+    !bio.trim() && 'a bio',
+    surnameList.length === 0 && 'the surnames you research',
+  ].filter(Boolean) as string[];
+
   return (
     <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 mb-8">
       <div className="flex flex-col sm:flex-row gap-6">
@@ -150,7 +156,7 @@ export function DashboardProfileCard({ profile }: { profile: Profile }) {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>About your research</Label>
+                <Label>Bio</Label>
                 <Textarea
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
@@ -203,12 +209,12 @@ export function DashboardProfileCard({ profile }: { profile: Profile }) {
                   <h2 className="font-display text-2xl font-semibold text-brand-cream truncate">
                     {name}
                   </h2>
-                  {profile.handle && (
+                  {handle.trim() && (
                     <Link
-                      href={`/forum/u/${profile.handle}`}
+                      href={`/forum/u/${handle.trim()}`}
                       className="text-sm text-brand-gold hover:underline inline-flex items-center gap-1"
                     >
-                      @{profile.handle} <ExternalLink className="w-3 h-3" />
+                      @{handle.trim()} <ExternalLink className="w-3 h-3" />
                     </Link>
                   )}
                 </div>
@@ -221,8 +227,26 @@ export function DashboardProfileCard({ profile }: { profile: Profile }) {
               </div>
 
               <p className="text-sm text-brand-muted leading-relaxed mt-3">
-                {bio.trim() || 'Add a line about what you’re researching — it’s what other researchers see when your trees overlap.'}
+                {bio.trim() ||
+                  'Add a line about what you’re researching — it’s what other researchers see when your trees overlap.'}
               </p>
+
+              {missing.length > 0 && (
+                // Everyone has a profile from the moment they sign up, so the
+                // question is never "do you have one" but "is it worth looking
+                // at". Naming what is missing beats a progress bar.
+                <p className="text-xs text-brand-muted/80 mt-3">
+                  Your profile is live but thin &mdash; add{' '}
+                  <span className="text-brand-cream">{missing.join(', ')}</span>{' '}
+                  so other researchers know who they&rsquo;ve matched with.{' '}
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="text-brand-gold hover:underline"
+                  >
+                    Edit
+                  </button>
+                </p>
+              )}
 
               {(surnameList.length > 0 || regionList.length > 0) && (
                 <div className="flex flex-wrap gap-1.5 mt-4">

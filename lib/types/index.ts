@@ -20,6 +20,10 @@ export interface Profile {
   newsletter_pending_opt_in?: boolean;
   newsletter_unsubscribed_at?: string | null;
   resend_contact_id?: string | null;
+  // Tree connections opt-in. Present once tree_connections_migration.sql is run.
+  tree_sharing_enabled?: boolean;
+  tree_sharing_include_living?: boolean;
+  welcome_email_sent_at?: string | null;
   // Forum identity (present once the migration is run; default-safe otherwise).
   handle?: string | null;
   display_name?: string | null;
