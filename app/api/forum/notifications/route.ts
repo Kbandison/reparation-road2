@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { profileName } from '@/lib/utils/profile-name';
 
 interface EnrichedNotification {
   id: string;
@@ -63,11 +64,7 @@ export async function GET(request: NextRequest) {
   const enriched: EnrichedNotification[] = notifs.map((n) => {
     const a = actorMap.get(n.actor_id);
     const t = threadMap.get(n.thread_id);
-    const actorName =
-      a?.display_name?.trim() ||
-      `${a?.first_name ?? ''} ${a?.last_name ?? ''}`.trim() ||
-      a?.handle ||
-      'Someone';
+    const actorName = profileName(a, 'Someone');
     return {
       id: n.id,
       type: n.type,

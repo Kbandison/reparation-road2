@@ -19,6 +19,7 @@ import { AuthModal } from '@/components/auth/auth-modal';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { NavBookmarks } from '@/components/layout/nav-bookmarks';
 import type { Profile } from '@/lib/types';
+import { profileName } from '@/lib/utils/profile-name';
 
 const navLinks = [
   { label: 'Our Story', href: '/about' },
@@ -152,7 +153,7 @@ export function MainNav({ profile }: MainNavProps) {
                 <DropdownMenuContent align="end" className="w-56 bg-brand-card border-brand-gold/[0.08]">
                   <div className="px-2 py-1.5 border-b border-brand-gold/[0.08] mb-1">
                     <p className="text-sm font-medium text-brand-cream truncate">
-                      {profile?.display_name?.trim() || `${profile?.first_name ?? ''} ${profile?.last_name ?? ''}`.trim() || 'Researcher'}
+                      {profileName(profile)}
                     </p>
                     {profile?.handle ? (
                       <p className="text-xs text-brand-gold truncate">@{profile.handle}</p>

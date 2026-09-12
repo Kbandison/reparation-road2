@@ -13,6 +13,7 @@ import slugify from 'slugify';
 import { RecordPicker } from '@/components/forum/record-picker';
 import { SharedThreadCard } from '@/components/forum/post-media';
 import type { ForumAttachedRecord, ForumPostType, ForumSharedThread } from '@/lib/types';
+import { profileName } from '@/lib/utils/profile-name';
 
 interface Category {
   id: string;
@@ -65,11 +66,7 @@ export function PostComposer({ inModal = false }: { inModal?: boolean }) {
         .select('display_name, first_name, last_name, handle')
         .eq('id', t.user_id)
         .maybeSingle();
-      const author =
-        p?.display_name?.trim() ||
-        `${p?.first_name ?? ''} ${p?.last_name ?? ''}`.trim() ||
-        p?.handle ||
-        'a member';
+      const author = profileName(p, 'a member');
       if (cancelled) return;
       setSharedThread({ slug: t.slug, title: t.title, author });
       setTitle((cur) => cur || `Shared: ${t.title}`);

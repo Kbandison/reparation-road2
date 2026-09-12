@@ -11,6 +11,7 @@ import { FeedLeftRail } from '@/components/forum/feed-left-rail';
 import { FeedRightRail, type FollowedUser } from '@/components/forum/feed-right-rail';
 import { OnboardingGate } from '@/components/forum/onboarding-gate';
 import type { FeedSort, Profile } from '@/lib/types';
+import { profileName } from '@/lib/utils/profile-name';
 
 export const metadata: Metadata = {
   title: 'Community Feed',
@@ -22,18 +23,7 @@ const SORTS: { key: FeedSort; label: string; icon: typeof Flame }[] = [
   { key: 'top', label: 'Top', icon: TrendingUp },
 ];
 
-function followName(p: {
-  display_name?: string | null;
-  handle?: string | null;
-  first_name: string | null;
-  last_name: string | null;
-}): string {
-  if (p.display_name?.trim()) return p.display_name.trim();
-  const full = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
-  if (full) return full;
-  if (p.handle?.trim()) return p.handle.trim();
-  return 'Researcher';
-}
+
 
 interface Props {
   searchParams: Promise<{ sort?: string; category?: string; page?: string }>;
@@ -72,7 +62,7 @@ export default async function ForumPage({ searchParams }: Props) {
         .in('id', followIds);
       following = (followed ?? []).map((p) => ({
         id: p.id,
-        displayName: followName(p),
+        displayName: profileName(p),
         handle: p.handle ?? null,
         avatarUrl: p.avatar_url ?? null,
       }));

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FeedItem, FeedSort, ForumAuthor, ForumThread, ForumThreadReaction } from '@/lib/types';
+import { profileName, type NameableProfile } from '@/lib/utils/profile-name';
 
 // Builds the social feed: threads across all (or one) category, assembled with
 // author, reply count, vote count, the viewer's own vote, and a hot score.
@@ -25,17 +26,10 @@ function hotScore(votes: number, replies: number, createdAt: string): number {
   return order + seconds / 45000;
 }
 
-function authorName(p: {
-  display_name?: string | null;
-  handle?: string | null;
-  first_name: string | null;
-  last_name: string | null;
-}): string {
-  if (p.display_name?.trim()) return p.display_name.trim();
-  const full = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
-  if (full) return full;
-  if (p.handle?.trim()) return p.handle.trim();
-  return 'Anonymous';
+// 'Anonymous' rather than 'Researcher': in a feed this labels a post whose
+// author could not be resolved at all, not a person who skipped their profile.
+function authorName(p: NameableProfile): string {
+  return profileName(p, 'Anonymous');
 }
 
 export async function getFeed(

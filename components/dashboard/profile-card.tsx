@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import type { Profile } from '@/lib/types';
+import { profileName } from '@/lib/utils/profile-name';
 
 /**
  * The researcher's own profile, at the top of the dashboard.
@@ -32,10 +33,13 @@ export function DashboardProfileCard({ profile }: { profile: Profile }) {
   const [surnames, setSurnames] = useState((profile.research_surnames ?? []).join(', '));
   const [regions, setRegions] = useState((profile.research_regions ?? []).join(', '));
 
-  const name =
-    displayName.trim() ||
-    [profile.first_name, profile.last_name].filter(Boolean).join(' ') ||
-    'Researcher';
+  // Reads from local state so the heading updates as you type a display name.
+  const name = profileName({
+    display_name: displayName,
+    first_name: profile.first_name,
+    last_name: profile.last_name,
+    handle: handle,
+  });
 
   async function upload(files: FileList | null) {
     if (!files?.length) return;

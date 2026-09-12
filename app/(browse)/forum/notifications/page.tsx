@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { Bell, ArrowBigUp, MessageSquare, AtSign, UserPlus } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
+import { profileName } from '@/lib/utils/profile-name';
 
 export const metadata: Metadata = { title: 'Notifications — Community' };
 
@@ -74,7 +75,7 @@ export default async function NotificationsPage() {
             const a = actorMap.get(n.actor_id);
             const t = threadMap.get(n.thread_id);
             const actorName =
-              a?.display_name?.trim() || `${a?.first_name ?? ''} ${a?.last_name ?? ''}`.trim() || a?.handle || 'Someone';
+              profileName(a, 'Someone');
             const Icon = ICONS[n.type] ?? Bell;
             const href = t?.slug ? `/forum/thread/${t.slug}` : a?.handle ? `/forum/u/${a.handle}` : '#';
             return (

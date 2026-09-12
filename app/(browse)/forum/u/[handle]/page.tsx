@@ -10,6 +10,7 @@ import { deriveBadges } from '@/lib/forum/badges';
 import { Award, MessageSquare, ArrowBigUp, MapPin, Users } from 'lucide-react';
 import type { Profile, ForumThread } from '@/lib/types';
 import { ProfileTreePanel } from '@/components/forum/profile-tree-panel';
+import { profileName } from '@/lib/utils/profile-name';
 
 interface Props {
   params: Promise<{ handle: string }>;
@@ -20,11 +21,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: `@${handle} — Community` };
 }
 
-function displayName(p: Profile): string {
-  if (p.display_name?.trim()) return p.display_name.trim();
-  const full = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
-  return full || p.handle || 'Researcher';
-}
 
 export default async function ProfilePage({ params }: Props) {
   const { handle } = await params;
@@ -59,7 +55,7 @@ export default async function ProfilePage({ params }: Props) {
   });
 
   const isOwn = user?.id === profile.id;
-  const name = displayName(profile);
+  const name = profileName(profile);
 
   let followingUser = false;
   if (user && !isOwn) {
@@ -172,7 +168,7 @@ export default async function ProfilePage({ params }: Props) {
       <div className="mb-6">
         <ProfileTreePanel
           profileId={profile.id}
-          profileName={displayName(profile)}
+          profileName={profileName(profile)}
           sharingEnabled={Boolean(profile.tree_sharing_enabled)}
           viewerId={user?.id ?? null}
         />

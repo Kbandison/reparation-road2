@@ -9,6 +9,7 @@ import { BookmarkLink } from '@/components/collection/bookmark-link';
 import { DashboardProfileCard } from '@/components/dashboard/profile-card';
 import { TreeConnectionsPanel } from '@/components/dashboard/tree-connections-panel';
 import type { Profile } from '@/lib/types';
+import { profileFirstName } from '@/lib/utils/profile-name';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -55,7 +56,7 @@ export default async function DashboardPage() {
   return (
     <>
       <PageHeader
-        title={`Welcome back, ${profile?.first_name || 'Researcher'}`}
+        title={`Welcome back, ${profileFirstName(profile)}`}
         description="Your research hub — your profile, researchers you overlap with, and your activity."
       />
 
