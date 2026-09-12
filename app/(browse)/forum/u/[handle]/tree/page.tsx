@@ -105,15 +105,19 @@ export default async function SharedTreePage({ params }: Props) {
           </p>
         </div>
       ) : (
-        // The owner's canvas, minus every control that writes. A separate viewer
-        // would have drifted away from the real one within a release or two.
-        <TreeCanvas
-          tree={view.tree}
-          initialIndividuals={view.rawIndividuals}
-          initialRelationships={view.relationships}
-          readOnly
-          overlapIds={view.overlapIds}
-        />
+        // The canvas is w-full h-full and takes its height entirely from its
+        // parent, so it needs a sized box — without one it collapses to nothing
+        // and renders blank. The owner's page gets this from a fixed full-height
+        // layout; here it stays in the page flow under the breadcrumb.
+        <div className="h-[calc(100vh-16rem)] min-h-[460px] rounded-2xl border border-brand-gold/[0.08] overflow-hidden">
+          <TreeCanvas
+            tree={view.tree}
+            initialIndividuals={view.rawIndividuals}
+            initialRelationships={view.relationships}
+            readOnly
+            overlapIds={view.overlapIds}
+          />
+        </div>
       )}
     </div>
   );
