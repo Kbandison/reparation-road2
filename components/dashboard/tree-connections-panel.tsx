@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Loader2, Users, Send, MessageSquare, ExternalLink } from 'lucide-react';
+import { Loader2, Users, Send, MessageSquare, ExternalLink, TreePine } from 'lucide-react';
 import { Avatar } from '@/components/forum/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -322,13 +322,24 @@ export function TreeConnectionsPanel({ currentUserId }: { currentUserId: string 
                     )}
                   </ul>
 
-                  <button
-                    onClick={() => openConversation(o)}
-                    className="mt-3 flex items-center gap-1.5 text-xs text-brand-gold hover:text-brand-gold-light"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    {openThread === o.userId ? 'Hide messages' : 'Message'}
-                  </button>
+                  <div className="mt-3 flex items-center gap-4">
+                    <button
+                      onClick={() => openConversation(o)}
+                      className="flex items-center gap-1.5 text-xs text-brand-gold hover:text-brand-gold-light"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      {openThread === o.userId ? 'Hide messages' : 'Message'}
+                    </button>
+                    {o.handle && (
+                      <Link
+                        href={`/forum/u/${o.handle}/tree`}
+                        className="flex items-center gap-1.5 text-xs text-brand-gold hover:text-brand-gold-light"
+                      >
+                        <TreePine className="w-3.5 h-3.5" />
+                        Browse their tree
+                      </Link>
+                    )}
+                  </div>
 
                   {openThread === o.userId && (
                     <div className="mt-3 border-t border-brand-gold/[0.08] pt-3">

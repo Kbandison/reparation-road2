@@ -38,6 +38,10 @@ import { PersonEditor } from './person-editor';
 import { ImportDialog } from './import-dialog';
 
 interface Props {
+  readOnly?: boolean;
+  /** Individuals in THIS tree that the viewer also holds. Read-only mode is
+   *  looking at someone else's ids, so the counts endpoint cannot supply it. */
+  overlapIds?: string[];
   tree: FamilyTree;
   initialIndividuals: TreeIndividual[];
   initialRelationships: TreeRelationship[];
@@ -130,7 +134,16 @@ const REL_ICON: Record<OffLineRelative['relation'], typeof Heart> = {
   relative: Users,
 };
 
-export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: Props) {
+export function TreeCanvas({
+  tree,
+  initialIndividuals,
+  initialRelationships,
+  // Someone else's tree: same rendering, none of the editing. The alternative
+  // was a second canvas that would drift away from this one.
+  readOnly = false,
+  overlapIds,
+}: Props) {
+  const canEdit = !readOnly;
   const [individuals, setIndividuals] = useState<TreeIndividual[]>(initialIndividuals);
   const [relationships, setRelationships] = useState<TreeRelationship[]>(initialRelationships);
   const [view, setView] = useState<View>({ x: 0, y: 0, scale: 0.9 });
@@ -151,6 +164,10 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
   const [overlapCounts, setOverlapCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
+    if (readOnly) {
+      setOverlapCounts(Object.fromEntries((overlapIds ?? []).map((id) => [id, 1])));
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -165,7 +182,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [readOnly, overlapIds]);
 
   // Background archive matching (auto-runs after import / on load).
   const [matchProgress, setMatchProgress] = useState<{ done: number; remaining: number } | null>(null);
@@ -349,6 +366,9 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
   // Search the archive for every not-yet-matched person, a batch at a time,
   // until everyone has been searched. Runs after an import and on load.
   const runMatchLoop = useCallback(async () => {
+    // Matching writes archive links onto the tree's own rows, so it belongs to
+    // the owner's visit, not a visitor's.
+    if (readOnly) return;
     if (matchingRef.current) return;
     matchingRef.current = true;
     let done = 0;
@@ -374,7 +394,7 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
       matchingRef.current = false;
       setTimeout(() => setMatchProgress(null), 4000);
     }
-  }, [tree.id]);
+  }, [tree.id, readOnly]);
 
   // Kick off matching for anyone still unsearched when the tree opens.
   useEffect(() => {
@@ -400,6 +420,8 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
 
   function onFreeCardPointerDown(e: React.PointerEvent, id: string) {
     e.stopPropagation();
+    // Dragging persists pos_x/pos_y, which is not the viewer's to change.
+    if (readOnly) return;
     const p = byId.get(id);
     if (!p) return;
     movedRef.current = false;
@@ -636,16 +658,20 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
             Free
           </button>
         </div>
-        <button className={toolBtn} onClick={addPerson}>
-          <Plus className="w-3.5 h-3.5" /> Add person
-        </button>
-        <button className={toolBtn} onClick={() => setImportOpen(true)}>
-          <Upload className="w-3.5 h-3.5" /> Import GEDCOM
-        </button>
-        {mode === 'free' && (
-          <button className={toolBtn} onClick={arrange}>
-            <LayoutGrid className="w-3.5 h-3.5" /> Auto-arrange
-          </button>
+        {canEdit && (
+          <>
+            <button className={toolBtn} onClick={addPerson}>
+              <Plus className="w-3.5 h-3.5" /> Add person
+            </button>
+            <button className={toolBtn} onClick={() => setImportOpen(true)}>
+              <Upload className="w-3.5 h-3.5" /> Import GEDCOM
+            </button>
+            {mode === 'free' && (
+              <button className={toolBtn} onClick={arrange}>
+                <LayoutGrid className="w-3.5 h-3.5" /> Auto-arrange
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -827,22 +853,26 @@ export function TreeCanvas({ tree, initialIndividuals, initialRelationships }: P
               Add people one at a time, or import a GEDCOM file from another genealogy program.
             </p>
             <div className="flex gap-2 justify-center">
-              <button
-                className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold px-4 py-2 text-sm text-brand-bg hover:bg-brand-gold-light"
-                onClick={addPerson}
-              >
-                <Plus className="w-4 h-4" /> Add a person
-              </button>
-              <button className={toolBtn} onClick={() => setImportOpen(true)}>
-                <Upload className="w-3.5 h-3.5" /> Import GEDCOM
-              </button>
+              {canEdit && (
+                <>
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold px-4 py-2 text-sm text-brand-bg hover:bg-brand-gold-light"
+                    onClick={addPerson}
+                  >
+                    <Plus className="w-4 h-4" /> Add a person
+                  </button>
+                  <button className={toolBtn} onClick={() => setImportOpen(true)}>
+                    <Upload className="w-3.5 h-3.5" /> Import GEDCOM
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
       )}
 
       {/* Editor panel */}
-      {selected && (
+      {canEdit && selected && (
         <div
           className="absolute top-0 right-0 z-30 h-full w-full sm:w-80"
           onPointerDown={(e) => e.stopPropagation()}

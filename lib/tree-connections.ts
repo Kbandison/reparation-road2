@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import type { FamilyTree, TreeIndividual, TreeRelationship } from '@/lib/types';
 
 /**
  * Finding other researchers who have the same people in their trees.
@@ -331,6 +332,11 @@ export interface SharedTreeView {
   individuals: VisibleIndividual[];
   /** Held back by the living-person safeguard, so the gap is stated not hidden. */
   withheld: number;
+  /** Full rows plus relationships, for rendering the same canvas the owner sees. */
+  tree: FamilyTree | null;
+  rawIndividuals: TreeIndividual[];
+  relationships: TreeRelationship[];
+  overlapIds: string[];
 }
 
 /**
@@ -348,7 +354,14 @@ export async function getSharedTreeView(
   viewerId: string | null,
   ownerId: string,
 ): Promise<SharedTreeView> {
-  const empty = { individuals: [], withheld: 0 };
+  const empty = {
+    individuals: [],
+    withheld: 0,
+    tree: null,
+    rawIndividuals: [],
+    relationships: [],
+    overlapIds: [],
+  };
   if (!viewerId) return { allowed: false, denial: 'not-signed-in', ...empty };
 
   const supabase = createAdminClient();
@@ -369,19 +382,12 @@ export async function getSharedTreeView(
   }
 
   const cutoff = new Date().getFullYear() - 100;
-  const rows: {
-    id: string;
-    given_name: string | null;
-    surname: string | null;
-    birth_date: string | null;
-    birth_place: string | null;
-    death_date: string | null;
-  }[] = [];
+  const rows: TreeIndividual[] = [];
 
   for (let from = 0; ; from += 1000) {
     let query = supabase
       .from('tree_individuals')
-      .select('id, given_name, surname, birth_date, birth_place, death_date')
+      .select('*')
       .eq('user_id', ownerId)
       .order('surname')
       .order('given_name')
@@ -399,7 +405,7 @@ export async function getSharedTreeView(
       break;
     }
     if (!data || data.length === 0) break;
-    rows.push(...data);
+    rows.push(...(data as TreeIndividual[]));
     if (data.length < 1000) break;
   }
 
@@ -415,9 +421,45 @@ export async function getSharedTreeView(
     if (row.other_user_id === ownerId) sharedIds.add(row.other_individual_id);
   }
 
+  // The owner's primary tree. Multiple trees are rare; the canvas shows one, so
+  // the first is the one a visitor gets.
+  const { data: trees } = await supabase
+    .from('family_trees')
+    .select('*')
+    .eq('user_id', ownerId)
+    .order('created_at')
+    .limit(1);
+  const tree = (trees?.[0] as FamilyTree | undefined) ?? null;
+
+  const visibleIds = new Set(rows.map((r) => r.id));
+  const relationships: TreeRelationship[] = [];
+
+  if (tree) {
+    for (let from = 0; ; from += 1000) {
+      const { data } = await supabase
+        .from('tree_relationships')
+        .select('*')
+        .eq('tree_id', tree.id)
+        .range(from, from + 999);
+      if (!data || data.length === 0) break;
+      relationships.push(...(data as TreeRelationship[]));
+      if (data.length < 1000) break;
+    }
+  }
+
+  // An edge to someone the safeguard withheld would draw a line to nothing —
+  // and hint at the existence of a person deliberately not shown.
+  const visibleRelationships = relationships.filter(
+    (r) => visibleIds.has(r.from_id) && visibleIds.has(r.to_id),
+  );
+
   return {
     allowed: true,
     withheld: Math.max(0, (total ?? 0) - rows.length),
+    tree,
+    rawIndividuals: rows,
+    relationships: visibleRelationships,
+    overlapIds: [...sharedIds].filter((id) => visibleIds.has(id)),
     individuals: rows.map((r) => ({
       id: r.id,
       givenName: r.given_name,

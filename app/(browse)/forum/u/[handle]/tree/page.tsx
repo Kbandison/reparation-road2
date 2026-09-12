@@ -5,7 +5,7 @@ import { ArrowLeft, Lock, TreePine } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getSharedTreeView } from '@/lib/tree-connections';
 import { profileName } from '@/lib/utils/profile-name';
-import { SharedTreeList } from '@/components/forum/shared-tree-list';
+import { TreeCanvas } from '@/components/family-tree/tree-canvas';
 import type { Profile } from '@/lib/types';
 
 interface Props {
@@ -35,7 +35,7 @@ export default async function SharedTreePage({ params }: Props) {
   const view = await getSharedTreeView(user?.id ?? null, profile.id);
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       <Link
         href={`/forum/u/${handle}`}
         className="inline-flex items-center gap-1.5 text-sm text-brand-muted hover:text-brand-cream mb-4"
@@ -43,58 +43,17 @@ export default async function SharedTreePage({ params }: Props) {
         <ArrowLeft className="w-4 h-4" /> {name}&rsquo;s profile
       </Link>
 
-      <h1 className="font-display text-2xl font-semibold text-brand-cream mb-1 inline-flex items-center gap-2">
-        <TreePine className="w-5 h-5 text-brand-sage" />
-        {name}&rsquo;s research
-      </h1>
-
-      {!view.allowed ? (
-        <div className={`${card} mt-4`}>
-          <p className="text-sm text-brand-cream inline-flex items-center gap-2">
-            <Lock className="w-4 h-4 text-brand-muted" />
-            {view.denial === 'not-signed-in' && 'Sign in to see this.'}
-            {view.denial === 'owner-not-sharing' &&
-              `${name} hasn’t turned on tree sharing.`}
-            {view.denial === 'viewer-not-sharing' &&
-              'Tree sharing works both ways.'}
-          </p>
-          <p className="text-sm text-brand-muted mt-2 leading-relaxed">
-            {view.denial === 'not-signed-in' && (
-              <>
-                Research trees are visible to signed-in researchers who share
-                theirs too.{' '}
-                <Link href="/login" className="text-brand-gold hover:underline">
-                  Sign in
-                </Link>
-                .
-              </>
-            )}
-            {view.denial === 'owner-not-sharing' &&
-              'Only researchers who share their own trees appear here.'}
-            {/* Stated plainly: you cannot browse other people's research while
-                keeping yours private. */}
-            {view.denial === 'viewer-not-sharing' && (
-              <>
-                You can see another researcher&rsquo;s tree while yours is visible
-                to them as well. Turn it on from your{' '}
-                <Link href="/dashboard" className="text-brand-gold hover:underline">
-                  dashboard
-                </Link>
-                .
-              </>
-            )}
-          </p>
-        </div>
-      ) : view.individuals.length === 0 ? (
-        <div className={`${card} mt-4`}>
-          <p className="text-sm text-brand-muted">
-            {name} hasn&rsquo;t added anyone that can be shown here yet.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-4 space-y-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+        <h1 className="font-display text-2xl font-semibold text-brand-cream inline-flex items-center gap-2">
+          <TreePine className="w-5 h-5 text-brand-sage" />
+          {name}&rsquo;s research
+        </h1>
+        {view.allowed && view.individuals.length > 0 && (
           <p className="text-sm text-brand-muted">
             {view.individuals.length.toLocaleString()} people
+            {view.overlapIds.length > 0 && (
+              <> &middot; {view.overlapIds.length} also in your trees</>
+            )}
             {view.withheld > 0 && (
               <>
                 {' '}&middot;{' '}
@@ -104,8 +63,57 @@ export default async function SharedTreePage({ params }: Props) {
               </>
             )}
           </p>
-          <SharedTreeList individuals={view.individuals} ownerName={name} />
+        )}
+      </div>
+
+      {!view.allowed ? (
+        <div className={card}>
+          <p className="text-sm text-brand-cream inline-flex items-center gap-2">
+            <Lock className="w-4 h-4 text-brand-muted" />
+            {view.denial === 'not-signed-in' && 'Sign in to see this.'}
+            {view.denial === 'owner-not-sharing' &&
+              `${name} hasn’t turned on tree sharing.`}
+            {view.denial === 'viewer-not-sharing' && 'Tree sharing works both ways.'}
+          </p>
+          <p className="text-sm text-brand-muted mt-2 leading-relaxed">
+            {view.denial === 'not-signed-in' && (
+              <>
+                Research trees are visible to signed-in researchers who share theirs
+                too. <Link href="/login" className="text-brand-gold hover:underline">Sign in</Link>.
+              </>
+            )}
+            {view.denial === 'owner-not-sharing' &&
+              'Only researchers who share their own trees appear here.'}
+            {/* Stated plainly: you cannot browse other people's research while
+                keeping yours private. */}
+            {view.denial === 'viewer-not-sharing' && (
+              <>
+                You can see another researcher&rsquo;s tree while yours is visible to
+                them as well. Turn it on from your{' '}
+                <Link href="/dashboard" className="text-brand-gold hover:underline">
+                  dashboard
+                </Link>
+                .
+              </>
+            )}
+          </p>
         </div>
+      ) : !view.tree || view.individuals.length === 0 ? (
+        <div className={card}>
+          <p className="text-sm text-brand-muted">
+            {name} hasn&rsquo;t added anyone that can be shown here yet.
+          </p>
+        </div>
+      ) : (
+        // The owner's canvas, minus every control that writes. A separate viewer
+        // would have drifted away from the real one within a release or two.
+        <TreeCanvas
+          tree={view.tree}
+          initialIndividuals={view.rawIndividuals}
+          initialRelationships={view.relationships}
+          readOnly
+          overlapIds={view.overlapIds}
+        />
       )}
     </div>
   );
