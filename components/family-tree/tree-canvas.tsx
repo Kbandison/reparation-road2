@@ -45,8 +45,6 @@ interface Props {
   overlapLinks?: Record<string, { treeId: string; individualId: string }>;
   /** Whose tree this is, named in the preview. */
   ownerName?: string;
-  /** Their handle, for a visitor's link to the full person page. */
-  ownerHandle?: string;
   tree: FamilyTree;
   initialIndividuals: TreeIndividual[];
   initialRelationships: TreeRelationship[];
@@ -149,7 +147,6 @@ export function TreeCanvas({
   overlapIds,
   overlapLinks,
   ownerName = 'this tree',
-  ownerHandle,
 }: Props) {
   const canEdit = !readOnly;
   const [individuals, setIndividuals] = useState<TreeIndividual[]>(initialIndividuals);
@@ -898,7 +895,6 @@ export function TreeCanvas({
           key={selected.id}
           person={selected}
           ownerName={ownerName}
-          ownerHandle={ownerHandle}
           yourCopy={overlapLinks?.[selected.id]}
           canEdit={canEdit}
           onAddRelative={canEdit ? addRelative : undefined}

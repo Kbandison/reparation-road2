@@ -64,7 +64,6 @@ export function PersonPreview({
   person,
   onClose,
   ownerName,
-  ownerHandle,
   yourCopy,
   canEdit = false,
   onAddRelative,
@@ -77,8 +76,6 @@ export function PersonPreview({
   person: TreeIndividual;
   onClose: () => void;
   ownerName: string;
-  /** Whose tree this is, for the visitor's full-profile link. */
-  ownerHandle?: string;
   /** Where the viewer's own record of this person lives, when they have one. */
   yourCopy?: { treeId: string; individualId: string };
   /** Owner-only actions. The full profile page has neither. */
@@ -345,17 +342,6 @@ export function PersonPreview({
           </div>
         )}
 
-        {!canEdit && !isNew && (
-          <div className="mt-5 border-t border-brand-gold/[0.08] pt-4">
-            <Link
-              href={`/forum/u/${ownerHandle}/tree/${person.id}`}
-              className="inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
-            >
-              View full profile <ExternalLink className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        )}
-
         {yourCopy && !isNew && (
           <div className="mt-5 border-t border-brand-gold/[0.08] pt-4">
             <p className="text-sm text-brand-cream inline-flex items-center gap-2">
@@ -366,7 +352,7 @@ export function PersonPreview({
               href={`/family-tree/${yourCopy.treeId}/person/${yourCopy.individualId}`}
               className="mt-2 inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
             >
-              Open your record <ExternalLink className="w-3.5 h-3.5" />
+              View full profile <ExternalLink className="w-3.5 h-3.5" />
             </Link>
           </div>
         )}
