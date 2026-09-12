@@ -343,10 +343,10 @@ export function PersonPreview({
         )}
 
         {yourCopy && !isNew && (
-          {/* A column, not two inline-level boxes: the paragraph and the button
-              were both inline-flex, so a top margin on the button had nothing to
-              push against and the two sat crammed together. */}
           <div className="mt-5 border-t border-brand-gold/[0.08] pt-4 flex flex-col items-start gap-3">
+            {/* A column, not two inline-level boxes: the paragraph and the button
+            were both inline-flex, so a top margin on the button had nothing to
+            push against and the two sat crammed together. */}
             <p className="text-sm text-brand-cream flex items-center gap-2">
               <Users className="w-4 h-4 text-brand-gold" />
               You have this person too
