@@ -169,6 +169,7 @@ export default async function ProfilePage({ params }: Props) {
         <ProfileTreePanel
           profileId={profile.id}
           profileName={profileName(profile)}
+          handle={handle}
           sharingEnabled={Boolean(profile.tree_sharing_enabled)}
           viewerId={user?.id ?? null}
         />

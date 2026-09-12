@@ -17,11 +17,13 @@ import { ProfileMessageBox } from '@/components/forum/profile-message-box';
 export async function ProfileTreePanel({
   profileId,
   profileName,
+  handle,
   sharingEnabled,
   viewerId,
 }: {
   profileId: string;
   profileName: string;
+  handle: string;
   sharingEnabled: boolean;
   viewerId: string | null;
 }) {
@@ -60,6 +62,15 @@ export async function ProfileTreePanel({
         {treeCount} {treeCount === 1 ? 'tree' : 'trees'} ·{' '}
         {(peopleCount ?? 0).toLocaleString()} people recorded
       </p>
+
+      {viewerId && viewerId !== profileId && (
+        <Link
+          href={`/forum/u/${handle}/tree`}
+          className="inline-block mt-2 text-xs text-brand-gold hover:text-brand-gold-light"
+        >
+          Browse {profileName}&rsquo;s research &rarr;
+        </Link>
+      )}
 
       {shared && shared.people.length > 0 ? (
         <div className="mt-4 border-t border-brand-gold/[0.08] pt-4">

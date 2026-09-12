@@ -311,3 +311,121 @@ export async function notifyNewMessage(input: {
     console.error('[tree-connections] could not create notification:', e);
   }
 }
+
+export interface VisibleIndividual {
+  id: string;
+  givenName: string | null;
+  surname: string | null;
+  birthDate: string | null;
+  birthPlace: string | null;
+  deathDate: string | null;
+  /** True when the viewer holds this person too. */
+  shared: boolean;
+}
+
+export type TreeViewDenial = 'not-signed-in' | 'owner-not-sharing' | 'viewer-not-sharing';
+
+export interface SharedTreeView {
+  allowed: boolean;
+  denial?: TreeViewDenial;
+  individuals: VisibleIndividual[];
+  /** Held back by the living-person safeguard, so the gap is stated not hidden. */
+  withheld: number;
+}
+
+/**
+ * Another researcher's tree, as this viewer is allowed to see it.
+ *
+ * Gated exactly like matching, and for the same reason: this is the same data
+ * matching already exposes, shown in bulk rather than a person at a time. Both
+ * parties must have sharing on, so nobody can browse trees without offering
+ * their own.
+ *
+ * Anyone who may still be living is withheld unless the tree's owner chose
+ * otherwise — the owner's setting governs, never the viewer's.
+ */
+export async function getSharedTreeView(
+  viewerId: string | null,
+  ownerId: string,
+): Promise<SharedTreeView> {
+  const empty = { individuals: [], withheld: 0 };
+  if (!viewerId) return { allowed: false, denial: 'not-signed-in', ...empty };
+
+  const supabase = createAdminClient();
+  const { data: settings } = await supabase
+    .from('profiles')
+    .select('id, tree_sharing_enabled, tree_sharing_include_living')
+    .in('id', [viewerId, ownerId]);
+
+  const owner = settings?.find((s) => s.id === ownerId);
+  const viewer = settings?.find((s) => s.id === viewerId);
+
+  if (!owner?.tree_sharing_enabled) {
+    return { allowed: false, denial: 'owner-not-sharing', ...empty };
+  }
+  // Viewing is not a lesser act than matching, so it carries the same price.
+  if (!viewer?.tree_sharing_enabled) {
+    return { allowed: false, denial: 'viewer-not-sharing', ...empty };
+  }
+
+  const cutoff = new Date().getFullYear() - 100;
+  const rows: {
+    id: string;
+    given_name: string | null;
+    surname: string | null;
+    birth_date: string | null;
+    birth_place: string | null;
+    death_date: string | null;
+  }[] = [];
+
+  for (let from = 0; ; from += 1000) {
+    let query = supabase
+      .from('tree_individuals')
+      .select('id, given_name, surname, birth_date, birth_place, death_date')
+      .eq('user_id', ownerId)
+      .order('surname')
+      .order('given_name')
+      .range(from, from + 999);
+
+    if (!owner.tree_sharing_include_living) {
+      // birth_year is null for undated people, and a null never satisfies lte,
+      // so they are withheld too — which is the intent.
+      query = query.or(`death_date.not.is.null,birth_year.lte.${cutoff}`);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('[tree-connections] tree view query failed:', error);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < 1000) break;
+  }
+
+  const { count: total } = await supabase
+    .from('tree_individuals')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', ownerId);
+
+  // Their individuals that the viewer also holds, so the overlap is visible
+  // while browsing rather than only on the dashboard.
+  const sharedIds = new Set<string>();
+  for (const row of await fetchAllOverlaps(viewerId)) {
+    if (row.other_user_id === ownerId) sharedIds.add(row.other_individual_id);
+  }
+
+  return {
+    allowed: true,
+    withheld: Math.max(0, (total ?? 0) - rows.length),
+    individuals: rows.map((r) => ({
+      id: r.id,
+      givenName: r.given_name,
+      surname: r.surname,
+      birthDate: r.birth_date,
+      birthPlace: r.birth_place,
+      deathDate: r.death_date,
+      shared: sharedIds.has(r.id),
+    })),
+  };
+}
