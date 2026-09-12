@@ -24,7 +24,6 @@ import type {
   FamilyTree,
   TreeIndividual,
   TreeRelationship,
-  ArchiveMatch,
 } from '@/lib/types';
 import { CARD_W, CARD_H, computeLayout } from '@/lib/family-tree/layout';
 import {
@@ -34,7 +33,6 @@ import {
   type OffLineRelative,
 } from '@/lib/family-tree/pedigree';
 import { fullName, initials, lifespan } from '@/lib/family-tree/display';
-import { PersonEditor } from './person-editor';
 import { PersonPreview } from './person-preview';
 import { ImportDialog } from './import-dialog';
 
@@ -496,31 +494,6 @@ export function TreeCanvas({
     if (data.individual) setSelectedId(data.individual.id);
   }
 
-  async function savePerson(patch: Partial<TreeIndividual>) {
-    if (!selectedId) return;
-    const res = await fetch(`/api/family-tree/individuals/${selectedId}`, {
-      method: 'PATCH',
-      headers: json,
-      body: JSON.stringify(patch),
-    });
-    const data = await res.json();
-    if (data.individual) {
-      setIndividuals((p) => p.map((x) => (x.id === selectedId ? data.individual : x)));
-    }
-  }
-
-  async function linkArchive(match: ArchiveMatch | null) {
-    if (!selectedId) return;
-    const patch = match
-      ? {
-          archive_collection_slug: match.collectionSlug,
-          archive_record_id: match.id,
-          archive_record_title: match.title,
-        }
-      : { archive_collection_slug: null, archive_record_id: null, archive_record_title: null };
-    await savePerson(patch);
-  }
-
   async function deletePerson() {
     if (!selectedId) return;
     if (!window.confirm('Delete this person and their connections?')) return;
@@ -879,32 +852,18 @@ export function TreeCanvas({
       )}
 
       {/* Editor panel */}
-      {readOnly && selected && (
+      {selected && (
         <PersonPreview
           person={selected}
           ownerName={ownerName}
           yourCopy={overlapLinks?.[selected.id]}
+          canEdit={canEdit}
+          onAddRelative={canEdit ? addRelative : undefined}
+          onDelete={canEdit ? deletePerson : undefined}
           onClose={() => setSelectedId(null)}
         />
       )}
 
-      {canEdit && selected && (
-        <div
-          className="absolute top-0 right-0 z-30 h-full w-full sm:w-80"
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <PersonEditor
-            key={selected.id}
-            treeId={tree.id}
-            person={selected}
-            onSave={savePerson}
-            onDelete={deletePerson}
-            onAddRelative={addRelative}
-            onLinkArchive={linkArchive}
-            onClose={() => setSelectedId(null)}
-          />
-        </div>
-      )}
 
       <ImportDialog
         treeId={tree.id}

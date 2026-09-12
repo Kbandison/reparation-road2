@@ -1,7 +1,18 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { X, ExternalLink, Link2, Users } from 'lucide-react';
+import {
+  X,
+  ExternalLink,
+  Link2,
+  Users,
+  UserPlus,
+  Baby,
+  Heart,
+  Trash2,
+  Loader2,
+} from 'lucide-react';
 import type { TreeIndividual } from '@/lib/types';
 
 const SEX_LABEL: Record<string, string> = { M: 'Male', F: 'Female' };
@@ -11,24 +22,37 @@ function fullName(p: TreeIndividual): string {
 }
 
 /**
- * Read-only detail for one person in someone else's tree.
+ * One person, as a modal.
  *
- * The owner gets the editor here; a visitor gets this. Every field shown is one
- * the matching feature already exposes — notes and the raw GEDCOM are not
- * fetched at all, so there is nothing here to leak by accident.
+ * Used on both trees. A visitor sees the details and nothing else; the owner
+ * also gets the actions that only exist here — adding a relative and deleting —
+ * with everything else on the full profile page, which is where the fields and
+ * archive matching live.
+ *
+ * On a visitor's view, notes and the raw GEDCOM are not fetched at all, so
+ * there is nothing here to leak by accident.
  */
 export function PersonPreview({
   person,
   onClose,
   ownerName,
   yourCopy,
+  canEdit = false,
+  onAddRelative,
+  onDelete,
 }: {
   person: TreeIndividual;
   onClose: () => void;
   ownerName: string;
   /** Where the viewer's own record of this person lives, when they have one. */
   yourCopy?: { treeId: string; individualId: string };
+  /** Owner-only actions. The full profile page has neither. */
+  canEdit?: boolean;
+  onAddRelative?: (kind: 'parent' | 'child' | 'spouse') => void;
+  onDelete?: () => Promise<void>;
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const rows: [string, string][] = [];
   if (person.sex && SEX_LABEL[person.sex]) rows.push(['Sex', SEX_LABEL[person.sex]]);
   if (person.birth_date) rows.push(['Born', person.birth_date]);
@@ -98,6 +122,76 @@ export function PersonPreview({
             <Link2 className="w-3.5 h-3.5" />
             {person.archive_record_title || 'Linked archive record'}
           </Link>
+        )}
+
+        {canEdit && (
+          <div className="mt-5 border-t border-brand-gold/[0.08] pt-4 space-y-3">
+            <Link
+              href={`/family-tree/${person.tree_id}/person/${person.id}`}
+              className="inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
+            >
+              View full profile <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+
+            {/* Kept here rather than moved to the full profile, which has
+                neither: without these the canvas cannot grow a tree and a person
+                cannot be removed at all. */}
+            {onAddRelative && (
+              <div className="flex flex-wrap gap-2">
+                {([
+                  ['parent', 'Parent', UserPlus],
+                  ['child', 'Child', Baby],
+                  ['spouse', 'Spouse', Heart],
+                ] as const).map(([kind, label, Icon]) => (
+                  <button
+                    key={kind}
+                    onClick={() => onAddRelative(kind)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-brand-gold/20 px-3 py-1.5 text-xs text-brand-cream hover:border-brand-gold/40"
+                  >
+                    <Icon className="w-3.5 h-3.5" /> Add {label.toLowerCase()}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {onDelete &&
+              (confirmingDelete ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-brand-muted">Remove this person?</span>
+                  <button
+                    onClick={async () => {
+                      setDeleting(true);
+                      try {
+                        await onDelete();
+                      } finally {
+                        setDeleting(false);
+                      }
+                    }}
+                    disabled={deleting}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-brand-burgundy px-3 py-1.5 text-xs text-brand-cream"
+                  >
+                    {deleting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      'Yes, remove'
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setConfirmingDelete(false)}
+                    className="text-xs text-brand-muted hover:text-brand-cream"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmingDelete(true)}
+                  className="inline-flex items-center gap-1.5 text-xs text-brand-muted hover:text-brand-burgundy-light"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Remove from tree
+                </button>
+              ))}
+          </div>
         )}
 
         {yourCopy && (
