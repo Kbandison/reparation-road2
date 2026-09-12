@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { TreePine, Users } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getOverlapsByResearcher } from '@/lib/tree-connections';
+import { ProfileMessageBox } from '@/components/forum/profile-message-box';
 
 /**
  * Research holdings on a public profile.
@@ -92,14 +93,13 @@ export async function ProfileTreePanel({
               </li>
             )}
           </ul>
-          <Link
-            href="/dashboard"
-            className="inline-block mt-3 text-xs text-brand-gold hover:text-brand-gold-light"
-          >
-            Message {profileName} from your dashboard
-          </Link>
-          {/* Links point at the viewer's own copy of each person. Browsing
-              someone else's tree is a separate surface that does not exist yet. */}
+          {/* Person links point at the viewer's own copy. Browsing someone
+              else's tree is a separate surface that does not exist yet. */}
+          <ProfileMessageBox
+            toUserId={profileId}
+            toName={profileName}
+            aboutName={shared.people[0]?.name}
+          />
         </div>
       ) : viewerId && viewerId !== profileId ? (
         <p className="text-xs text-brand-muted/80 mt-3">

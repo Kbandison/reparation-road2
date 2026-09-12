@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {
   getOrCreateConversation,
+  getOverlapsByResearcher,
   isSharingEnabled,
   notifyNewMessage,
 } from '@/lib/tree-connections';
@@ -126,6 +127,18 @@ export async function POST(request: Request) {
     if (!mine || !theirs) {
       return NextResponse.json(
         { error: 'Both researchers need tree sharing switched on.' },
+        { status: 403 },
+      );
+    }
+
+    // A shared ancestor is the premise of the whole feature, and requiring one
+    // to open a conversation is what stops this becoming a way to cold-message
+    // any researcher who has sharing switched on. Replies to an existing
+    // conversation are unaffected — that consent was given by answering.
+    const overlaps = await getOverlapsByResearcher(user.id);
+    if (!overlaps.some((o) => o.userId === body.toUserId)) {
+      return NextResponse.json(
+        { error: 'You can only message researchers who share people with you.' },
         { status: 403 },
       );
     }
