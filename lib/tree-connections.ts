@@ -337,6 +337,8 @@ export interface SharedTreeView {
   rawIndividuals: TreeIndividual[];
   relationships: TreeRelationship[];
   overlapIds: string[];
+  /** Their individual id -> where the viewer's own copy of that person lives. */
+  overlapLinks: Record<string, { treeId: string; individualId: string }>;
 }
 
 /**
@@ -361,6 +363,7 @@ export async function getSharedTreeView(
     rawIndividuals: [],
     relationships: [],
     overlapIds: [],
+    overlapLinks: {},
   };
   if (!viewerId) return { allowed: false, denial: 'not-signed-in', ...empty };
 
@@ -387,7 +390,10 @@ export async function getSharedTreeView(
   for (let from = 0; ; from += 1000) {
     let query = supabase
       .from('tree_individuals')
-      .select('*')
+      // Explicit, not '*'. The canvas needs a dozen fields; selecting
+      // everything would also ship the owner's private research notes and the
+      // raw GEDCOM subtree to a visitor's browser.
+      .select('id, tree_id, user_id, given_name, surname, sex, birth_date, birth_place, death_date, death_place, occupation, is_living, photo_url, archive_collection_slug, archive_record_id, archive_record_title, pos_x, pos_y')
       .eq('user_id', ownerId)
       .order('surname')
       .order('given_name')
@@ -417,8 +423,16 @@ export async function getSharedTreeView(
   // Their individuals that the viewer also holds, so the overlap is visible
   // while browsing rather than only on the dashboard.
   const sharedIds = new Set<string>();
+  const overlapLinks: Record<string, { treeId: string; individualId: string }> = {};
   for (const row of await fetchAllOverlaps(viewerId)) {
-    if (row.other_user_id === ownerId) sharedIds.add(row.other_individual_id);
+    if (row.other_user_id !== ownerId) continue;
+    sharedIds.add(row.other_individual_id);
+    // Keeps the first match, so the preview can offer "open your copy" rather
+    // than leaving the viewer to search their own tree for the same name.
+    overlapLinks[row.other_individual_id] ??= {
+      treeId: row.my_tree_id,
+      individualId: row.my_individual_id,
+    };
   }
 
   // The owner's primary tree. Multiple trees are rare; the canvas shows one, so
@@ -460,6 +474,7 @@ export async function getSharedTreeView(
     rawIndividuals: rows,
     relationships: visibleRelationships,
     overlapIds: [...sharedIds].filter((id) => visibleIds.has(id)),
+    overlapLinks,
     individuals: rows.map((r) => ({
       id: r.id,
       givenName: r.given_name,

@@ -35,6 +35,7 @@ import {
 } from '@/lib/family-tree/pedigree';
 import { fullName, initials, lifespan } from '@/lib/family-tree/display';
 import { PersonEditor } from './person-editor';
+import { PersonPreview } from './person-preview';
 import { ImportDialog } from './import-dialog';
 
 interface Props {
@@ -42,6 +43,10 @@ interface Props {
   /** Individuals in THIS tree that the viewer also holds. Read-only mode is
    *  looking at someone else's ids, so the counts endpoint cannot supply it. */
   overlapIds?: string[];
+  /** Their individual id -> the viewer's own copy, for the preview's link. */
+  overlapLinks?: Record<string, { treeId: string; individualId: string }>;
+  /** Whose tree this is, named in the preview. */
+  ownerName?: string;
   tree: FamilyTree;
   initialIndividuals: TreeIndividual[];
   initialRelationships: TreeRelationship[];
@@ -142,6 +147,8 @@ export function TreeCanvas({
   // was a second canvas that would drift away from this one.
   readOnly = false,
   overlapIds,
+  overlapLinks,
+  ownerName = 'this tree',
 }: Props) {
   const canEdit = !readOnly;
   const [individuals, setIndividuals] = useState<TreeIndividual[]>(initialIndividuals);
@@ -872,6 +879,15 @@ export function TreeCanvas({
       )}
 
       {/* Editor panel */}
+      {readOnly && selected && (
+        <PersonPreview
+          person={selected}
+          ownerName={ownerName}
+          yourCopy={overlapLinks?.[selected.id]}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
+
       {canEdit && selected && (
         <div
           className="absolute top-0 right-0 z-30 h-full w-full sm:w-80"
