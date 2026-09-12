@@ -343,14 +343,17 @@ export function PersonPreview({
         )}
 
         {yourCopy && !isNew && (
-          <div className="mt-5 border-t border-brand-gold/[0.08] pt-4">
-            <p className="text-sm text-brand-cream inline-flex items-center gap-2">
+          {/* A column, not two inline-level boxes: the paragraph and the button
+              were both inline-flex, so a top margin on the button had nothing to
+              push against and the two sat crammed together. */}
+          <div className="mt-5 border-t border-brand-gold/[0.08] pt-4 flex flex-col items-start gap-3">
+            <p className="text-sm text-brand-cream flex items-center gap-2">
               <Users className="w-4 h-4 text-brand-gold" />
               You have this person too
             </p>
             <Link
               href={`/family-tree/${yourCopy.treeId}/person/${yourCopy.individualId}`}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-brand-gold px-4 py-2 text-sm font-medium text-brand-bg hover:bg-brand-gold-light"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold px-4 py-2 text-sm font-medium text-brand-bg hover:bg-brand-gold-light"
             >
               View full profile <ExternalLink className="w-3.5 h-3.5" />
             </Link>
