@@ -118,6 +118,7 @@ export default async function SharedTreePage({ params }: Props) {
             overlapIds={view.overlapIds}
             overlapLinks={view.overlapLinks}
             ownerName={name}
+            ownerHandle={handle}
           />
         </div>
       )}

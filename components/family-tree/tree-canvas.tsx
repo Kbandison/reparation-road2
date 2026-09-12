@@ -45,6 +45,8 @@ interface Props {
   overlapLinks?: Record<string, { treeId: string; individualId: string }>;
   /** Whose tree this is, named in the preview. */
   ownerName?: string;
+  /** Their handle, for a visitor's link to the full person page. */
+  ownerHandle?: string;
   tree: FamilyTree;
   initialIndividuals: TreeIndividual[];
   initialRelationships: TreeRelationship[];
@@ -147,6 +149,7 @@ export function TreeCanvas({
   overlapIds,
   overlapLinks,
   ownerName = 'this tree',
+  ownerHandle,
 }: Props) {
   const canEdit = !readOnly;
   const [individuals, setIndividuals] = useState<TreeIndividual[]>(initialIndividuals);
@@ -163,6 +166,8 @@ export function TreeCanvas({
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openRelatives, setOpenRelatives] = useState<string | null>(null);
+  // The id of a relative created moments ago, so its modal opens ready to type.
+  const [justCreated, setJustCreated] = useState<string | null>(null);
 
   // How many other researchers hold each person. Empty when sharing is off,
   // which is the common case, so the badge simply never appears.
@@ -476,6 +481,19 @@ export function TreeCanvas({
     }
   }
 
+  async function savePerson(patch: Partial<TreeIndividual>) {
+    if (!selectedId) return;
+    const res = await fetch(`/api/family-tree/individuals/${selectedId}`, {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json();
+    if (data.individual) {
+      setIndividuals((p) => p.map((x) => (x.id === selectedId ? data.individual : x)));
+    }
+  }
+
   async function addRelative(kind: 'parent' | 'child' | 'spouse') {
     if (!selectedId) return;
     const res = await fetch('/api/family-tree/individuals', {
@@ -491,12 +509,14 @@ export function TreeCanvas({
     const data = await res.json();
     if (data.individual) setIndividuals((p) => [...p, data.individual]);
     if (data.relationship) setRelationships((r) => [...r, data.relationship]);
-    if (data.individual) setSelectedId(data.individual.id);
+    if (data.individual) {
+      setSelectedId(data.individual.id);
+      setJustCreated(data.individual.id);
+    }
   }
 
   async function deletePerson() {
     if (!selectedId) return;
-    if (!window.confirm('Delete this person and their connections?')) return;
     const id = selectedId;
     await fetch(`/api/family-tree/individuals/${id}`, { method: 'DELETE' });
     setRelationships((r) => r.filter((e) => e.from_id !== id && e.to_id !== id));
@@ -856,11 +876,17 @@ export function TreeCanvas({
         <PersonPreview
           person={selected}
           ownerName={ownerName}
+          ownerHandle={ownerHandle}
           yourCopy={overlapLinks?.[selected.id]}
           canEdit={canEdit}
           onAddRelative={canEdit ? addRelative : undefined}
           onDelete={canEdit ? deletePerson : undefined}
-          onClose={() => setSelectedId(null)}
+          onSave={canEdit ? savePerson : undefined}
+          startInEdit={canEdit && justCreated === selected.id}
+          onClose={() => {
+            setSelectedId(null);
+            setJustCreated(null);
+          }}
         />
       )}
 

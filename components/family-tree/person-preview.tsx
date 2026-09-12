@@ -12,10 +12,38 @@ import {
   Heart,
   Trash2,
   Loader2,
+  Pencil,
 } from 'lucide-react';
 import type { TreeIndividual } from '@/lib/types';
 
 const SEX_LABEL: Record<string, string> = { M: 'Male', F: 'Female' };
+
+const FIELD =
+  'w-full rounded-xl border border-brand-gold/[0.15] bg-brand-bg px-3 py-1.5 text-sm text-brand-cream focus:border-brand-gold focus:outline-none';
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string | null | undefined;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="block text-[11px] uppercase tracking-wide text-brand-muted">{label}</label>
+      <input
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={FIELD}
+      />
+    </div>
+  );
+}
 
 function fullName(p: TreeIndividual): string {
   return [p.given_name, p.surname].filter(Boolean).join(' ').trim() || 'Unnamed';
@@ -36,23 +64,50 @@ export function PersonPreview({
   person,
   onClose,
   ownerName,
+  ownerHandle,
   yourCopy,
   canEdit = false,
   onAddRelative,
   onDelete,
+  onSave,
+  startInEdit = false,
 }: {
   person: TreeIndividual;
   onClose: () => void;
   ownerName: string;
+  /** Whose tree this is, for the visitor's full-profile link. */
+  ownerHandle?: string;
   /** Where the viewer's own record of this person lives, when they have one. */
   yourCopy?: { treeId: string; individualId: string };
   /** Owner-only actions. The full profile page has neither. */
   canEdit?: boolean;
   onAddRelative?: (kind: 'parent' | 'child' | 'spouse') => void;
   onDelete?: () => Promise<void>;
+  onSave?: (patch: Partial<TreeIndividual>) => Promise<void>;
+  /** A just-created relative opens straight into the fields — it is called
+   *  "New person" and the only reason to be looking at it is to name it. */
+  startInEdit?: boolean;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(startInEdit);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<Partial<TreeIndividual>>(person);
+
+  function set<K extends keyof TreeIndividual>(key: K, value: TreeIndividual[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  async function save() {
+    if (!onSave) return;
+    setSaving(true);
+    try {
+      await onSave(form);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
   const rows: [string, string][] = [];
   if (person.sex && SEX_LABEL[person.sex]) rows.push(['Sex', SEX_LABEL[person.sex]]);
   if (person.birth_date) rows.push(['Born', person.birth_date]);
@@ -103,15 +158,83 @@ export function PersonPreview({
           </div>
         </div>
 
-        {rows.length > 0 && (
-          <dl className="mt-5 space-y-2">
-            {rows.map(([label, value]) => (
-              <div key={label} className="flex gap-3 text-sm">
-                <dt className="text-brand-muted w-32 shrink-0">{label}</dt>
-                <dd className="text-brand-cream min-w-0">{value}</dd>
+        {editing ? (
+          <div className="mt-5 space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Given name" value={form.given_name} onChange={(v) => set('given_name', v)} placeholder="John" />
+              <Field label="Surname" value={form.surname} onChange={(v) => set('surname', v)} placeholder="Smith" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="block text-[11px] uppercase tracking-wide text-brand-muted">Sex</label>
+                <select
+                  value={form.sex ?? 'U'}
+                  onChange={(e) => set('sex', e.target.value as TreeIndividual['sex'])}
+                  className={FIELD}
+                >
+                  <option value="U">Unknown</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                </select>
               </div>
-            ))}
-          </dl>
+              <Field label="Occupation" value={form.occupation} onChange={(v) => set('occupation', v)} placeholder="Farmer" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Born" value={form.birth_date} onChange={(v) => set('birth_date', v)} placeholder="1840" />
+              <Field label="Birthplace" value={form.birth_place} onChange={(v) => set('birth_place', v)} placeholder="Savannah, GA" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Died" value={form.death_date} onChange={(v) => set('death_date', v)} placeholder="1902" />
+              <Field label="Place of death" value={form.death_place} onChange={(v) => set('death_place', v)} placeholder="Atlanta, GA" />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-brand-cream">
+              <input
+                type="checkbox"
+                checked={Boolean(form.is_living)}
+                onChange={(e) => set('is_living', e.target.checked)}
+                className="accent-[#C8956C]"
+              />
+              Still living
+            </label>
+            <div className="space-y-1">
+              <label className="block text-[11px] uppercase tracking-wide text-brand-muted">Notes</label>
+              <textarea
+                value={form.notes ?? ''}
+                onChange={(e) => set('notes', e.target.value)}
+                rows={3}
+                className={`${FIELD} resize-y`}
+              />
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={save}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold px-4 py-1.5 text-sm font-medium text-brand-bg hover:bg-brand-gold-light"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save'}
+              </button>
+              <button
+                onClick={() => {
+                  setForm(person);
+                  setEditing(false);
+                }}
+                className="text-xs text-brand-muted hover:text-brand-cream"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          rows.length > 0 && (
+            <dl className="mt-5 space-y-2">
+              {rows.map(([label, value]) => (
+                <div key={label} className="flex gap-3 text-sm">
+                  <dt className="text-brand-muted w-32 shrink-0">{label}</dt>
+                  <dd className="text-brand-cream min-w-0">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )
         )}
 
         {person.archive_record_id && person.archive_collection_slug && (
@@ -126,12 +249,22 @@ export function PersonPreview({
 
         {canEdit && (
           <div className="mt-5 border-t border-brand-gold/[0.08] pt-4 space-y-3">
-            <Link
-              href={`/family-tree/${person.tree_id}/person/${person.id}`}
-              className="inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
-            >
-              View full profile <ExternalLink className="w-3.5 h-3.5" />
-            </Link>
+            <div className="flex flex-wrap items-center gap-4">
+              {!editing && (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
+                >
+                  <Pencil className="w-3.5 h-3.5" /> Edit details
+                </button>
+              )}
+              <Link
+                href={`/family-tree/${person.tree_id}/person/${person.id}`}
+                className="inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
+              >
+                View full profile <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+            </div>
 
             {/* Kept here rather than moved to the full profile, which has
                 neither: without these the canvas cannot grow a tree and a person
@@ -191,6 +324,17 @@ export function PersonPreview({
                   <Trash2 className="w-3.5 h-3.5" /> Remove from tree
                 </button>
               ))}
+          </div>
+        )}
+
+        {!canEdit && (
+          <div className="mt-5 border-t border-brand-gold/[0.08] pt-4">
+            <Link
+              href={`/forum/u/${ownerHandle}/tree/${person.id}`}
+              className="inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
+            >
+              View full profile <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
           </div>
         )}
 
