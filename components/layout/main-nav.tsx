@@ -14,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { NotificationsMenu } from '@/components/layout/notifications-menu';
 import { AuthModal } from '@/components/auth/auth-modal';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { NavBookmarks } from '@/components/layout/nav-bookmarks';
@@ -36,12 +37,36 @@ export function MainNav({ profile }: MainNavProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  // Unread badge on the avatar. Polled rather than pushed: it is a count, and
+  // being a minute stale costs nothing.
+  const [unread, setUnread] = useState(0);
   const pathname = usePathname();
   const router = useRouter();
 
   const isLoggedIn = mounted && !!profile;
   const isAdmin = profile?.role === 'admin';
   const initial = profile?.first_name?.[0]?.toUpperCase() || profile?.email?.[0]?.toUpperCase() || '?';
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch('/api/forum/notifications?limit=1');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setUnread(data.unread ?? 0);
+      } catch {
+        // A missing badge is not worth surfacing an error over.
+      }
+    };
+    check();
+    const id = setInterval(check, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isLoggedIn]);
 
   useEffect(() => {
     // Mount guard to avoid a hydration flash of the logged-in UI.
@@ -110,7 +135,13 @@ export function MainNav({ profile }: MainNavProps) {
 
             {isLoggedIn ? (
               <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-brand-card-hover transition-colors">
+                <DropdownMenuTrigger className="relative flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-brand-card-hover transition-colors">
+                  {unread > 0 && (
+                    <span
+                      aria-label={`${unread} unread notifications`}
+                      className="absolute top-0.5 right-1.5 w-2.5 h-2.5 rounded-full bg-brand-gold ring-2 ring-brand-bg"
+                    />
+                  )}
                   <Avatar className="w-8 h-8">
                     {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt="" />}
                     <AvatarFallback className="bg-brand-gold/10 text-brand-gold text-xs font-semibold">
@@ -129,6 +160,7 @@ export function MainNav({ profile }: MainNavProps) {
                       <p className="text-xs text-brand-muted truncate">{profile?.email}</p>
                     )}
                   </div>
+                  <NotificationsMenu unreadCount={unread} onRead={() => setUnread(0)} />
                   {profile?.handle && (
                     <DropdownMenuItem asChild>
                       <Link href={`/forum/u/${profile.handle}`} className="text-brand-cream">

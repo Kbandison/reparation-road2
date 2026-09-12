@@ -11,6 +11,9 @@ interface EnrichedNotification {
   actorHandle: string | null;
   threadTitle: string | null;
   threadSlug: string | null;
+  /** Set for 'message' notifications, which point at a conversation rather
+   *  than a thread. */
+  conversationId: string | null;
 }
 
 // GET — the viewer's notifications (most recent first) + unread count.
@@ -74,6 +77,7 @@ export async function GET(request: NextRequest) {
       actorHandle: a?.handle ?? null,
       threadTitle: t?.title ?? null,
       threadSlug: t?.slug ?? null,
+      conversationId: n.conversation_id ?? null,
     };
   });
 
