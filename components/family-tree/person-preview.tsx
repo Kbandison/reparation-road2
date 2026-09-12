@@ -275,7 +275,7 @@ export function PersonPreview({
               )}
               <Link
                 href={`/family-tree/${person.tree_id}/person/${person.id}`}
-                className="inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold px-4 py-2 text-sm font-medium text-brand-bg hover:bg-brand-gold-light"
               >
                 View full profile <ExternalLink className="w-3.5 h-3.5" />
               </Link>
@@ -350,7 +350,7 @@ export function PersonPreview({
             </p>
             <Link
               href={`/family-tree/${yourCopy.treeId}/person/${yourCopy.individualId}`}
-              className="mt-2 inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-brand-gold px-4 py-2 text-sm font-medium text-brand-bg hover:bg-brand-gold-light"
             >
               View full profile <ExternalLink className="w-3.5 h-3.5" />
             </Link>

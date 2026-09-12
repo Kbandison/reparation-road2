@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { fullName, initials, lifespan } from '@/lib/family-tree/display';
 import type { TreeIndividual, TreeArchiveMatch, TreeSource, TreeMedia } from '@/lib/types';
 import { PersonConnections } from '@/components/family-tree/person-connections';
+import { Linkify } from '@/components/shared/linkify';
 
 export interface RelRef {
   id: string;
@@ -304,7 +305,7 @@ export function PersonProfile({
               </div>
             )}
             {person.notes && (
-              <p className="text-sm text-brand-cream-muted leading-relaxed whitespace-pre-wrap">{person.notes}</p>
+              <p className="text-sm text-brand-cream-muted leading-relaxed whitespace-pre-wrap"><Linkify text={person.notes} /></p>
             )}
           </div>
         )}
@@ -430,11 +431,11 @@ export function PersonProfile({
                   </p>
                 )}
                 {e.note && (
-                  <p className="text-xs text-brand-cream-muted whitespace-pre-wrap mt-0.5">{e.note}</p>
+                  <p className="text-xs text-brand-cream-muted whitespace-pre-wrap mt-0.5"><Linkify text={e.note} /></p>
                 )}
                 {e.citations.length > 0 && (
                   <p className="text-[11px] text-brand-sage mt-1">
-                    Sources: {e.citations.map((c) => c.title || c.text || 'cited').join('; ')}
+                    Sources: <Linkify text={e.citations.map((c) => c.title || c.text || 'cited').join('; ')} />
                   </p>
                 )}
               </li>
@@ -592,14 +593,14 @@ export function PersonProfile({
           <div className="space-y-3">
             {sources.map((s) => (
               <div key={s.id} className="rounded-xl border border-brand-gold/[0.1] bg-brand-bg/40 p-3">
-                <p className="text-sm font-medium text-brand-cream">{s.title || s.gedcom_xref}</p>
+                <p className="text-sm font-medium text-brand-cream"><Linkify text={s.title || s.gedcom_xref || ''} /></p>
                 {(s.author || s.publication || s.repository) && (
                   <p className="text-xs text-brand-muted mt-0.5">
-                    {[s.author, s.publication, s.repository].filter(Boolean).join(' · ')}
+                    <Linkify text={[s.author, s.publication, s.repository].filter(Boolean).join(' · ')} />
                   </p>
                 )}
                 {s.text && (
-                  <p className="text-xs text-brand-cream-muted whitespace-pre-wrap mt-1.5">{s.text}</p>
+                  <p className="text-xs text-brand-cream-muted whitespace-pre-wrap mt-1.5"><Linkify text={s.text} /></p>
                 )}
               </div>
             ))}
