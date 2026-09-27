@@ -2,6 +2,24 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-09-27T19:36Z: Bot protection on the public forms, and the booking email relay closed
+
+The client kept getting contact-form spam from bots: random-letter names, random-string messages, and Gmail addresses stuffed with dots. The contact route's only defense was a rate limit, which a bot sending a few messages a day never hits. The same route also emailed a "Your Research Session is Booked" message to any address a caller named, with the caller's text placed straight into the HTML, so anyone could send Reparation Road–branded mail with their own links to strangers.
+
+**Minor updates**
+- Vercel BotID now guards the contact form, bookings and newsletter signup. It's invisible to people and turns away scripts and automated browsers. It fails open (logged) if BotID can't run, and a person it misreads is pointed to info@ instead of being silently dropped.
+- The contact and booking forms got a honeypot field; the newsletter already had one. Bots that fill it get a normal-looking reply, and nothing is sent or saved.
+- Bookings are created by a new `/api/bookings` route. It checks the session, date and time against the real options and the free slots, and builds the confirmation from the saved booking. The booking branch of `/api/contact` is gone.
+- Everything a visitor types is escaped before it goes into an email, including the signup notice and welcome emails. `escapeHtml` moved to `lib/html.ts`.
+- The booking page now shows which slots are actually taken. Bookings RLS only lets people read their own rows, so every slot used to look open and double bookings were possible.
+- Booking dates are saved as the day the visitor picked. `toISOString()` used to save the day before for anyone east of UTC.
+- Booking emails show dates like "Monday, October 5, 2026". Replies to the confirmation reach info@ instead of noreply@, and Adam's notification includes the booker's notes and replies go to the booker.
+
+**Next actions**
+- After this deploys, run `bookings_lockdown.sql`. It stops direct inserts through the public API key and makes one booking per slot a database rule. Running it before the deploy breaks the old booking page.
+- After the deploy, check BotID is actually on: a request with no browser proof should get a 403. If it gets a 400 instead, BotID is failing open, most likely because OIDC is off in the client's Vercel project settings.
+- `npm audit` reports a critical advisory for the installed Next.js 16.1.6 and a high one for `xlsx` 0.18.5 (npm's copy is unmaintained). Both predate this change and are worth a separate upgrade.
+
 ## 2026-09-27T18:47Z: Import wizard types columns from every row and checks before writing
 
 Importing "Register of Free Persons" failed on every batch (`invalid input syntax for type integer: "7months"`, then `"-"`), so nothing was imported. The wizard typed each column from only the first 20 rows, which made `age` and `date_when_entered_the_state` integer columns. Later rows held values like "7months" and "-", and one bad value failed its whole 500-row batch. The wizard now types columns from every row, checks the file against the real table before writing anything, and reports problems by spreadsheet row.

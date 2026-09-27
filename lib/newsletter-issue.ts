@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { EMAIL, emailShell } from '@/lib/email-theme';
+import { escapeHtml } from '@/lib/html';
 import { POSTAL_ADDRESS, SITE_URL, unsubscribeUrl } from '@/lib/newsletter';
 
 /**
@@ -99,14 +100,6 @@ export async function getIssueStats(): Promise<IssueStats> {
 /* -------------------------------------------------------------------------- */
 /* Rendering                                                                   */
 /* -------------------------------------------------------------------------- */
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 /**
  * Turn editor text into HTML.

@@ -16,6 +16,11 @@ async function verifyAdmin() {
   return profile?.role === 'admin';
 }
 
+// Each date and time holds one booking (bookings_date_time_key, bookings_lockdown.sql).
+function bookingErrorMessage(error: { code?: string; message: string }): string {
+  return error.code === '23505' ? 'That date and time already has a booking.' : error.message;
+}
+
 export async function GET(request: NextRequest) {
   if (!(await verifyAdmin())) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
@@ -57,7 +62,7 @@ export async function POST(request: NextRequest) {
     time: body.time,
   });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error) return NextResponse.json({ error: bookingErrorMessage(error) }, { status: 400 });
 
   return NextResponse.json({ success: true });
 }
@@ -73,7 +78,7 @@ export async function PATCH(request: NextRequest) {
   const supabase = createAdminClient();
   const { error } = await supabase.from('bookings').update(updates).eq('id', id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error) return NextResponse.json({ error: bookingErrorMessage(error) }, { status: 400 });
 
   return NextResponse.json({ success: true });
 }

@@ -12,6 +12,7 @@ export function ContactSection() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
+  const [website, setWebsite] = useState(''); // honeypot
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +26,7 @@ export function ContactSection() {
       const res = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), message: message.trim() }),
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), message: message.trim(), website }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -101,7 +102,20 @@ export function ContactSection() {
               />
             </div>
 
-            {error && <p className="text-sm text-brand-burgundy-light">{error}</p>}
+            {/* Not a real field. Left visible only to automated form fillers. */}
+            <div aria-hidden="true" className="hidden">
+              <label htmlFor="contact-website">Website</label>
+              <input
+                id="contact-website"
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+              />
+            </div>
+
+            {error && <p role="alert" className="text-sm text-brand-burgundy-light">{error}</p>}
 
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-1">
               <SocialLinks />

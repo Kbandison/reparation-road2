@@ -29,6 +29,16 @@ The import wizard loads an `.xlsx` into a new or existing collection. The rules 
 - **Drafts:** a new collection stays a Draft until every record is in, then publishes itself.
 - **Partial failures:** if the database rejects some rows anyway, the rest are saved and the rejected rows are listed by spreadsheet row. **Download rows to fix** gives you just those rows with the reason beside each. Correct them and import that file into the same collection; the wizard skips the two helper columns. Re-importing the whole file would duplicate the rows already saved.
 
+## Public forms and bot protection
+
+The contact form, booking and newsletter signup are public, so each one is guarded in layers:
+
+- **Vercel BotID** (`lib/bot-protection.ts`), invisible to people. A route only works if it's listed in `instrumentation-client.ts` *and* calls `isAutomatedRequest()`; keep the two in step. In production it needs the project's Vercel OIDC token, and without one it fails open and logs `[bot-protection] … BotID check failed`.
+- **A honeypot field** (`website`) that people never see. Anything submitted with it filled gets a normal-looking reply and is dropped.
+- **Rate limits** in Postgres (`lib/rate-limit.ts`).
+
+Bookings are created only through `/api/bookings` (see `bookings_lockdown.sql`), never straight from the browser. Anything a visitor types is escaped with `lib/html.ts` before it goes into an email.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

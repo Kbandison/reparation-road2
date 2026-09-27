@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { useUser } from '@/contexts/user-context';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
@@ -10,14 +9,23 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
-import { availableTimeSlots } from '@/lib/constants';
+import { availableTimeSlots, bookingSessionTypes } from '@/lib/constants';
 import { toast } from 'sonner';
 import { Loader2, CheckCircle, BookOpen, Users, Check } from 'lucide-react';
+
+/**
+ * The calendar day the visitor picked, as YYYY-MM-DD in their own time zone.
+ * toISOString() converts to UTC first, which east of UTC saves the day before.
+ */
+function toDateString(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
 
 const sessionOptions = [
   {
     id: 'standard-research',
-    name: 'Standard Research Package',
+    name: bookingSessionTypes['standard-research'],
     description: 'Get step-by-step guidance on how to use the Reparation Road Library and resources for independent research. This session does not include personal ancestry research.',
     features: [
       'Personalized walkthrough of the site',
@@ -28,7 +36,7 @@ const sessionOptions = [
   },
   {
     id: 'genealogy-consultation',
-    name: 'Genealogy Consultation',
+    name: bookingSessionTypes['genealogy-consultation'],
     description: 'Book a 1-on-1 session to trace your family roots. Receive hands-on help, expert insight, and recommendations for ancestry and historical research.',
     features: [
       '1-on-1 consultation with Adam Jacoby Paul',
@@ -48,9 +56,11 @@ export default function BookingPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
+  const [website, setWebsite] = useState(''); // honeypot
   const [bookedSlots, setBookedSlots] = useState<{ date: string; time: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [confirmationSent, setConfirmationSent] = useState(true);
 
   const selectedSessionData = sessionOptions.find((s) => s.id === selectedSession);
 
@@ -61,17 +71,23 @@ export default function BookingPage() {
     }
   }, [profile]);
 
-  useEffect(() => {
-    const supabase = createClient();
-    const today = new Date().toISOString().split('T')[0];
-    supabase
-      .from('bookings')
-      .select('date, time')
-      .gte('date', today)
-      .then(({ data }) => setBookedSlots(data || []));
+  // Taken slots come from the server: bookings RLS only lets people read their
+  // own rows, so a direct query here came back empty and every slot looked open.
+  const loadTakenSlots = useCallback(async () => {
+    try {
+      const res = await fetch('/api/bookings');
+      const data = await res.json();
+      if (res.ok) setBookedSlots(data.taken ?? []);
+    } catch {
+      // Availability is a courtesy; the server still refuses a slot that's taken.
+    }
   }, []);
 
-  const dateStr = selectedDate?.toISOString().split('T')[0] || '';
+  useEffect(() => {
+    loadTakenSlots();
+  }, [loadTakenSlots]);
+
+  const dateStr = selectedDate ? toDateString(selectedDate) : '';
   const takenTimes = bookedSlots
     .filter((s) => s.date === dateStr)
     .map((s) => s.time);
@@ -81,38 +97,39 @@ export default function BookingPage() {
     if (!selectedSession || !selectedDate || !selectedTime) return;
 
     setLoading(true);
-    const supabase = createClient();
+    try {
+      const res = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: selectedSession,
+          name,
+          email,
+          message,
+          date: dateStr,
+          time: selectedTime,
+          website,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
 
-    const { error } = await supabase.from('bookings').insert({
-      name,
-      email,
-      message: message || null,
-      session_type: selectedSessionData?.name || selectedSession,
-      date: dateStr,
-      time: selectedTime,
-    });
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to book session');
+        if (res.status === 409) {
+          // Someone else took the slot: show it as taken and let them pick again.
+          setSelectedTime('');
+          loadTakenSlots();
+        }
+        return;
+      }
 
-    if (error) {
+      setConfirmationSent(data.confirmationSent !== false);
+      setSuccess(true);
+    } catch {
       toast.error('Failed to book session');
+    } finally {
       setLoading(false);
-      return;
     }
-
-    await fetch('/api/contact', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'booking',
-        name,
-        email,
-        sessionType: selectedSessionData?.name,
-        date: dateStr,
-        time: selectedTime,
-      }),
-    });
-
-    setSuccess(true);
-    setLoading(false);
   }
 
   if (success) {
@@ -131,7 +148,11 @@ export default function BookingPage() {
             {dateStr} at {selectedTime}
           </p>
           <p className="text-xs text-brand-muted mb-6">
-            A confirmation email has been sent to {email}.
+            {confirmationSent ? (
+              <>A confirmation email has been sent to {email}.</>
+            ) : (
+              <>Your booking is saved, but the confirmation email didn&apos;t go out. We&apos;ll be in touch at {email}.</>
+            )}
           </p>
           <Button
             onClick={() => router.push('/')}
@@ -269,6 +290,19 @@ export default function BookingPage() {
                 rows={3}
                 placeholder="Any specific topics or questions for your session..."
                 className="bg-brand-card border-brand-gold/[0.15] focus:border-brand-gold resize-none"
+              />
+            </div>
+
+            {/* Not a real field. Left visible only to automated form fillers. */}
+            <div aria-hidden="true" className="hidden">
+              <label htmlFor="booking-website">Website</label>
+              <input
+                id="booking-website"
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
               />
             </div>
 

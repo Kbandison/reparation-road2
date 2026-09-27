@@ -10,6 +10,7 @@ import {
 import { sendConfirmationEmail } from '@/lib/newsletter-emails';
 import { checkRateLimits, rateLimitHeaders } from '@/lib/rate-limit';
 import { confirmSubscriber } from '@/lib/newsletter-confirm';
+import { BOT_BLOCKED_MESSAGE, isAutomatedRequest } from '@/lib/bot-protection';
 
 /**
  * Public newsletter signup — the footer form.
@@ -47,6 +48,13 @@ const PER_IP = { limit: 5, windowSeconds: 3600 };
 const GLOBAL = { limit: 100, windowSeconds: 3600 };
 
 export async function POST(request: Request) {
+  // Every signup sends a confirmation email, so a script signing up strangers'
+  // addresses spends our sender reputation. Checked before the rate limit so
+  // bot traffic can't spend the budget people share.
+  if (await isAutomatedRequest('newsletter')) {
+    return NextResponse.json({ error: BOT_BLOCKED_MESSAGE }, { status: 403 });
+  }
+
   let body: { email?: string; firstName?: string; website?: string };
   try {
     body = await request.json();

@@ -89,6 +89,14 @@ export const availableTimeSlots = [
   '4:00 PM',
 ] as const;
 
+/** Bookable sessions: the id the booking page sends, and the name that is stored and emailed. */
+export const bookingSessionTypes = {
+  'standard-research': 'Standard Research Package',
+  'genealogy-consultation': 'Genealogy Consultation',
+} as const;
+
+export type BookingSessionId = keyof typeof bookingSessionTypes;
+
 export const collectionCategories = [
   'census',
   'church-records',
