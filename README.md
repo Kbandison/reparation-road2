@@ -27,7 +27,7 @@ The import wizard loads an `.xlsx` into a new or existing collection. The rules 
 - **Column types:** a new column is a whole number only if every value in the file is one; otherwise it's text, kept exactly as transcribed ("7months", "-", "abt 30"). You can change a new column's type on the Mapping step.
 - **Checked before writing:** the Preview step compares every row with the table's real column types (read from PostgREST's OpenAPI description with the service key) and flags mismatches and blank required cells by spreadsheet row. An existing number or yes/no column can be converted to text there.
 - **Drafts:** a new collection stays a Draft until every record is in, then publishes itself.
-- **Partial failures:** if the database rejects some rows anyway, the rest are saved and the rejected rows are listed by spreadsheet row. Re-import just those rows into the same collection. Re-importing the whole file would duplicate the ones already saved.
+- **Partial failures:** if the database rejects some rows anyway, the rest are saved and the rejected rows are listed by spreadsheet row. **Download rows to fix** gives you just those rows with the reason beside each. Correct them and import that file into the same collection; the wizard skips the two helper columns. Re-importing the whole file would duplicate the rows already saved.
 
 ## Learn More
 

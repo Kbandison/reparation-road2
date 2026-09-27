@@ -23,11 +23,13 @@ import { Label } from '@/components/ui/label';
 import type { Collection } from '@/lib/types';
 import { collectionCategories, collectionEras, collectionRegions } from '@/lib/constants';
 import { BUILT_IN_COLUMNS, SYSTEM_COLUMNS, findConflicts, prepareRows, toTableName } from '@/lib/import/records';
+import { isFailedRowsHelperHeader } from '@/lib/import/failed-rows';
 import { profileColumn, typeLabel, type ColumnProfile } from '@/lib/import/values';
 import type { ImportColumnType, ImportFailure, TableColumns } from '@/lib/import/types';
 import { ImportColumnTypeField } from './import-column-type-field';
 import { ImportPreflight } from './import-preflight';
 import { ImportFailureList } from './import-failure-list';
+import { ImportFailedRowsDownload } from './import-failed-rows-download';
 
 type Step = 'mode' | 'collection' | 'upload' | 'mapping' | 'images' | 'preview' | 'importing' | 'done';
 
@@ -151,6 +153,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
   const [generating, setGenerating] = useState(false);
 
   // File data
+  const [fileName, setFileName] = useState('');
   const [fileHeaders, setFileHeaders] = useState<string[]>([]);
   const [sampleRows, setSampleRows] = useState<Record<string, unknown>[]>([]);
   const [allRows, setAllRows] = useState<Record<string, unknown>[]>([]);
@@ -233,7 +236,10 @@ export function ImportWizard({ collections }: ImportWizardProps) {
         return;
       }
       const existingCols = schema.exists ? schema.columns : [];
+      // A "rows to fix" download carries two helper columns; they're never data.
+      const dataHeaders = (data.headers as string[]).filter((h) => !isFailedRowsHelperHeader(h));
 
+      setFileName(file.name);
       setFileHeaders(data.headers);
       setSampleRows(data.sampleRows);
       setAllRows(data.allRows);
@@ -247,6 +253,10 @@ export function ImportWizard({ collections }: ImportWizardProps) {
         // maps to a NEW column (added on import) instead of being dropped.
         const mapping: Record<string, string> = {};
         for (const header of data.headers) {
+          if (isFailedRowsHelperHeader(header)) {
+            mapping[header] = '';
+            continue;
+          }
           if (looksLikeImageColumn(header)) {
             mapping[header] = 'image_path';
             continue;
@@ -256,17 +266,17 @@ export function ImportWizard({ collections }: ImportWizardProps) {
           mapping[header] = match || toColumnName(header);
         }
         // Offer both the existing columns and any new ones as mapping targets.
-        setDbColumns([...new Set([...existingCols, ...(data.headers as string[]).map(toColumnName)])]);
+        setDbColumns([...new Set([...existingCols, ...dataHeaders.map(toColumnName)])]);
         setColumnMapping(mapping);
       } else {
         // New collection — DB columns are derived from the file (plus any a
         // leftover table already has).
         const cols: string[] = (data.headers as string[]).map((h) => toColumnName(h));
-        setDbColumns([...new Set([...existingCols, ...cols])]);
+        setDbColumns([...new Set([...existingCols, ...dataHeaders.map(toColumnName)])]);
         const mapping: Record<string, string> = {};
         data.headers.forEach((h: string, i: number) => {
           // Image-like columns always go to image_path so no redundant DB column is created.
-          mapping[h] = looksLikeImageColumn(cols[i]) ? 'image_path' : cols[i];
+          mapping[h] = isFailedRowsHelperHeader(h) ? '' : looksLikeImageColumn(cols[i]) ? 'image_path' : cols[i];
         });
         setColumnMapping(mapping);
         setNewTableName(table);
@@ -1000,16 +1010,27 @@ export function ImportWizard({ collections }: ImportWizardProps) {
           )}
 
           {(() => {
-            const skipped = fileHeaders.filter((h) => !columnMapping[h]);
-            return skipped.length > 0 ? (
-              <div className="flex items-start gap-2 rounded-xl border border-brand-gold/30 bg-brand-gold/[0.06] px-4 py-3">
-                <AlertCircle className="w-4 h-4 text-brand-gold mt-0.5 shrink-0" />
-                <p className="text-xs text-brand-cream">
-                  <span className="font-medium">{skipped.length} column{skipped.length === 1 ? '' : 's'} will NOT be imported</span> (set to “Skip”):{' '}
-                  <span className="text-brand-muted">{skipped.join(', ')}</span>. Pick a target for them below if you want them kept.
-                </p>
-              </div>
-            ) : null;
+            const skipped = fileHeaders.filter((h) => !columnMapping[h] && !isFailedRowsHelperHeader(h));
+            const helpers = fileHeaders.filter((h) => !columnMapping[h] && isFailedRowsHelperHeader(h));
+            return (
+              <>
+                {skipped.length > 0 && (
+                  <div className="flex items-start gap-2 rounded-xl border border-brand-gold/30 bg-brand-gold/[0.06] px-4 py-3">
+                    <AlertCircle className="w-4 h-4 text-brand-gold mt-0.5 shrink-0" />
+                    <p className="text-xs text-brand-cream">
+                      <span className="font-medium">{skipped.length} column{skipped.length === 1 ? '' : 's'} will NOT be imported</span> (set to “Skip”):{' '}
+                      <span className="text-brand-muted">{skipped.join(', ')}</span>. Pick a target for them below if you want them kept.
+                    </p>
+                  </div>
+                )}
+                {helpers.length > 0 && (
+                  <p className="text-xs text-brand-muted">
+                    {helpers.map((h) => `“${h}”`).join(' and ')} came from a rows-to-fix download, so{' '}
+                    {helpers.length === 1 ? "it's" : "they're"} skipped.
+                  </p>
+                )}
+              </>
+            );
           })()}
 
           <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden">
@@ -1496,13 +1517,24 @@ export function ImportWizard({ collections }: ImportWizardProps) {
           )}
 
           {result.failures.length > 0 && (
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-3 text-left">
               <ImportFailureList failures={result.failures} />
-              <p className="text-xs text-brand-muted text-left">
-                Row numbers match your spreadsheet. The rows that went in are saved, so importing the whole file
-                again would duplicate them. Fix just these rows, then import them into {targetName} as an existing
-                collection.
-              </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-brand-muted">
+                  Row numbers match your spreadsheet. The rows that went in are saved, so importing the whole file
+                  again would duplicate them. Download the rows to fix, correct them, then import that file into{' '}
+                  {targetName} as an existing collection.
+                </p>
+                <div className="shrink-0">
+                  <ImportFailedRowsDownload
+                    allRows={allRows}
+                    rowNumbers={rowNumbers}
+                    headers={fileHeaders}
+                    failures={result.failures}
+                    fileName={fileName}
+                  />
+                </div>
+              </div>
             </div>
           )}
 
@@ -1534,6 +1566,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
             <Button
               onClick={() => {
                 setStep('mode');
+                setFileName('');
                 setFileHeaders([]);
                 setAllRows([]);
                 setRowNumbers([]);
