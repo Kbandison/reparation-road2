@@ -1178,103 +1178,6 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                       <span className="text-brand-cream">{storageFolder}</span>
                     </>
                   )}
-
-            {/* Folders committed to this import. The browser above shows one folder at
-                a time; matching runs against everything listed here. */}
-            {sourceFolders.length > 0 && (
-              <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-brand-gold/[0.08] flex items-center justify-between">
-                  <span className="text-xs text-brand-cream">
-                    {sourceFolders.length} folder{sourceFolders.length === 1 ? '' : 's'} ·{' '}
-                    {sourceFolders.reduce((n, f) => n + f.files.length, 0).toLocaleString()} images
-                  </span>
-                  <span className="text-xs text-brand-muted">{matchPool.length.toLocaleString()} usable</span>
-                </div>
-                <div className="divide-y divide-brand-gold/[0.04]">
-                  {sourceFolders.map((f) => (
-                    <div key={f.id} className="px-4 py-2 flex items-center gap-2 text-xs">
-                      <FolderOpen className="w-3.5 h-3.5 text-brand-gold shrink-0" />
-                      <span className="text-brand-cream truncate">
-                        {f.bucket}{f.folder ? `/${f.folder}` : ''}
-                      </span>
-                      {f.recursive && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-gold/10 text-brand-gold shrink-0">
-                          + subfolders
-                        </span>
-                      )}
-                      {f.truncated && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-burgundy/20 text-brand-burgundy-light shrink-0">
-                          capped
-                        </span>
-                      )}
-                      <span className="text-brand-muted ml-auto shrink-0">{f.files.length.toLocaleString()}</span>
-                      <button
-                        onClick={() => removeFolder(f.id)}
-                        className="text-brand-muted hover:text-brand-burgundy-light shrink-0"
-                        aria-label="Remove folder"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-            
-                {/* A filename in two folders cannot be matched safely. Left unresolved it
-                    is excluded rather than guessed. */}
-                {conflicts.length > 0 && (
-                  <div className="border-t border-brand-gold/[0.08] px-4 py-3 space-y-3">
-                    <p className="text-xs text-brand-burgundy-light">
-                      {conflicts.length} filename{conflicts.length === 1 ? '' : 's'} appear in more than one
-                      folder. Pick which folder wins — unresolved names are left unmatched.
-                    </p>
-                    <div className="space-y-2 max-h-56 overflow-y-auto">
-                      {conflicts.map((c) => (
-                        <div key={c.name} className="flex flex-wrap items-center gap-2 text-xs">
-                          <span className="text-brand-cream font-mono">{c.entries[0].file.name}</span>
-                          {c.entries.map((e) => (
-                            <button
-                              key={e.file.path}
-                              onClick={() =>
-                                setConflictChoice((prev) => ({ ...prev, [c.name]: e.file.path }))
-                              }
-                              className={`px-2 py-1 rounded-lg border ${
-                                conflictChoice[c.name] === e.file.path
-                                  ? 'border-brand-gold bg-brand-gold/10 text-brand-gold'
-                                  : 'border-brand-gold/[0.15] text-brand-muted hover:text-brand-cream'
-                              }`}
-                            >
-                              {e.folderId.split(':')[1] || '(bucket root)'}
-                            </button>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-            
-                <div className="border-t border-brand-gold/[0.08] px-4 py-3">
-                  <Button
-                    onClick={autoMatchImages}
-                    disabled={!imageColumn || matchPool.length === 0}
-                    className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-xs"
-                  >
-                    <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
-                    Auto-Match Images
-                  </Button>
-                  {Object.keys(imageMapping).length > 0 && (
-                    <span className="text-xs text-brand-sage ml-3">
-                      {Object.keys(imageMapping).length} matched
-                    </span>
-                  )}
-                  {unresolvedConflicts.length > 0 && (
-                    <span className="text-xs text-brand-burgundy-light ml-3">
-                      {unresolvedConflicts.length} still ambiguous
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
                 </div>
                 {storageFolder && (
                   <button
@@ -1322,6 +1225,102 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                 ))}
               </div>
 
+            </div>
+          )}
+
+          {/* Folders committed to this import. The browser above shows one folder at
+              a time; matching runs against everything listed here. */}
+          {sourceFolders.length > 0 && (
+            <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-brand-gold/[0.08] flex items-center justify-between">
+                <span className="text-xs text-brand-cream">
+                  {sourceFolders.length} folder{sourceFolders.length === 1 ? '' : 's'} ·{' '}
+                  {sourceFolders.reduce((n, f) => n + f.files.length, 0).toLocaleString()} images
+                </span>
+                <span className="text-xs text-brand-muted">{matchPool.length.toLocaleString()} usable</span>
+              </div>
+              <div className="divide-y divide-brand-gold/[0.04]">
+                {sourceFolders.map((f) => (
+                  <div key={f.id} className="px-4 py-2 flex items-center gap-2 text-xs">
+                    <FolderOpen className="w-3.5 h-3.5 text-brand-gold shrink-0" />
+                    <span className="text-brand-cream truncate">
+                      {f.bucket}{f.folder ? `/${f.folder}` : ''}
+                    </span>
+                    {f.recursive && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-gold/10 text-brand-gold shrink-0">
+                        + subfolders
+                      </span>
+                    )}
+                    {f.truncated && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-burgundy/20 text-brand-burgundy-light shrink-0">
+                        capped
+                      </span>
+                    )}
+                    <span className="text-brand-muted ml-auto shrink-0">{f.files.length.toLocaleString()}</span>
+                    <button
+                      onClick={() => removeFolder(f.id)}
+                      className="text-brand-muted hover:text-brand-burgundy-light shrink-0"
+                      aria-label="Remove folder"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* A filename in two folders cannot be matched safely. Left unresolved it
+                  is excluded rather than guessed. */}
+              {conflicts.length > 0 && (
+                <div className="border-t border-brand-gold/[0.08] px-4 py-3 space-y-3">
+                  <p className="text-xs text-brand-burgundy-light">
+                    {conflicts.length} filename{conflicts.length === 1 ? '' : 's'} appear in more than one
+                    folder. Pick which folder wins — unresolved names are left unmatched.
+                  </p>
+                  <div className="space-y-2 max-h-56 overflow-y-auto">
+                    {conflicts.map((c) => (
+                      <div key={c.name} className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-brand-cream font-mono">{c.entries[0].file.name}</span>
+                        {c.entries.map((e) => (
+                          <button
+                            key={e.file.path}
+                            onClick={() =>
+                              setConflictChoice((prev) => ({ ...prev, [c.name]: e.file.path }))
+                            }
+                            className={`px-2 py-1 rounded-lg border ${
+                              conflictChoice[c.name] === e.file.path
+                                ? 'border-brand-gold bg-brand-gold/10 text-brand-gold'
+                                : 'border-brand-gold/[0.15] text-brand-muted hover:text-brand-cream'
+                            }`}
+                          >
+                            {e.folderId.split(':')[1] || '(bucket root)'}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-brand-gold/[0.08] px-4 py-3">
+                <Button
+                  onClick={autoMatchImages}
+                  disabled={!imageColumn || matchPool.length === 0}
+                  className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-xs"
+                >
+                  <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
+                  Auto-Match Images
+                </Button>
+                {Object.keys(imageMapping).length > 0 && (
+                  <span className="text-xs text-brand-sage ml-3">
+                    {Object.keys(imageMapping).length} matched
+                  </span>
+                )}
+                {unresolvedConflicts.length > 0 && (
+                  <span className="text-xs text-brand-burgundy-light ml-3">
+                    {unresolvedConflicts.length} still ambiguous
+                  </span>
+                )}
+              </div>
             </div>
           )}
 

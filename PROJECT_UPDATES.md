@@ -14,9 +14,9 @@ Importing "Register of Free Persons" failed on every batch (`invalid input synta
 - Slugs are unique across the whole table. Appending used to restart at `-0`, and record pages look records up by slug.
 - Blank cells in NOT NULL columns that have a default (e.g. `ocr_text` on older tables) now take the default instead of failing.
 - Smaller fixes: whitespace-only cells and rows count as blank; an "ID" header maps to `source_id` instead of the uuid primary key; image names Excel stored as numbers now match; a blank cell no longer overwrites a value from another header mapped to the same column; a new collection's slug is checked for clashes up front.
+- Images step: the committed-folders panel (with Auto-Match) sits below the storage browser again, not inside its header row, and stays visible while no folder is open.
 
 **Next actions**
 - Recover "Register of Free Persons", which is live and empty. Either delete it in Admin → Collections (with "drop table") and re-import it as a new collection, or re-import into it as an existing collection and convert `age` and `date_when_entered_the_state` to text on the Preview step.
-- Images step: the committed-folders panel (with Auto-Match) renders inside the storage browser's header row instead of below it (from ce830b8). Move it out.
 - Consider a "Download failed rows" button on the Done step so rejected rows can be fixed and re-imported without copying them by hand.
 - There's no test runner yet. The import rules in `lib/import/` are pure functions, ready for unit tests when one is added.
