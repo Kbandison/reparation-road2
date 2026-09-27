@@ -2,6 +2,21 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-09-27T20:07Z: Security upgrades, npm audit down from 26 findings to 0
+
+Next.js 16.1.6 carried about 30 advisories, including two critical remote-code-execution bugs (one in the image optimizer) and several middleware/proxy bypasses. That matters here because `middleware.ts` is what sends logged-out visitors away from `/admin` and `/dashboard`. `xlsx` 0.18.5 had a prototype-pollution bug and a ReDoS when reading crafted files. npm no longer carries fixed versions, because SheetJS now publishes only from its own CDN.
+
+**Minor updates**
+- Next.js and `eslint-config-next` 16.1.6 → 16.3.6, still pinned to exact versions. The 16.2 and 16.3 notes call for no app changes, and the app's own `error.tsx` and `not-found.tsx` mean 16.2's new default error page never shows.
+- `xlsx` 0.18.5 → 0.20.3, installed with SheetJS's documented command from `cdn.sheetjs.com`. The lockfile pins its sha512 integrity hash.
+- `npm audit fix` cleared the rest within existing version ranges. Resend went 6.9.3 → 6.30.0, which drops the vulnerable `svix`/`uuid` chain; `ws`, `sharp` and `postcss` are updated too. Resend 6.30 marks `audienceId` as deprecated in favour of "segments", but still sends those calls to the same `/audiences/{id}/contacts` endpoints, so the newsletter is unaffected.
+- Verified: typecheck, production build, and lint (the same 22 pre-existing issues as before, none new). The import, download and email tests pass on the new versions. On a dev server, pages load, logged-out visitors are sent from `/admin` and `/dashboard` to `/login`, and the admin API refuses them.
+
+**Next actions**
+- `middleware.ts` is a deprecated file convention in Next 16. It still works. The official codemod (`npx @next/codemod@latest middleware-to-proxy .`) renames it to `proxy.ts`, which runs on Node.js instead of Edge. Do this as its own change and test the logins.
+- Move the newsletter's Resend calls from `audienceId` to segments before a future Resend major drops the deprecated field.
+- The 22 old lint problems (11 errors) never block a deploy, because `next build` doesn't lint, but they're worth a cleanup pass.
+
 ## 2026-09-27T19:36Z: Bot protection on the public forms, and the booking email relay closed
 
 The client kept getting contact-form spam from bots: random-letter names, random-string messages, and Gmail addresses stuffed with dots. The contact route's only defense was a rate limit, which a bot sending a few messages a day never hits. The same route also emailed a "Your Research Session is Booked" message to any address a caller named, with the caller's text placed straight into the HTML, so anyone could send Reparation Road–branded mail with their own links to strangers.
@@ -15,10 +30,10 @@ The client kept getting contact-form spam from bots: random-letter names, random
 - Booking dates are saved as the day the visitor picked. `toISOString()` used to save the day before for anyone east of UTC.
 - Booking emails show dates like "Monday, October 5, 2026". Replies to the confirmation reach info@ instead of noreply@, and Adam's notification includes the booker's notes and replies go to the booker.
 
+**Verified in production:** a request with no browser proof gets 403 on the contact and booking routes, so BotID is active and the project's OIDC token works. A real browser signed up for the newsletter normally. `bookings_lockdown.sql` has been run.
+
 **Next actions**
-- After this deploys, run `bookings_lockdown.sql`. It stops direct inserts through the public API key and makes one booking per slot a database rule. Running it before the deploy breaks the old booking page.
-- After the deploy, check BotID is actually on: a request with no browser proof should get a 403. If it gets a 400 instead, BotID is failing open, most likely because OIDC is off in the client's Vercel project settings.
-- `npm audit` reports a critical advisory for the installed Next.js 16.1.6 and a high one for `xlsx` 0.18.5 (npm's copy is unmaintained). Both predate this change and are worth a separate upgrade.
+- Done: the Next.js and `xlsx` advisories were fixed in the security upgrade above.
 
 ## 2026-09-27T18:47Z: Import wizard types columns from every row and checks before writing
 
@@ -36,5 +51,6 @@ Importing "Register of Free Persons" failed on every batch (`invalid input synta
 - Images step: the committed-folders panel (with Auto-Match) sits below the storage browser again, not inside its header row, and stays visible while no folder is open.
 
 **Next actions**
-- Recover "Register of Free Persons", which is live and empty. Either delete it in Admin → Collections (with "drop table") and re-import it as a new collection, or re-import into it as an existing collection and convert `age` and `date_when_entered_the_state` to text on the Preview step.
+- Done: the register was re-imported as "Register of Free Person" (`register_of_free_person`, 4,114 records, published automatically). `age` and `date_when_entered_the_state` are text, with values like "7months" and "-" kept as written.
+- Optional: drop the empty leftover table from the failed run (`DROP TABLE public.register_of_free_persons;`, 0 rows, no collection uses it), and consider renaming the collection to the plural.
 - There's no test runner yet. The import rules in `lib/import/` are pure functions, ready for unit tests when one is added.
