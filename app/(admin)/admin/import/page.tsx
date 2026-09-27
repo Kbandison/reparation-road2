@@ -12,10 +12,10 @@ export default async function AdminImportPage() {
   // Get all collections for the dropdown
   const { data } = await supabase
     .from('collections')
-    .select('slug, name, table_name, parent_slug, display_columns, search_columns, has_images, has_ocr, discriminator_column, discriminator_value')
+    .select('slug, name, table_name, parent_slug, display_columns, search_columns, sort_columns, has_images, has_ocr, discriminator_column, discriminator_value, is_published')
     .order('name');
 
-  const collections = (data || []) as Pick<Collection, 'slug' | 'name' | 'table_name' | 'parent_slug' | 'display_columns' | 'search_columns' | 'has_images' | 'has_ocr' | 'discriminator_column' | 'discriminator_value'>[];
+  const collections = (data || []) as Pick<Collection, 'slug' | 'name' | 'table_name' | 'parent_slug' | 'display_columns' | 'search_columns' | 'sort_columns' | 'has_images' | 'has_ocr' | 'discriminator_column' | 'discriminator_value' | 'is_published'>[];
 
   return (
     <>

@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import * as XLSX from 'xlsx';
+import { SYSTEM_COLUMNS, findConflicts, prepareRows, toTableName } from '@/lib/import/records';
+import { assignUniqueSlugs } from '@/lib/import/slugs';
+import { describeColumns, fetchTableSchema, waitForSchema, type TableSchema } from '@/lib/import/table-schema';
+import { insertRows, loadExistingSlugs, normalizeRecords } from '@/lib/import/insert';
+import { canConvertToText, isBlank } from '@/lib/import/values';
+
+// Table and column names are interpolated into SQL and select strings.
+const SAFE_IDENTIFIER = /^[a-z0-9_]+$/i;
+
+const errorMessage = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
 async function verifyAdmin() {
   const supabase = await createClient();
@@ -29,26 +39,22 @@ export async function GET(request: NextRequest) {
     const tableName = searchParams.get('table');
     if (!tableName) return NextResponse.json({ error: 'table is required' }, { status: 400 });
 
-    // Get a single row to infer columns (faster than information_schema)
-    const { data, error } = await supabase.from(tableName).select('*').limit(1);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
-    const systemCols = new Set(['id', 'created_at', 'updated_at', 'embedding', 'tsv']);
-    let columns: string[] = [];
-
-    if (data && data.length > 0) {
-      columns = Object.keys(data[0]).filter((k) => !systemCols.has(k));
-    } else {
-      // Empty table — query information_schema
-      const { data: colData } = await supabase.rpc('get_table_columns', { p_table_name: tableName });
-      if (colData) {
-        columns = (colData as { column_name: string }[])
-          .map((c) => c.column_name)
-          .filter((k) => !systemCols.has(k));
-      }
+    // Real column types (not guessed from a sample row) so the import wizard
+    // can check a file against the table before writing anything.
+    let schema: TableSchema | null;
+    try {
+      schema = await fetchTableSchema(tableName);
+    } catch (err) {
+      return NextResponse.json({ error: errorMessage(err, 'Could not read the table schema') }, { status: 502 });
+    }
+    if (!schema) {
+      return NextResponse.json({ exists: false, error: `Table "${tableName}" does not exist` }, { status: 404 });
     }
 
-    return NextResponse.json({ columns });
+    // The wizard uses this to tell an empty leftover table from one in use.
+    const { count } = await supabase.from(tableName).select('id', { count: 'exact', head: true });
+
+    return NextResponse.json({ exists: true, ...describeColumns(schema), rowCount: count ?? null });
   }
 
   if (action === 'storage-buckets') {
@@ -164,32 +170,30 @@ export async function POST(request: NextRequest) {
     const sheet = workbook.Sheets[sheetName];
 
     // Parse with header row
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+    const parsed = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+
+    // Keep each row's real spreadsheet row number so problems can be reported
+    // as rows the admin can find in Excel. SheetJS skips empty rows, so the
+    // array index drifts; it records the true 0-based sheet row as a
+    // non-enumerable __rowNum__. Rows holding only whitespace aren't records.
+    const rows: Record<string, unknown>[] = [];
+    const rowNumbers: number[] = [];
+    parsed.forEach((row, i) => {
+      if (Object.values(row).every(isBlank)) return;
+      rows.push(row);
+      const sheetRow = (row as { __rowNum__?: number }).__rowNum__;
+      rowNumbers.push(typeof sheetRow === 'number' ? sheetRow + 1 : i + 2);
+    });
     const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
 
-    // Infer column types from first 20 rows
-    const columnTypes: Record<string, string> = {};
-    for (const header of headers) {
-      let isNumber = true;
-      let isBoolean = true;
-      for (const row of rows.slice(0, 20)) {
-        const val = row[header];
-        if (val === '' || val === null || val === undefined) continue;
-        if (typeof val !== 'number' && isNaN(Number(val))) isNumber = false;
-        if (typeof val !== 'boolean' && !['true', 'false', '0', '1'].includes(String(val).toLowerCase())) isBoolean = false;
-      }
-      if (isBoolean && !isNumber) columnTypes[header] = 'boolean';
-      else if (isNumber) columnTypes[header] = 'integer';
-      else columnTypes[header] = 'text';
-    }
-
-    // Return headers, types, row count, and sample rows
+    // Column types are chosen in the wizard from every row (lib/import/values),
+    // not guessed here from a sample.
     return NextResponse.json({
       headers,
-      columnTypes,
       rowCount: rows.length,
       sampleRows: rows.slice(0, 10),
       allRows: rows,
+      rowNumbers,
     });
   }
 
@@ -339,8 +343,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'tableName and columns are required' }, { status: 400 });
     }
 
-    // Sanitize table name
-    const safeName = tableName.replace(/[^a-z0-9_]/gi, '_').toLowerCase();
+    // Sanitize table name (the wizard derives the same name with the same helper)
+    const safeName = toTableName(tableName);
 
     // Build column definitions (typed). Reused for both the CREATE TABLE
     // body and the ADD COLUMN IF NOT EXISTS pass below.
@@ -399,7 +403,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (body.action === 'create-collection') {
-    const { slug, name, shortDescription, longDescription, category, era, region, tableName, parentSlug, displayType, accessTier, displayColumns, searchColumns, hasImages, hasOcr, discriminatorColumn, discriminatorValue } = body;
+    const { slug, name, shortDescription, longDescription, category, era, region, tableName, parentSlug, displayType, accessTier, displayColumns, searchColumns, hasImages, hasOcr, discriminatorColumn, discriminatorValue, isPublished } = body;
 
     // Auto-assign sort_order = max(sort_order) + 1 within the same parent group,
     // so new collections land at the end of their siblings instead of all
@@ -441,11 +445,113 @@ export async function POST(request: NextRequest) {
       discriminator_value: discriminatorValue || null,
       record_count: 0,
       sort_order: nextSortOrder,
-      is_published: true,
+      // The wizard creates collections as Drafts and publishes them once every
+      // record has landed, so a failed import never shows an empty collection.
+      is_published: isPublished !== false,
     });
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error) {
+      // 23505 = unique_violation (collections.slug is unique)
+      const message = error.code === '23505' ? `A collection with the slug "${slug}" already exists.` : error.message;
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
     return NextResponse.json({ success: true });
+  }
+
+  // Put a Draft collection live, with its record count, once its import is complete.
+  if (body.action === 'publish-collection') {
+    const slug = String(body.slug || '').trim();
+    if (!slug) return NextResponse.json({ error: 'slug is required' }, { status: 400 });
+
+    const { data: collection, error: findError } = await supabase
+      .from('collections')
+      .select('id, table_name, discriminator_column, discriminator_value')
+      .eq('slug', slug)
+      .maybeSingle();
+    if (findError) return NextResponse.json({ error: findError.message }, { status: 400 });
+    if (!collection) return NextResponse.json({ error: `No collection with the slug "${slug}"` }, { status: 404 });
+
+    let recordCount: number | null = null;
+    if (collection.table_name) {
+      let countQuery = supabase.from(collection.table_name).select('id', { count: 'exact', head: true });
+      // Same filter the collection page uses for tables shared between collections.
+      if (collection.discriminator_column && collection.discriminator_value) {
+        countQuery = countQuery.ilike(collection.discriminator_column, collection.discriminator_value);
+      }
+      const { count } = await countQuery;
+      recordCount = count ?? null;
+    }
+
+    const { error } = await supabase
+      .from('collections')
+      .update({ is_published: true, ...(recordCount !== null && { record_count: recordCount }) })
+      .eq('id', collection.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ success: true, recordCount });
+  }
+
+  // Widen an existing number or yes/no column to text so values like
+  // "7months" or "-" can be imported as written. Lossless: every number and
+  // true/false has an exact text form.
+  if (body.action === 'convert-column-to-text') {
+    const tableName = String(body.tableName || '').trim();
+    const column = String(body.column || '').trim();
+    if (!SAFE_IDENTIFIER.test(tableName) || !SAFE_IDENTIFIER.test(column)) {
+      return NextResponse.json({ error: 'Invalid table or column name' }, { status: 400 });
+    }
+
+    let schema: TableSchema | null;
+    try {
+      schema = await fetchTableSchema(tableName);
+    } catch (err) {
+      return NextResponse.json({ error: errorMessage(err, 'Could not read the table schema') }, { status: 502 });
+    }
+    const current = schema?.columns[column];
+    if (!schema || !current) {
+      return NextResponse.json({ error: `Column "${column}" not found in ${tableName}` }, { status: 404 });
+    }
+
+    // Only tables the import manages can be retyped here, never system tables
+    // like profiles: one a collection uses, or an empty one a failed import
+    // left behind (it carries the built-in columns create-table always adds).
+    const { count: owners } = await supabase
+      .from('collections')
+      .select('id', { count: 'exact', head: true })
+      .eq('table_name', tableName);
+    if (!owners) {
+      const { count: rows } = await supabase.from(tableName).select('id', { count: 'exact', head: true });
+      const tableColumns = schema.columns;
+      const importBuilt = ['slug', 'image_path', 'ocr_text'].every((c) => c in tableColumns);
+      if (!importBuilt || rows !== 0) {
+        return NextResponse.json({ error: 'Only collection tables can be changed here' }, { status: 400 });
+      }
+    }
+    if (current.type !== 'text') {
+      if (!canConvertToText(current.type)) {
+        return NextResponse.json(
+          { error: `Only number and yes/no columns can be converted here ("${column}" is ${current.type}).` },
+          { status: 400 },
+        );
+      }
+
+      const { error } = await supabase.rpc('exec_sql', {
+        sql_text: `ALTER TABLE public."${tableName}" ALTER COLUMN "${column}" TYPE text USING "${column}"::text; NOTIFY pgrst, 'reload schema';`,
+      });
+      if (error) {
+        return NextResponse.json({ error: `Couldn't convert "${column}": ${error.message}` }, { status: 400 });
+      }
+
+      try {
+        schema = (await waitForSchema(tableName, (s) => s?.columns[column]?.type === 'text')) ?? schema;
+      } catch {
+        // The ALTER is committed; only the confirming read failed.
+      }
+    }
+
+    const described = describeColumns(schema);
+    // The change is committed even if PostgREST's cache is still catching up.
+    described.columnTypes[column] = 'text';
+    return NextResponse.json({ success: true, ...described });
   }
 
   if (body.action === 'generate-descriptions') {
@@ -538,89 +644,76 @@ Rules:
   }
 
   if (body.action === 'insert-records') {
-    const { tableName, records, columnMapping, imageMapping } = body as {
+    const { tableName, records, rowNumbers, columnMapping, imageMapping, dryRun } = body as {
       tableName: string;
       records: Record<string, unknown>[];
+      rowNumbers?: number[]; // spreadsheet row of each record, for error reports
       columnMapping: Record<string, string>; // file col -> db col
       imageMapping?: Record<string, string>; // file image name -> storage path
+      dryRun?: boolean; // check the file against the table without writing
     };
 
-    if (!tableName || !records?.length || !columnMapping) {
+    if (!tableName || !SAFE_IDENTIFIER.test(tableName) || !Array.isArray(records) || records.length === 0 || !columnMapping) {
       return NextResponse.json({ error: 'tableName, records, and columnMapping are required' }, { status: 400 });
     }
 
-    // Transform records using column mapping
-    const mapped = records.map((row, idx) => {
-      const record: Record<string, unknown> = {};
-      for (const [fileCol, dbCol] of Object.entries(columnMapping)) {
-        if (!dbCol) continue; // unmapped column
-        let val = row[fileCol];
+    const mappedColumns = [...new Set(Object.values(columnMapping).filter(Boolean))];
+    const managed = mappedColumns.filter((c) => SYSTEM_COLUMNS.has(c));
+    if (managed.length > 0) {
+      return NextResponse.json(
+        { error: `Can't import into ${managed.join(', ')}: the database manages ${managed.length === 1 ? 'that column' : 'those columns'} itself.` },
+        { status: 400 },
+      );
+    }
 
-        // Handle image path mapping
-        if (dbCol === 'image_path' && imageMapping && typeof val === 'string') {
-          val = imageMapping[val] || imageMapping[val.trim()] || val;
-        }
+    // create-table runs just before this, and PostgREST reloads its schema
+    // cache asynchronously, so wait until every mapped column is visible.
+    let schema: TableSchema | null;
+    try {
+      schema = await waitForSchema(
+        tableName,
+        (s) => !!s && mappedColumns.every((c) => c in s.columns),
+        { attempts: 6 },
+      );
+    } catch (err) {
+      return NextResponse.json({ error: errorMessage(err, 'Could not read the table schema') }, { status: 502 });
+    }
+    if (!schema) return NextResponse.json({ error: `Table "${tableName}" does not exist` }, { status: 404 });
 
-        record[dbCol] = val === '' ? null : val;
-      }
+    const prepared = prepareRows(records, rowNumbers, columnMapping, imageMapping);
 
-      // Auto-generate slug if not mapped
-      if (!record.slug) {
-        const firstVal = Object.values(record).find((v) => typeof v === 'string' && v.trim());
-        record.slug = firstVal
-          ? String(firstVal).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80) + `-${idx}`
-          : `record-${idx}`;
-      }
+    // Check every value against the table's real column types before writing
+    // anything. A single "7months" in a whole-number column used to fail its
+    // whole 500-row batch.
+    const conflicts = findConflicts(prepared, mappedColumns, describeColumns(schema));
+    if (conflicts.length > 0) {
+      return NextResponse.json(
+        { error: "Some values don't fit this table, so nothing was imported.", conflicts },
+        { status: 422 },
+      );
+    }
+    if (dryRun) return NextResponse.json({ success: true, total: prepared.length });
 
-      return record;
-    });
+    normalizeRecords(prepared, schema);
 
-    // Insert in batches of 500
-    const batchSize = 500;
-    let inserted = 0;
-    const errors: string[] = [];
-
-    for (let i = 0; i < mapped.length; i += batchSize) {
-      const batch = mapped.slice(i, i + batchSize);
-      const batchNum = Math.floor(i / batchSize) + 1;
-      const { error } = await supabase.from(tableName).insert(batch);
-      if (error) {
-        // Error instances have non-enumerable .message (so JSON.stringify yields "{}").
-        // Walk every own-property to see what's actually there.
-        const errAny = error as unknown as Record<string, unknown>;
-        const allProps: Record<string, unknown> = {};
-        try {
-          for (const key of Object.getOwnPropertyNames(errAny)) {
-            allProps[key] = errAny[key];
-          }
-        } catch {}
-        const detail =
-          (errAny.message as string) ||
-          (errAny.details as string) ||
-          (errAny.hint as string) ||
-          (errAny.code as string) ||
-          (errAny.error as string) ||
-          (errAny.statusText as string) ||
-          (allProps.message as string) ||
-          'unknown error (see server log)';
-        console.error(`[import] Batch ${batchNum} insert failed`, {
-          tableName,
-          errorType: error?.constructor?.name,
-          allProps,
-          recordKeys: Object.keys(batch[0] || {}),
-          sampleRecord: batch[0],
-        });
-        errors.push(`Batch ${batchNum}: ${detail}`);
-      } else {
-        inserted += batch.length;
+    if ('slug' in schema.columns) {
+      try {
+        assignUniqueSlugs(
+          prepared.map((p) => p.record),
+          await loadExistingSlugs(supabase, tableName),
+        );
+      } catch (err) {
+        return NextResponse.json({ error: errorMessage(err, 'Could not read existing slugs') }, { status: 502 });
       }
     }
 
+    const { inserted, failures } = await insertRows(supabase, tableName, prepared);
+
     return NextResponse.json({
-      success: errors.length === 0,
+      success: failures.length === 0,
       inserted,
-      total: mapped.length,
-      errors: errors.length > 0 ? errors : undefined,
+      total: prepared.length,
+      failures,
     });
   }
 

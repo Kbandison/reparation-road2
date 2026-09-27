@@ -22,8 +22,57 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { Collection } from '@/lib/types';
 import { collectionCategories, collectionEras, collectionRegions } from '@/lib/constants';
+import { BUILT_IN_COLUMNS, SYSTEM_COLUMNS, findConflicts, prepareRows, toTableName } from '@/lib/import/records';
+import { profileColumn, typeLabel, type ColumnProfile } from '@/lib/import/values';
+import type { ImportColumnType, ImportFailure, TableColumns } from '@/lib/import/types';
+import { ImportColumnTypeField } from './import-column-type-field';
+import { ImportPreflight } from './import-preflight';
+import { ImportFailureList } from './import-failure-list';
 
 type Step = 'mode' | 'collection' | 'upload' | 'mapping' | 'images' | 'preview' | 'importing' | 'done';
+
+// The target table as it stands before the import: its real columns, or no
+// table yet (a new collection).
+type TableSchemaState =
+  | { exists: false }
+  | ({ exists: true; columns: string[]; rowCount: number | null } & TableColumns);
+
+interface ImportResult {
+  inserted: number;
+  total: number;
+  failures: ImportFailure[];
+  error: string | null;
+  // Where the target collection stands afterwards; 'none' if a new one was never created.
+  collection: 'none' | 'draft' | 'published';
+}
+
+const EMPTY_RESULT: ImportResult = { inserted: 0, total: 0, failures: [], error: null, collection: 'none' };
+
+/** POSTs a JSON action to the import API and hands back the status with the parsed body. */
+async function postImport(payload: Record<string, unknown>) {
+  const res = await fetch('/api/admin/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** The target table's real columns and types, or { exists: false } when there's no such table. */
+async function loadTableSchema(table: string): Promise<TableSchemaState> {
+  const res = await fetch(`/api/admin/import?action=schema&table=${encodeURIComponent(table)}`);
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 404 && data.exists === false) return { exists: false };
+  if (!res.ok) throw new Error(data.error || 'Could not read the table schema');
+  return {
+    exists: true,
+    columns: data.columns ?? [],
+    columnTypes: data.columnTypes ?? {},
+    requiredColumns: data.requiredColumns ?? [],
+    rowCount: data.rowCount ?? null,
+  };
+}
 
 interface StorageFile {
   name: string;
@@ -32,7 +81,7 @@ interface StorageFile {
   url: string;
 }
 
-type CollectionInfo = Pick<Collection, 'slug' | 'name' | 'table_name' | 'parent_slug' | 'display_columns' | 'search_columns' | 'has_images' | 'has_ocr' | 'discriminator_column' | 'discriminator_value'>;
+type CollectionInfo = Pick<Collection, 'slug' | 'name' | 'table_name' | 'parent_slug' | 'display_columns' | 'search_columns' | 'sort_columns' | 'has_images' | 'has_ocr' | 'discriminator_column' | 'discriminator_value' | 'is_published'>;
 
 interface ImportWizardProps {
   collections: CollectionInfo[];
@@ -48,6 +97,9 @@ function normalize(s: string): string {
 // punctuation never becomes an empty (dropped) column.
 function toColumnName(header: string): string {
   const name = header.replace(/[^a-z0-9_ ]/gi, '').replace(/\s+/g, '_').toLowerCase().replace(/^_+|_+$/g, '');
+  // Never land on a column the database manages: an "ID" header would
+  // otherwise target the uuid primary key and fail every row.
+  if (SYSTEM_COLUMNS.has(name)) return `source_${name}`;
   return name || 'column';
 }
 
@@ -100,10 +152,15 @@ export function ImportWizard({ collections }: ImportWizardProps) {
 
   // File data
   const [fileHeaders, setFileHeaders] = useState<string[]>([]);
-  const [fileColumnTypes, setFileColumnTypes] = useState<Record<string, string>>({});
   const [sampleRows, setSampleRows] = useState<Record<string, unknown>[]>([]);
   const [allRows, setAllRows] = useState<Record<string, unknown>[]>([]);
+  // Spreadsheet row of each entry in allRows, so problems point at rows the admin can find in Excel.
+  const [rowNumbers, setRowNumbers] = useState<number[]>([]);
   const [rowCount, setRowCount] = useState(0);
+
+  // The target table as it is now, and the admin's type picks for columns this import creates.
+  const [tableSchema, setTableSchema] = useState<TableSchemaState | null>(null);
+  const [typeOverrides, setTypeOverrides] = useState<Record<string, ImportColumnType>>({});
 
   // Column mapping: fileCol -> dbCol
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
@@ -130,9 +187,9 @@ export function ImportWizard({ collections }: ImportWizardProps) {
   const [availableBuckets, setAvailableBuckets] = useState<{ name: string; public: boolean }[]>([]);
   const [loadingBuckets, setLoadingBuckets] = useState(false);
 
-  // Import progress
-  const [importing, setImporting] = useState(false);
-  const [progress, setProgress] = useState({ inserted: 0, total: 0, errors: [] as string[] });
+  // Import outcome
+  const [result, setResult] = useState<ImportResult>(EMPTY_RESULT);
+  const [publishing, setPublishing] = useState(false);
   const [uploading, setUploading] = useState(false);
 
   const selectedCollection = collections.find((c) => c.slug === selectedSlug);
@@ -163,17 +220,29 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); setUploading(false); return; }
 
+      // Read the target table's real columns and types. A new collection's
+      // table normally doesn't exist yet, but an earlier failed run can leave
+      // one behind, and its types are what the rows must fit.
+      const table = mode === 'existing'
+        ? (selectedCollection?.table_name ?? '')
+        : (toTableName(newCollection.slug) || 'new_table');
+      const schema = await loadTableSchema(table);
+      if (mode === 'existing' && !schema.exists) {
+        toast.error(`This collection's table (${table}) doesn't exist`);
+        setUploading(false);
+        return;
+      }
+      const existingCols = schema.exists ? schema.columns : [];
+
       setFileHeaders(data.headers);
-      setFileColumnTypes(data.columnTypes);
       setSampleRows(data.sampleRows);
       setAllRows(data.allRows);
+      setRowNumbers(data.rowNumbers ?? []);
       setRowCount(data.rowCount);
+      setTableSchema(schema);
+      setTypeOverrides({});
 
-      // Fetch DB schema for existing collections
-      if (mode === 'existing' && selectedCollection?.table_name) {
-        const schemaRes = await fetch(`/api/admin/import?action=schema&table=${selectedCollection.table_name}`);
-        const schemaData = await schemaRes.json();
-        const existingCols: string[] = schemaData.columns || [];
+      if (mode === 'existing') {
         // Auto-map by matching names; a header that matches no existing column
         // maps to a NEW column (added on import) instead of being dropped.
         const mapping: Record<string, string> = {};
@@ -190,21 +259,22 @@ export function ImportWizard({ collections }: ImportWizardProps) {
         setDbColumns([...new Set([...existingCols, ...(data.headers as string[]).map(toColumnName)])]);
         setColumnMapping(mapping);
       } else {
-        // New collection — DB columns are derived from the file.
+        // New collection — DB columns are derived from the file (plus any a
+        // leftover table already has).
         const cols: string[] = (data.headers as string[]).map((h) => toColumnName(h));
-        setDbColumns([...new Set(cols)]);
+        setDbColumns([...new Set([...existingCols, ...cols])]);
         const mapping: Record<string, string> = {};
         data.headers.forEach((h: string, i: number) => {
           // Image-like columns always go to image_path so no redundant DB column is created.
           mapping[h] = looksLikeImageColumn(cols[i]) ? 'image_path' : cols[i];
         });
         setColumnMapping(mapping);
-        setNewTableName(newCollection.slug.replace(/-/g, '_') || 'new_table');
+        setNewTableName(table);
       }
 
       setStep('mapping');
-    } catch {
-      toast.error('Failed to parse file');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to parse file');
     }
     setUploading(false);
   }, [mode, selectedCollection, newCollection.slug]);
@@ -410,61 +480,142 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     setImageMapping(mapping);
   }, [imageColumn, matchPool, allRows]);
 
-  // Step: Do the import
-  const handleImport = async () => {
-    setImporting(true);
-    setStep('importing');
+  const targetTable = mode === 'existing' ? (selectedCollection?.table_name ?? '') : newTableName;
+  const targetName = mode === 'existing' ? (selectedCollection?.name ?? '') : newCollection.name;
 
-    const tableName = mode === 'existing'
-      ? (selectedCollection?.table_name ?? '')
-      : newTableName;
+  // Every row as the record it will become, tagged with its spreadsheet row.
+  const preparedRows = useMemo(
+    () => prepareRows(allRows, rowNumbers, columnMapping),
+    [allRows, rowNumbers, columnMapping],
+  );
+  const mappedColumns = useMemo(
+    () => [...new Set(Object.values(columnMapping).filter(Boolean))],
+    [columnMapping],
+  );
 
-    // Build the column list from the mapping (fileCol -> dbCol), deduped by db
-    // column name, excluding system columns. Using the mapping entries keeps the
-    // type lookup correct even when several headers map to the same column.
-    const RESERVED = new Set(['id', 'slug', 'created_at', 'image_path', 'ocr_text']);
-    const seenCol = new Set<string>();
-    const columns: { name: string; type: string }[] = [];
-    for (const [fileCol, dbCol] of Object.entries(columnMapping)) {
-      if (!dbCol || RESERVED.has(dbCol) || seenCol.has(dbCol)) continue;
-      seenCol.add(dbCol);
-      columns.push({ name: dbCol, type: fileColumnTypes[fileCol] || 'text' });
+  // Columns this import will create, each with the types every one of its values
+  // fits. Built-in and already-existing columns keep the type the table gives them.
+  const newColumnProfiles = useMemo(() => {
+    const existingTypes = tableSchema?.exists ? tableSchema.columnTypes : {};
+    const profiles: Record<string, ColumnProfile> = {};
+    for (const column of mappedColumns) {
+      if (SYSTEM_COLUMNS.has(column) || BUILT_IN_COLUMNS.has(column) || column in existingTypes) continue;
+      profiles[column] = profileColumn(preparedRows.map((p) => ({ row: p.row, value: p.record[column] })));
     }
+    return profiles;
+  }, [mappedColumns, preparedRows, tableSchema]);
 
-    // Ensure every mapped column exists. create-table is idempotent (CREATE TABLE
-    // IF NOT EXISTS + ADD COLUMN IF NOT EXISTS), so this also *adds* any new
-    // columns to an existing table instead of silently dropping their data.
-    if (columns.length > 0) {
-      const createRes = await fetch('/api/admin/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create-table', tableName, columns }),
-      });
-      const createData = await createRes.json();
-      if (!createRes.ok) {
-        toast.error(createData.error || 'Failed to prepare table columns');
-        setImporting(false);
-        setStep('preview');
-        return;
+  // The admin's pick where it still fits the values, otherwise the inferred type.
+  const newColumnTypes = useMemo(() => {
+    const types: Record<string, ImportColumnType> = {};
+    for (const [column, profile] of Object.entries(newColumnProfiles)) {
+      const picked = typeOverrides[column];
+      types[column] = picked && profile.allowed.includes(picked) ? picked : profile.inferred;
+    }
+    return types;
+  }, [newColumnProfiles, typeOverrides]);
+
+  // Every row checked against the columns the table already has.
+  const importConflicts = useMemo(
+    () => (tableSchema?.exists ? findConflicts(preparedRows, mappedColumns, tableSchema) : []),
+    [tableSchema, preparedRows, mappedColumns],
+  );
+
+  const slugTaken = mode === 'new' && !!newCollection.slug && collections.some((c) => c.slug === newCollection.slug);
+
+  // Problems with where the rows are going, rather than with the rows themselves.
+  const blockers = useMemo(() => {
+    if (mode !== 'new') return [];
+    const list: string[] = [];
+    if (slugTaken) {
+      list.push(`A collection with the slug "${newCollection.slug}" already exists. Import into it as an existing collection, or change the slug.`);
+    }
+    if (tableSchema?.exists) {
+      // An empty table no collection uses is a leftover from a failed run and is
+      // safe to reuse. Anything else would mix these rows into someone else's.
+      const owner = collections.find((c) => c.table_name === newTableName);
+      if (owner && owner.slug !== newCollection.slug) {
+        list.push(`The table ${newTableName} already belongs to "${owner.name}". Import into that collection instead, or change the slug.`);
+      } else if (tableSchema.rowCount !== 0) {
+        list.push(`A table named ${newTableName} already holds ${tableSchema.rowCount?.toLocaleString() ?? 'some'} records. Change the slug so this collection gets its own table.`);
       }
     }
+    return list;
+  }, [mode, slugTaken, newCollection.slug, tableSchema, collections, newTableName]);
 
-    // If new collection, create its metadata row.
-    if (mode === 'new') {
-      // Create collection metadata. Exclude system columns from display/search —
-      // image_path renders inside the record modal, not as a table column;
-      // ocr_text and slug aren't useful in either view.
-      const RESERVED_DISPLAY = new Set(['image_path', 'ocr_text', 'slug', 'id', 'created_at']);
-      const userMappedCols = Object.values(columnMapping)
-        .filter(Boolean)
-        .filter((c) => !RESERVED_DISPLAY.has(c));
-      const displayCols = userMappedCols.slice(0, 12);
-      const searchCols = userMappedCols.slice(0, 4);
+  // Columns that keep the target collection in document order: sort_columns
+  // when set, else the first display column (see lib/collections/queries.ts).
+  const orderColumns = mode === 'existing' && selectedCollection
+    ? (selectedCollection.sort_columns?.length ? selectedCollection.sort_columns : selectedCollection.display_columns.slice(0, 1))
+    : [];
 
-      await fetch('/api/admin/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+  const unmappedRequired = importConflicts.filter((c) => c.kind === 'unmapped');
+  const readyToImport = tableSchema !== null && importConflicts.length === 0 && blockers.length === 0;
+
+  // Preview step: widen an existing column to text so its values can go in as written.
+  const handleConvert = async (column: string) => {
+    const { ok, data } = await postImport({ action: 'convert-column-to-text', tableName: targetTable, column });
+    if (!ok) throw new Error(data.error || `Couldn't convert ${column}`);
+    setTableSchema((prev) =>
+      prev?.exists
+        ? { ...prev, columns: data.columns, columnTypes: data.columnTypes, requiredColumns: data.requiredColumns }
+        : prev,
+    );
+    toast.success(`${column} is now a text column`);
+  };
+
+  // Step: Do the import
+  const handleImport = async () => {
+    if (!readyToImport) return;
+    setStep('importing');
+
+    const tableName = targetTable;
+    const recordsPayload = {
+      tableName,
+      records: allRows,
+      rowNumbers,
+      columnMapping,
+      imageMapping: Object.keys(imageMapping).length > 0 ? imageMapping : undefined,
+    };
+
+    // A failure before any rows are written goes back to Preview with the reason,
+    // re-reading the table when the server found something the browser didn't.
+    const backToPreview = async (message: string, reloadSchema = false) => {
+      toast.error(message);
+      if (reloadSchema) {
+        try {
+          setTableSchema(await loadTableSchema(tableName));
+        } catch {
+          // Keep the last known schema; the toast already explains the failure.
+        }
+      }
+      setStep('preview');
+    };
+
+    let collectionCreated = false;
+    try {
+      // 1. Make sure every mapped column exists. create-table is idempotent
+      //    (CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS): new columns get
+      //    the types chosen on the Mapping step, existing ones are left alone.
+      const columns = Object.entries(newColumnTypes).map(([name, type]) => ({ name, type }));
+      if (columns.length > 0) {
+        const created = await postImport({ action: 'create-table', tableName, columns });
+        if (!created.ok) return await backToPreview(created.data.error || 'Failed to prepare table columns');
+      }
+
+      if (mode === 'new') {
+        // 2. Have the server confirm the whole file fits BEFORE the collection
+        //    exists. A problem here leaves nothing behind but an empty table,
+        //    which the next attempt reuses.
+        const check = await postImport({ ...recordsPayload, action: 'insert-records', dryRun: true });
+        if (!check.ok) return await backToPreview(check.data.error || 'The file failed its final check', check.status === 422);
+
+        // 3. Collection metadata, created as a Draft so visitors see nothing
+        //    until every record is in. image_path renders inside the record
+        //    modal and ocr_text/slug aren't useful columns, so none of them
+        //    are displayed or searched.
+        const userMappedCols = mappedColumns.filter((c) => !SYSTEM_COLUMNS.has(c) && !BUILT_IN_COLUMNS.has(c));
+        const createdCollection = await postImport({
           action: 'create-collection',
           slug: newCollection.slug,
           name: newCollection.name,
@@ -473,41 +624,77 @@ export function ImportWizard({ collections }: ImportWizardProps) {
           category: newCollection.category,
           era: newCollection.era || null,
           region: newCollection.region || null,
-          tableName: newTableName,
+          tableName,
           parentSlug: newCollection.parentSlug || null,
           displayType: newCollection.displayType,
           accessTier: newCollection.accessTier,
-          displayColumns: displayCols,
-          searchColumns: searchCols,
+          displayColumns: userMappedCols.slice(0, 12),
+          searchColumns: userMappedCols.slice(0, 4),
           hasImages: newCollection.hasImages,
           hasOcr: newCollection.hasOcr,
-        }),
+          isPublished: false,
+        });
+        if (!createdCollection.ok) return await backToPreview(createdCollection.data.error || 'Failed to create the collection');
+        collectionCreated = true;
+      }
+
+      // 4. Insert. The server re-checks every row first and writes nothing on a mismatch.
+      const inserted = await postImport({ ...recordsPayload, action: 'insert-records' });
+      if (inserted.status === 422 && mode === 'existing') {
+        return await backToPreview(inserted.data.error || "Some values don't fit this table", true);
+      }
+      if (!inserted.ok) throw new Error(inserted.data.error || 'Import failed');
+
+      // 5. A new collection goes live only when every record landed.
+      let collection: ImportResult['collection'] = mode === 'existing'
+        ? (selectedCollection?.is_published ? 'published' : 'draft')
+        : 'draft';
+      if (mode === 'new' && inserted.data.success) {
+        const published = await postImport({ action: 'publish-collection', slug: newCollection.slug });
+        if (published.ok) collection = 'published';
+        else toast.error(published.data.error || 'The records are in, but publishing failed. Publish it from Admin → Collections.');
+      }
+
+      setResult({
+        inserted: inserted.data.inserted ?? 0,
+        total: inserted.data.total ?? allRows.length,
+        failures: inserted.data.failures ?? [],
+        error: null,
+        collection,
+      });
+      if (inserted.data.success) toast.success(`Imported ${Number(inserted.data.inserted).toLocaleString()} records`);
+      else toast.error(`Imported ${inserted.data.inserted} of ${inserted.data.total}. Some rows need attention`);
+    } catch (err) {
+      setResult({
+        inserted: 0,
+        total: allRows.length,
+        failures: [],
+        error: err instanceof Error ? err.message : 'Import failed',
+        collection: mode === 'existing'
+          ? (selectedCollection?.is_published ? 'published' : 'draft')
+          : collectionCreated ? 'draft' : 'none',
       });
     }
 
-    // Insert records
-    const res = await fetch('/api/admin/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'insert-records',
-        tableName: tableName,
-        records: allRows,
-        columnMapping,
-        imageMapping: Object.keys(imageMapping).length > 0 ? imageMapping : undefined,
-      }),
-    });
-
-    const data = await res.json();
-    setProgress({ inserted: data.inserted || 0, total: data.total || allRows.length, errors: data.errors || [] });
-    setImporting(false);
     setStep('done');
+    // Refresh the collection list so a new Draft can be picked for a follow-up import.
+    router.refresh();
+  };
 
-    if (data.success) {
-      toast.success(`Imported ${data.inserted} records`);
-    } else {
-      toast.error(`Imported ${data.inserted}/${data.total} with errors`);
+  // Done step: put a Draft collection live.
+  const handlePublish = async () => {
+    const slug = mode === 'existing' ? selectedCollection?.slug : newCollection.slug;
+    if (!slug) return;
+    setPublishing(true);
+    const { ok, data } = await postImport({ action: 'publish-collection', slug });
+    setPublishing(false);
+    if (!ok) {
+      toast.error(data.error || 'Publishing failed');
+      return;
     }
+    setResult((prev) => ({ ...prev, collection: 'published' }));
+    toast.success(`${targetName} is live`);
+    router.refresh();
   };
 
   // Check if image step is needed
@@ -563,7 +750,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
           >
             <option value="">Choose a collection...</option>
             {collections.filter((c) => c.table_name).map((c) => (
-              <option key={c.slug} value={c.slug}>{c.name}{c.parent_slug ? ` (${c.parent_slug})` : ''}</option>
+              <option key={c.slug} value={c.slug}>{c.name}{c.parent_slug ? ` (${c.parent_slug})` : ''}{c.is_published ? '' : ' · Draft'}</option>
             ))}
           </select>
           <div className="flex gap-3">
@@ -595,13 +782,21 @@ export function ImportWizard({ collections }: ImportWizardProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label>Slug</Label>
+              <Label htmlFor="new-collection-slug">Slug</Label>
               <Input
+                id="new-collection-slug"
                 value={newCollection.slug}
                 onChange={(e) => setNewCollection({ ...newCollection, slug: e.target.value })}
                 placeholder="e.g. cherokee-agency"
+                aria-invalid={slugTaken}
+                aria-describedby={slugTaken ? 'new-collection-slug-error' : undefined}
                 className="bg-brand-card border-brand-gold/[0.15]"
               />
+              {slugTaken && (
+                <p id="new-collection-slug-error" className="text-[11px] text-brand-burgundy-light">
+                  A collection already uses this slug. Import into it as an existing collection, or pick another.
+                </p>
+              )}
             </div>
           </div>
 
@@ -734,7 +929,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
             </Button>
             <Button
               onClick={() => setStep('upload')}
-              disabled={!newCollection.name || !newCollection.slug}
+              disabled={!newCollection.name || !newCollection.slug || slugTaken}
               className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
             >
               Next <ArrowRight className="w-4 h-4 ml-1" />
@@ -785,9 +980,24 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       {step === 'mapping' && (
         <div className="space-y-4">
           <p className="text-sm text-brand-muted">
-            Map your spreadsheet columns to database columns. {rowCount} rows detected. Unmatched
-            columns are mapped to new columns automatically — anything set to “Skip” won&apos;t be imported.
+            Map your spreadsheet columns to database columns. {rowCount.toLocaleString()} rows detected. Unmatched
+            columns are mapped to new columns automatically — anything set to “Skip” won&apos;t be imported. Each
+            new column gets a type that fits every value in the file.
           </p>
+
+          {unmappedRequired.length > 0 && (
+            <div className="flex items-start gap-2 rounded-xl border border-brand-burgundy/25 bg-brand-burgundy/[0.06] px-4 py-3">
+              <AlertCircle className="w-4 h-4 text-brand-burgundy-light mt-0.5 shrink-0" aria-hidden="true" />
+              <p className="text-xs text-brand-cream">
+                <span className="font-medium">
+                  <span className="font-mono">{targetTable}</span> needs a value in{' '}
+                  {unmappedRequired.map((c) => c.column).join(', ')} on every row
+                </span>
+                , but nothing in your file maps to {unmappedRequired.length === 1 ? 'it' : 'them'}. Pick a spreadsheet
+                column for {unmappedRequired.length === 1 ? 'it' : 'each'} below.
+              </p>
+            </div>
+          )}
 
           {(() => {
             const skipped = fileHeaders.filter((h) => !columnMapping[h]);
@@ -803,33 +1013,55 @@ export function ImportWizard({ collections }: ImportWizardProps) {
           })()}
 
           <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden">
-            <div className="grid grid-cols-3 gap-4 px-4 py-3 border-b border-brand-gold/[0.08] text-[11px] font-semibold uppercase tracking-wider text-brand-muted">
+            {/* Mobile-first: each mapping stacks on phones and becomes a 4-column row from md up. */}
+            <div className="hidden md:grid md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.9fr)] gap-4 px-4 py-3 border-b border-brand-gold/[0.08] text-[11px] font-semibold uppercase tracking-wider text-brand-muted">
               <span>Spreadsheet Column</span>
               <span>Maps To</span>
+              <span>Type</span>
               <span>Sample Value</span>
             </div>
             <div className="divide-y divide-brand-gold/[0.04]">
-              {fileHeaders.map((header) => (
-                <div key={header} className="grid grid-cols-3 gap-4 px-4 py-2.5 items-center">
-                  <span className="text-sm text-brand-cream">{header}</span>
-                  <select
-                    value={columnMapping[header] || ''}
-                    onChange={(e) => setColumnMapping({ ...columnMapping, [header]: e.target.value })}
-                    className="px-2 py-1.5 bg-brand-bg border border-brand-gold/[0.08] rounded-lg text-xs text-brand-cream"
+              {fileHeaders.map((header) => {
+                const dbCol = columnMapping[header] || '';
+                const existingType = tableSchema?.exists ? tableSchema.columnTypes[dbCol] : undefined;
+                const problemRows = importConflicts
+                  .filter((c) => c.column === dbCol && c.kind !== 'unmapped')
+                  .reduce((sum, c) => sum + c.rows.length, 0);
+                return (
+                  <div
+                    key={header}
+                    className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.9fr)] md:gap-4 md:items-center"
                   >
-                    <option value="">— Skip —</option>
-                    {(mode === 'existing' ? dbColumns : dbColumns).map((col) => (
-                      <option key={col} value={col}>{col}</option>
-                    ))}
-                    <option value="image_path">image_path</option>
-                    <option value="ocr_text">ocr_text</option>
-                    <option value="slug">slug</option>
-                  </select>
-                  <span className="text-xs text-brand-muted truncate">
-                    {sampleRows[0] ? String(sampleRows[0][header] ?? '') : ''}
-                  </span>
-                </div>
-              ))}
+                    <span className="text-sm text-brand-cream break-words">{header}</span>
+                    <select
+                      value={dbCol}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, [header]: e.target.value })}
+                      aria-label={`Database column for ${header}`}
+                      className="px-2 py-1.5 bg-brand-bg border border-brand-gold/[0.08] rounded-lg text-xs text-brand-cream"
+                    >
+                      <option value="">— Skip —</option>
+                      {dbColumns.map((col) => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                      <option value="image_path">image_path</option>
+                      <option value="ocr_text">ocr_text</option>
+                      <option value="slug">slug</option>
+                    </select>
+                    <ImportColumnTypeField
+                      column={dbCol}
+                      fixedType={existingType ?? (BUILT_IN_COLUMNS.has(dbCol) ? 'text' : undefined)}
+                      problemRows={problemRows}
+                      profile={newColumnProfiles[dbCol]}
+                      value={newColumnTypes[dbCol]}
+                      onChange={(type) => setTypeOverrides((prev) => ({ ...prev, [dbCol]: type }))}
+                    />
+                    <span className="text-xs text-brand-muted truncate">
+                      <span className="md:hidden text-[10px] uppercase tracking-wider mr-1.5">Sample</span>
+                      {sampleRows[0] ? String(sampleRows[0][header] ?? '') : ''}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -1142,8 +1374,19 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       {step === 'preview' && (
         <div className="space-y-4">
           <p className="text-sm text-brand-muted">
-            Preview of {Math.min(5, sampleRows.length)} of {rowCount} rows to be imported.
+            Preview of {Math.min(5, sampleRows.length)} of {rowCount.toLocaleString()} rows to be imported.
           </p>
+
+          <ImportPreflight
+            tableName={targetTable}
+            tableExists={!!tableSchema?.exists}
+            rowCount={rowCount}
+            conflicts={importConflicts}
+            blockers={blockers}
+            orderColumns={orderColumns}
+            onConvert={handleConvert}
+            onBackToMapping={() => setStep('mapping')}
+          />
 
           <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-x-auto">
             <table className="w-full text-xs">
@@ -1179,12 +1422,31 @@ export function ImportWizard({ collections }: ImportWizardProps) {
           <div className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-4 text-sm">
             <p className="text-brand-cream font-medium mb-2">Import Summary</p>
             <ul className="space-y-1 text-brand-muted text-xs">
-              <li>Records: <span className="text-brand-cream">{rowCount}</span></li>
-              <li>Columns mapped: <span className="text-brand-cream">{Object.values(columnMapping).filter(Boolean).length}</span></li>
-              <li>Target: <span className="text-brand-cream">{mode === 'existing' ? selectedCollection?.name : newCollection.name}</span></li>
-              <li>Table: <span className="text-brand-cream font-mono">{mode === 'existing' ? selectedCollection?.table_name : newTableName}</span></li>
+              <li>Records: <span className="text-brand-cream">{rowCount.toLocaleString()}</span></li>
+              <li>Columns mapped: <span className="text-brand-cream">{mappedColumns.length}</span></li>
+              {Object.keys(newColumnTypes).length > 0 && (
+                <li>
+                  New columns:{' '}
+                  <span className="text-brand-cream">
+                    {Object.entries(newColumnTypes).map(([column, type]) => `${column} (${typeLabel(type)})`).join(', ')}
+                  </span>
+                </li>
+              )}
+              <li>Target: <span className="text-brand-cream">{targetName}</span></li>
+              <li>
+                Table: <span className="text-brand-cream font-mono">{targetTable}</span>
+                {mode === 'new' && tableSchema?.exists && blockers.length === 0 && (
+                  <span> (the empty table left by an earlier attempt, reused)</span>
+                )}
+              </li>
               {Object.keys(imageMapping).length > 0 && (
                 <li>Images matched: <span className="text-brand-cream">{Object.keys(imageMapping).length}</span></li>
+              )}
+              {mode === 'new' && (
+                <li>
+                  Goes live:{' '}
+                  <span className="text-brand-cream">automatically once every record is in. It stays a Draft until then.</span>
+                </li>
               )}
             </ul>
           </div>
@@ -1195,9 +1457,10 @@ export function ImportWizard({ collections }: ImportWizardProps) {
             </Button>
             <Button
               onClick={handleImport}
+              disabled={!readyToImport}
               className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
             >
-              <Upload className="w-4 h-4 mr-1.5" /> Import {rowCount} Records
+              <Upload className="w-4 h-4 mr-1.5" /> Import {rowCount.toLocaleString()} Records
             </Button>
           </div>
         </div>
@@ -1213,25 +1476,58 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       )}
 
       {/* Step: Done */}
-      {step === 'done' && (
-        <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-10 text-center">
-          {progress.errors.length === 0 ? (
-            <CheckCircle className="w-12 h-12 text-brand-sage mx-auto mb-4" />
+      {step === 'done' && (() => {
+        const complete = !result.error && result.failures.length === 0;
+        return (
+        <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 sm:p-10 text-center">
+          {complete ? (
+            <CheckCircle className="w-12 h-12 text-brand-sage mx-auto mb-4" aria-hidden="true" />
           ) : (
-            <AlertCircle className="w-12 h-12 text-brand-gold mx-auto mb-4" />
+            <AlertCircle className="w-12 h-12 text-brand-gold mx-auto mb-4" aria-hidden="true" />
           )}
           <h3 className="font-display text-lg font-semibold text-brand-cream mb-2">
-            {progress.errors.length === 0 ? 'Import Complete' : 'Import Completed with Errors'}
+            {complete ? 'Import Complete' : result.inserted > 0 ? 'Imported with Problems' : 'Nothing Was Imported'}
           </h3>
           <p className="text-sm text-brand-muted mb-2">
-            {progress.inserted} of {progress.total} records imported.
+            {result.inserted.toLocaleString()} of {result.total.toLocaleString()} records imported.
           </p>
 
-          {progress.errors.length > 0 && (
-            <div className="bg-brand-bg border border-red-500/20 rounded-xl p-4 mt-4 text-left max-h-40 overflow-y-auto">
-              {progress.errors.map((err, i) => (
-                <p key={i} className="text-xs text-red-400 mb-1">{err}</p>
-              ))}
+          {result.error && (
+            <p className="text-xs text-red-400 mt-2 break-words" role="alert">{result.error}</p>
+          )}
+
+          {result.failures.length > 0 && (
+            <div className="mt-4 space-y-3">
+              <ImportFailureList failures={result.failures} />
+              <p className="text-xs text-brand-muted text-left">
+                Row numbers match your spreadsheet. The rows that went in are saved, so importing the whole file
+                again would duplicate them. Fix just these rows, then import them into {targetName} as an existing
+                collection.
+              </p>
+            </div>
+          )}
+
+          {result.collection === 'published' && mode === 'new' && (
+            <p className="text-sm text-brand-sage mt-4 flex items-center justify-center gap-1.5">
+              <CheckCircle className="w-4 h-4" aria-hidden="true" /> {targetName} is live.
+            </p>
+          )}
+
+          {result.collection === 'draft' && (
+            <div className="mt-4 flex flex-col items-center gap-3 rounded-xl border border-brand-gold/30 bg-brand-gold/[0.06] px-4 py-3 text-left sm:flex-row sm:justify-between">
+              <p className="text-xs text-brand-cream">
+                {targetName} is a <span className="font-medium">Draft</span>, so visitors can&apos;t see it yet.
+                {mode === 'new' && result.inserted < result.total && ' It stayed a Draft because not every row made it in.'}
+              </p>
+              {result.inserted > 0 && (
+                <Button
+                  onClick={handlePublish}
+                  disabled={publishing}
+                  className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-xs h-8 shrink-0"
+                >
+                  {publishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> : 'Publish now'}
+                </Button>
+              )}
             </div>
           )}
 
@@ -1241,10 +1537,14 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                 setStep('mode');
                 setFileHeaders([]);
                 setAllRows([]);
+                setRowNumbers([]);
                 setSampleRows([]);
                 setColumnMapping({});
                 setImageMapping({});
                 setSelectedSlug('');
+                setTableSchema(null);
+                setTypeOverrides({});
+                setResult(EMPTY_RESULT);
               }}
               variant="outline"
               className="border-brand-gold/20 text-brand-cream rounded-xl"
@@ -1259,7 +1559,8 @@ export function ImportWizard({ collections }: ImportWizardProps) {
             </Button>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
