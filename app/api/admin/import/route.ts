@@ -61,29 +61,85 @@ export async function GET(request: NextRequest) {
   if (action === 'storage-files') {
     const bucket = searchParams.get('bucket');
     const folder = searchParams.get('folder') || '';
+    // Scans are often filed one box per subfolder, so a whole collection can be
+    // gathered in one go instead of adding each box by hand.
+    const recursive = searchParams.get('recursive') === 'true';
     if (!bucket) return NextResponse.json({ error: 'bucket is required' }, { status: 400 });
 
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .list(folder || undefined, { limit: 2000, sortBy: { column: 'name', order: 'asc' } });
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const items = (data || [])
-      .filter((f) => f.name !== '.emptyFolderPlaceholder')
-      .map((f) => {
-        const isFolder = f.id === null;
-        const relativePath = folder ? `${folder}/${f.name}` : f.name;
-        return {
-          name: f.name,
-          isFolder,
-          path: isFolder ? relativePath : `${bucket}/${relativePath}`,
-          url: isFolder ? '' : `${supabaseUrl}/storage/v1/object/public/${bucket}/${relativePath}`,
-        };
-      });
 
-    return NextResponse.json({ items });
+    // Bounds on a recursive walk. A mis-picked bucket root could otherwise
+    // enumerate an entire archive, and the wizard only needs a match pool.
+    const MAX_FILES = 5000;
+    const MAX_FOLDERS = 250;
+
+    type Item = { name: string; isFolder: boolean; path: string; url: string };
+
+    const toItem = (name: string, isFolder: boolean, prefix: string): Item => {
+      const relativePath = prefix ? `${prefix}/${name}` : name;
+      return {
+        name,
+        isFolder,
+        path: isFolder ? relativePath : `${bucket}/${relativePath}`,
+        url: isFolder ? '' : `${supabaseUrl}/storage/v1/object/public/${bucket}/${relativePath}`,
+      };
+    };
+
+    const listPrefix = async (prefix: string) => {
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .list(prefix || undefined, { limit: 2000, sortBy: { column: 'name', order: 'asc' } });
+      if (error) throw new Error(error.message);
+      return (data || []).filter((f) => f.name !== '.emptyFolderPlaceholder');
+    };
+
+    try {
+      if (!recursive) {
+        const rows = await listPrefix(folder);
+        const items = rows.map((f) => toItem(f.name, f.id === null, folder));
+        return NextResponse.json({ items });
+      }
+
+      // Breadth-first so a shallow, wide layout fills the pool before a deep one.
+      const items: Item[] = [];
+      const queue: string[] = [folder];
+      let foldersVisited = 0;
+      let truncated = false;
+
+      while (queue.length > 0) {
+        const prefix = queue.shift()!;
+        foldersVisited++;
+        if (foldersVisited > MAX_FOLDERS) {
+          truncated = true;
+          break;
+        }
+
+        for (const row of await listPrefix(prefix)) {
+          const isFolder = row.id === null;
+          const relativePath = prefix ? `${prefix}/${row.name}` : row.name;
+          if (isFolder) {
+            queue.push(relativePath);
+            continue;
+          }
+          if (items.length >= MAX_FILES) {
+            truncated = true;
+            break;
+          }
+          items.push(toItem(row.name, false, prefix));
+        }
+
+        if (truncated) break;
+      }
+
+      // Reported rather than silently capped: a short match pool would look like
+      // missing scans.
+      return NextResponse.json({ items, truncated, foldersVisited });
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : 'Failed to list storage' },
+        { status: 400 },
+      );
+    }
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -114,6 +114,16 @@ export function ImportWizard({ collections }: ImportWizardProps) {
   const [storageBucket, setStorageBucket] = useState('');
   const [storageFolder, setStorageFolder] = useState('');
   const [storageFiles, setStorageFiles] = useState<StorageFile[]>([]);
+
+  // Folders whose files feed the match pool. The browser still shows one folder
+  // at a time; this is what has been committed to the import.
+  const [sourceFolders, setSourceFolders] = useState<
+    { id: string; bucket: string; folder: string; recursive: boolean; files: StorageFile[]; truncated?: boolean }[]
+  >([]);
+  const [recurseNext, setRecurseNext] = useState(false);
+  const [addingFolder, setAddingFolder] = useState(false);
+  // Which folder wins for a filename that appears in more than one of them.
+  const [conflictChoice, setConflictChoice] = useState<Record<string, string>>({});
   const [imageMapping, setImageMapping] = useState<Record<string, string>>({});
   const [imageColumn, setImageColumn] = useState('');
   const [browsingStorage, setBrowsingStorage] = useState(false);
@@ -272,10 +282,122 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     setLoadingBuckets(false);
   }, []);
 
+  // Commit the folder currently open in the browser to the match pool.
+  const addCurrentFolder = async () => {
+    if (!storageBucket) return;
+    const key = `${storageBucket}:${storageFolder}`;
+    if (sourceFolders.some((f) => `${f.bucket}:${f.folder}` === key)) {
+      toast.error('That folder is already added');
+      return;
+    }
+
+    setAddingFolder(true);
+    try {
+      const params = new URLSearchParams({
+        action: 'storage-files',
+        bucket: storageBucket,
+        folder: storageFolder,
+        recursive: String(recurseNext),
+      });
+      const res = await fetch(`/api/admin/import?${params}`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to read that folder');
+        return;
+      }
+
+      const files = (data.items || []).filter((f: StorageFile) => !f.isFolder);
+      if (files.length === 0) {
+        toast.error(
+          recurseNext ? 'No images found in that folder or below it' : 'No images directly in that folder — try including subfolders',
+        );
+        return;
+      }
+
+      setSourceFolders((prev) => [
+        ...prev,
+        {
+          id: key,
+          bucket: storageBucket,
+          folder: storageFolder,
+          recursive: recurseNext,
+          files,
+          truncated: Boolean(data.truncated),
+        },
+      ]);
+      if (data.truncated) {
+        toast.error(`Stopped at ${files.length} files — that folder is very large`);
+      } else {
+        toast.success(`Added ${files.length} image${files.length === 1 ? '' : 's'}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to read that folder');
+    } finally {
+      setAddingFolder(false);
+    }
+  };
+
+  const removeFolder = (id: string) => {
+    setSourceFolders((prev) => prev.filter((f) => f.id !== id));
+    // Choices can reference a folder that is no longer in the pool.
+    setConflictChoice({});
+  };
+
+  // Every candidate file, grouped by the name matching will compare against.
+  const filesByName = useMemo(() => {
+    const map = new Map<string, { file: StorageFile; folderId: string }[]>();
+    for (const src of sourceFolders) {
+      for (const file of src.files) {
+        const key = normalize(file.name.replace(/\.[^.]+$/, ''));
+        if (!key) continue;
+        const bucketList = map.get(key) ?? [];
+        bucketList.push({ file, folderId: src.id });
+        map.set(key, bucketList);
+      }
+    }
+    return map;
+  }, [sourceFolders]);
+
+  // A name in two folders is ambiguous. Page numbering restarts per box all the
+  // time, so guessing here would attach a wrong scan that nobody catches later.
+  const conflicts = useMemo(
+    () =>
+      [...filesByName.entries()]
+        .filter(([, entries]) => new Set(entries.map((e) => e.folderId)).size > 1)
+        .map(([name, entries]) => ({ name, entries })),
+    [filesByName],
+  );
+
+  const unresolvedConflicts = conflicts.filter((c) => !conflictChoice[c.name]);
+
+  // The pool matching actually runs against: unambiguous files, plus whichever
+  // side of a conflict was chosen. Unresolved names are left out entirely.
+  const matchPool = useMemo(() => {
+    const out: StorageFile[] = [];
+    for (const [name, entries] of filesByName) {
+      if (entries.length === 1) {
+        out.push(entries[0].file);
+        continue;
+      }
+      const folderIds = new Set(entries.map((e) => e.folderId));
+      if (folderIds.size === 1) {
+        // Same folder, same stem, different extensions — not a real conflict.
+        out.push(entries[0].file);
+        continue;
+      }
+      const chosen = conflictChoice[name];
+      if (!chosen) continue;
+      const pick = entries.find((e) => e.file.path === chosen);
+      if (pick) out.push(pick.file);
+    }
+    return out;
+  }, [filesByName, conflictChoice]);
+
+
   // Auto-match image names to storage files
   const autoMatchImages = useCallback(() => {
-    if (!imageColumn || storageFiles.length === 0) return;
-    const files = storageFiles.filter((f) => !f.isFolder);
+    if (!imageColumn || matchPool.length === 0) return;
+    const files = matchPool;
     const mapping: Record<string, string> = {};
 
     for (const row of allRows) {
@@ -286,7 +408,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     }
 
     setImageMapping(mapping);
-  }, [imageColumn, storageFiles, allRows]);
+  }, [imageColumn, matchPool, allRows]);
 
   // Step: Do the import
   const handleImport = async () => {
@@ -824,6 +946,103 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                       <span className="text-brand-cream">{storageFolder}</span>
                     </>
                   )}
+
+            {/* Folders committed to this import. The browser above shows one folder at
+                a time; matching runs against everything listed here. */}
+            {sourceFolders.length > 0 && (
+              <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-brand-gold/[0.08] flex items-center justify-between">
+                  <span className="text-xs text-brand-cream">
+                    {sourceFolders.length} folder{sourceFolders.length === 1 ? '' : 's'} ·{' '}
+                    {sourceFolders.reduce((n, f) => n + f.files.length, 0).toLocaleString()} images
+                  </span>
+                  <span className="text-xs text-brand-muted">{matchPool.length.toLocaleString()} usable</span>
+                </div>
+                <div className="divide-y divide-brand-gold/[0.04]">
+                  {sourceFolders.map((f) => (
+                    <div key={f.id} className="px-4 py-2 flex items-center gap-2 text-xs">
+                      <FolderOpen className="w-3.5 h-3.5 text-brand-gold shrink-0" />
+                      <span className="text-brand-cream truncate">
+                        {f.bucket}{f.folder ? `/${f.folder}` : ''}
+                      </span>
+                      {f.recursive && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-gold/10 text-brand-gold shrink-0">
+                          + subfolders
+                        </span>
+                      )}
+                      {f.truncated && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-burgundy/20 text-brand-burgundy-light shrink-0">
+                          capped
+                        </span>
+                      )}
+                      <span className="text-brand-muted ml-auto shrink-0">{f.files.length.toLocaleString()}</span>
+                      <button
+                        onClick={() => removeFolder(f.id)}
+                        className="text-brand-muted hover:text-brand-burgundy-light shrink-0"
+                        aria-label="Remove folder"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+            
+                {/* A filename in two folders cannot be matched safely. Left unresolved it
+                    is excluded rather than guessed. */}
+                {conflicts.length > 0 && (
+                  <div className="border-t border-brand-gold/[0.08] px-4 py-3 space-y-3">
+                    <p className="text-xs text-brand-burgundy-light">
+                      {conflicts.length} filename{conflicts.length === 1 ? '' : 's'} appear in more than one
+                      folder. Pick which folder wins — unresolved names are left unmatched.
+                    </p>
+                    <div className="space-y-2 max-h-56 overflow-y-auto">
+                      {conflicts.map((c) => (
+                        <div key={c.name} className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="text-brand-cream font-mono">{c.entries[0].file.name}</span>
+                          {c.entries.map((e) => (
+                            <button
+                              key={e.file.path}
+                              onClick={() =>
+                                setConflictChoice((prev) => ({ ...prev, [c.name]: e.file.path }))
+                              }
+                              className={`px-2 py-1 rounded-lg border ${
+                                conflictChoice[c.name] === e.file.path
+                                  ? 'border-brand-gold bg-brand-gold/10 text-brand-gold'
+                                  : 'border-brand-gold/[0.15] text-brand-muted hover:text-brand-cream'
+                              }`}
+                            >
+                              {e.folderId.split(':')[1] || '(bucket root)'}
+                            </button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+            
+                <div className="border-t border-brand-gold/[0.08] px-4 py-3">
+                  <Button
+                    onClick={autoMatchImages}
+                    disabled={!imageColumn || matchPool.length === 0}
+                    className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-xs"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
+                    Auto-Match Images
+                  </Button>
+                  {Object.keys(imageMapping).length > 0 && (
+                    <span className="text-xs text-brand-sage ml-3">
+                      {Object.keys(imageMapping).length} matched
+                    </span>
+                  )}
+                  {unresolvedConflicts.length > 0 && (
+                    <span className="text-xs text-brand-burgundy-light ml-3">
+                      {unresolvedConflicts.length} still ambiguous
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
                 </div>
                 {storageFolder && (
                   <button
@@ -837,6 +1056,24 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                     Up
                   </button>
                 )}
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs text-brand-muted cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={recurseNext}
+                      onChange={(e) => setRecurseNext(e.target.checked)}
+                      className="accent-[#C8956C]"
+                    />
+                    Include subfolders
+                  </label>
+                  <Button
+                    onClick={addCurrentFolder}
+                    disabled={addingFolder}
+                    className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-xs h-7 px-3"
+                  >
+                    {addingFolder ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Add this folder'}
+                  </Button>
+                </div>
               </div>
               <div className="max-h-48 overflow-y-auto divide-y divide-brand-gold/[0.04]">
                 {storageFiles.map((f) => (
@@ -853,22 +1090,6 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                 ))}
               </div>
 
-              {/* Auto-match button */}
-              <div className="px-4 py-3 border-t border-brand-gold/[0.08]">
-                <Button
-                  onClick={autoMatchImages}
-                  disabled={!imageColumn}
-                  className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-xs"
-                >
-                  <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
-                  Auto-Match Images
-                </Button>
-                {Object.keys(imageMapping).length > 0 && (
-                  <span className="text-xs text-brand-sage ml-3">
-                    {Object.keys(imageMapping).length} matched
-                  </span>
-                )}
-              </div>
             </div>
           )}
 
