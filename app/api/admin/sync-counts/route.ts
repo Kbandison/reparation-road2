@@ -75,12 +75,27 @@ export async function POST() {
     .select('id, slug, table_name, parent_slug, record_count');
 
   if (allCollections) {
-    const parents = (allCollections as Collection[]).filter((c) => !c.table_name);
+    const all = allCollections as Collection[];
+    const parents = all.filter((c) => !c.table_name);
+
+    // A folder's total is everything beneath it at any depth, so folders
+    // inside folders are added up from the bottom rather than read from a
+    // count that may not be updated yet. `seen` guards against a parent loop.
+    const totals = new Map<string, number>();
+    const totalOf = (slug: string, seen: Set<string>): number => {
+      if (countMap.has(slug)) return countMap.get(slug)!;
+      if (totals.has(slug)) return totals.get(slug)!;
+      if (seen.has(slug)) return 0;
+      seen.add(slug);
+      const sum = all
+        .filter((c) => c.parent_slug === slug)
+        .reduce((n, c) => n + (c.table_name ? (countMap.get(c.slug) ?? c.record_count) : totalOf(c.slug, seen)), 0);
+      totals.set(slug, sum);
+      return sum;
+    };
 
     for (const parent of parents) {
-      const childSum = (allCollections as Collection[])
-        .filter((c) => c.parent_slug === parent.slug)
-        .reduce((sum, c) => sum + (countMap.get(c.slug) ?? c.record_count), 0);
+      const childSum = totalOf(parent.slug, new Set());
 
       if (childSum !== parent.record_count) {
         await supabase
