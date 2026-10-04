@@ -474,6 +474,7 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
     {editing && (
       <AdminCollectionEditModal
         collection={editing}
+        collections={collections}
         onClose={() => setEditing(null)}
         onSaved={() => {
           setEditing(null);

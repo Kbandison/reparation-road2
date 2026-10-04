@@ -295,13 +295,15 @@ export type ImportCollection = Pick<
   | 'discriminator_column'
   | 'discriminator_value'
   | 'is_published'
+  | 'display_type'
+  | 'short_description'
 >;
 
 /** Every collection, Drafts and placeholders included, for the admin import. */
 export async function getImportCollections(supabase: SupabaseClient): Promise<ImportCollection[]> {
   const { data, error } = await supabase
     .from('collections')
-    .select('slug, name, table_name, parent_slug, display_columns, search_columns, sort_columns, has_images, has_ocr, discriminator_column, discriminator_value, is_published')
+    .select('slug, name, table_name, parent_slug, display_columns, search_columns, sort_columns, has_images, has_ocr, discriminator_column, discriminator_value, is_published, display_type, short_description')
     .order('name');
   if (error) {
     console.error('Failed to fetch collections for import:', error.message);

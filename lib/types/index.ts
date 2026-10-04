@@ -84,7 +84,8 @@ export interface Collection {
   sort_order: number;
   is_published: boolean;
   parent_slug: string | null;
-  display_type: 'table' | 'book';
+  // 'folder' holds other collections (tabs) and never records of its own.
+  display_type: 'table' | 'book' | 'folder';
   citation_template: string | null;
   // Default archival source / provenance shown on every record in the
   // collection (a record-level override can replace it). Null until set.

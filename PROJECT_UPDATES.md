@@ -2,6 +2,25 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-04T21:17Z: Folders can be created and moved into; AI descriptions run on Claude
+
+Folders (collections that hold other collections as tabs) could only be made in the database: Create New Collection needs a spreadsheet, and nothing let an admin move a collection into a folder. An empty folder also looked exactly like an empty tab, so the import offered it as a target. Separately, "Generate with AI" ran on Fireworks' Llama 3.3; it now uses Claude Sonnet like the site assistant.
+
+**Minor updates**
+- `collections_folders_migration.sql` (run once by hand) allows `display_type = 'folder'`, marks the 16 existing folders, and marks the 7 empty state collections (TN, KY, MD, AL, PA, NY, Civilian) as folders since they'll get tabs.
+- Import Records has a third option, **Create Folder**: name, slug, parent folder, category, era, region, access tier and descriptions (the fields every existing folder uses). Folders go live at once and can sit inside folders. After creating one, "Create a collection inside it" starts a new collection there.
+- Create New Collection's parent picker lists only folders (a collection with its own records hides any tabs under it) and has "+ New folder…" to make one without leaving the form.
+- Admin → Collections → Edit has an **Inside folder** picker. A collection or folder can't move into itself or anything inside it, and folder record totals re-sync after a move. The API enforces the same rules (`lib/collections/folders.ts`).
+- Empty folders are never offered as import targets.
+- AI descriptions (`lib/ai/descriptions.ts`) use `claude-sonnet-5` through the official Anthropic SDK with schema-checked output, billed to `ANTHROPIC_API_KEY`. Folders get a folder-specific prompt that includes the names of the collections inside. Fireworks is no longer used.
+- New dependencies: `@anthropic-ai/sdk`, `zod` (zod's range matches `future-checklist`).
+
+**Next actions**
+- Run `collections_folders_migration.sql` in the Supabase SQL editor. Until then, creating a folder shows a message asking for it.
+- Make sure `ANTHROPIC_API_KEY` is set in the Vercel project's production environment before deploying; `FIREWORKS_API_KEY` can be removed afterwards.
+- The site assistant on `future-checklist` is pinned to `claude-sonnet-4-6`; move it to `claude-sonnet-5` when that branch merges.
+- `npm audit` shows 8 high findings in dev-only tooling (the `shadcn` CLI's `fast-glob`/`ts-morph`); production dependencies have none.
+
 ## 2026-10-04T20:56Z: Import links scans automatically; Register of Guardian repaired
 
 The first import through the new flow, "Free Colored Register of Guardian" (428 records), saved bare filenames like `L20047_1845_no.2-53_001` instead of links to the scans already in `register-of-guardian-sc`. The wizard only matched images after a click on Auto-Match Images, and imported anyway without it. The Upload Images version showed the folder already added, which made the step look finished.

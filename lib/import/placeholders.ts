@@ -9,7 +9,7 @@ import { toTableName } from './records';
 
 type CollectionShape = Pick<
   Collection,
-  'slug' | 'name' | 'table_name' | 'parent_slug' | 'discriminator_column' | 'discriminator_value'
+  'slug' | 'name' | 'table_name' | 'parent_slug' | 'discriminator_column' | 'discriminator_value' | 'display_type'
 >;
 
 /** Shares a table with its sibling tabs, told apart by a tag column. */
@@ -35,9 +35,13 @@ export function hasTabs(collection: CollectionShape, all: CollectionShape[]): bo
   return all.some((c) => c.parent_slug === collection.slug);
 }
 
-/** No table and no tabs: the collection page shows "Coming Soon". */
+/**
+ * No table and no tabs, and not a folder: the collection page shows "Coming
+ * Soon" until records are imported. An empty folder is waiting for tabs, not
+ * records, so it never counts.
+ */
 export function isPlaceholder(collection: CollectionShape, all: CollectionShape[]): boolean {
-  return !collection.table_name && !hasTabs(collection, all);
+  return !collection.table_name && collection.display_type !== 'folder' && !hasTabs(collection, all);
 }
 
 /**

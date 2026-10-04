@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { descendantSlugs } from '@/lib/collections/folders';
 
 async function verifyAdmin() {
   const supabase = await createClient();
@@ -59,6 +60,34 @@ export async function PATCH(
   }
 
   const supabase = createAdminClient();
+
+  // Moving into a folder: the parent must exist, hold no records of its own
+  // (tabs under a list never show), and can't be the collection itself or
+  // anything inside it.
+  if ('parent_slug' in updates) {
+    const parentSlug = updates.parent_slug ? String(updates.parent_slug) : null;
+    updates.parent_slug = parentSlug;
+    if (parentSlug) {
+      const { data: all, error: listError } = await supabase
+        .from('collections')
+        .select('id, slug, name, parent_slug, table_name');
+      if (listError) return NextResponse.json({ error: listError.message }, { status: 400 });
+      const self = (all || []).find((c) => c.id === id);
+      const parent = (all || []).find((c) => c.slug === parentSlug);
+      if (!self) return NextResponse.json({ error: 'Collection not found' }, { status: 404 });
+      if (!parent) return NextResponse.json({ error: `No folder with the slug "${parentSlug}"` }, { status: 400 });
+      if (parent.table_name) {
+        return NextResponse.json(
+          { error: `"${parent.name}" holds records, so collections inside it wouldn't show. Pick a folder.` },
+          { status: 400 },
+        );
+      }
+      if (parent.slug === self.slug || descendantSlugs(self.slug, all || []).has(parent.slug)) {
+        return NextResponse.json({ error: 'A folder can’t go inside itself.' }, { status: 400 });
+      }
+    }
+  }
+
   const { data, error } = await supabase
     .from('collections')
     .update(updates)

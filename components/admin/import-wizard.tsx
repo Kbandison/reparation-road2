@@ -11,6 +11,7 @@ import {
   X,
   Loader2,
   FolderOpen,
+  FolderPlus,
   Image as ImageIcon,
   AlertCircle,
   CheckCircle,
@@ -33,6 +34,9 @@ import { ImportFailureList } from './import-failure-list';
 import { ImportFailedRowsDownload } from './import-failed-rows-download';
 import { ImportPlacementField } from './import-placement-field';
 import { ImportImageMatches } from './import-image-matches';
+import { CollectionFolderForm, type CreatedFolder } from './collection-folder-form';
+import { CollectionFolderDialog } from './collection-folder-dialog';
+import { folderOptions } from '@/lib/collections/folders';
 
 type Step = 'mode' | 'collection' | 'upload' | 'mapping' | 'images' | 'preview' | 'importing' | 'done';
 
@@ -103,6 +107,9 @@ interface ImportWizardProps {
   uploadsInProgress?: number;
 }
 
+// Parent picker value that opens the New folder form instead of selecting one.
+const NEW_FOLDER = '__new_folder__';
+
 // Normalize a string for fuzzy matching
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -130,7 +137,12 @@ function looksLikeImageColumn(col: string): boolean {
 export function ImportWizard({ collections, imageSource = null, imageSourceVersion = 0, uploadsInProgress = 0 }: ImportWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('mode');
-  const [mode, setMode] = useState<'existing' | 'new'>('existing');
+  const [mode, setMode] = useState<'existing' | 'new' | 'folder'>('existing');
+  // Create Folder: the folder just made (shows the next-step choices).
+  const [createdFolder, setCreatedFolder] = useState<CreatedFolder | null>(null);
+  // Folders made in this session, offered as parents until the page's list catches up.
+  const [newFolders, setNewFolders] = useState<CreatedFolder[]>([]);
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 
   // Collection selection
   const [selectedSlug, setSelectedSlug] = useState('');
@@ -195,20 +207,23 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
   const [uploading, setUploading] = useState(false);
 
   const selectedCollection = collections.find((c) => c.slug === selectedSlug);
-  // Any published collection can be a parent; render with a hierarchy hint so
-  // nested groupings (Native American Records → Cherokee Agency Records → ...) are clear.
-  const parentCollections = [...collections].sort((a, b) => {
-    const aRoot = a.parent_slug || a.slug;
-    const bRoot = b.parent_slug || b.slug;
-    return aRoot === bRoot
-      ? (a.parent_slug ? 1 : 0) - (b.parent_slug ? 1 : 0) || a.name.localeCompare(b.name)
-      : aRoot.localeCompare(bRoot);
-  });
   const collectionBySlug = useMemo(() => new Map(collections.map((c) => [c.slug, c])), [collections]);
-  const parentLabel = (c: CollectionInfo): string => {
-    if (!c.parent_slug) return c.name;
-    const parent = collectionBySlug.get(c.parent_slug);
-    return parent ? `${parent.name} → ${c.name}` : c.name;
+  // Only folders can hold a new collection: under a collection with its own
+  // records, a tab would never show. Labelled with their full path.
+  const parentOptions = useMemo(() => {
+    const options = folderOptions(collections);
+    for (const f of newFolders) {
+      if (options.some((o) => o.slug === f.slug)) continue;
+      const parent = f.parentSlug ? options.find((o) => o.slug === f.parentSlug) : undefined;
+      options.push({ slug: f.slug, label: parent ? `${parent.label} → ${f.name}` : f.name });
+    }
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [collections, newFolders]);
+
+  const rememberFolder = (folder: CreatedFolder) => {
+    setNewFolders((prev) => [...prev, folder]);
+    // Pull the new folder into the page's collection list.
+    router.refresh();
   };
 
   // A "Coming Soon" collection (no table, no tabs) picked as the target.
@@ -900,10 +915,10 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
     <div className="max-w-4xl">
       {/* Progress steps */}
       <div className="flex items-center gap-2 mb-8 text-xs text-brand-muted overflow-x-auto">
-        {['Mode', 'Collection', 'Upload', 'Mapping', hasImageColumn ? 'Images' : null, 'Preview', 'Import'].filter(Boolean).map((s, i) => (
+        {(mode === 'folder' && step !== 'mode' ? ['Mode', 'Folder'] : ['Mode', 'Collection', 'Upload', 'Mapping', hasImageColumn ? 'Images' : null, 'Preview', 'Import']).filter(Boolean).map((s, i) => (
           <span key={i} className="flex items-center gap-2 whitespace-nowrap">
             {i > 0 && <ArrowRight className="w-3 h-3" />}
-            <span className={step === s?.toLowerCase() || (s === 'Import' && (step === 'importing' || step === 'done')) ? 'text-brand-gold font-medium' : ''}>
+            <span className={step === s?.toLowerCase() || (s === 'Folder' && step === 'collection') || (s === 'Import' && (step === 'importing' || step === 'done')) ? 'text-brand-gold font-medium' : ''}>
               {s}
             </span>
           </span>
@@ -913,8 +928,8 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
       {/* Step: Mode */}
       {step === 'mode' && (
         <div className="space-y-4">
-          <p className="text-sm text-brand-muted mb-4">Choose how you want to import records:</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <p className="text-sm text-brand-muted mb-4">Choose what you want to do:</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <button
               onClick={() => { setMode('existing'); setStep('collection'); }}
               className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 text-left hover:border-brand-gold/25 transition-all group"
@@ -931,8 +946,56 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
               <h3 className="font-display text-base font-semibold text-brand-cream group-hover:text-brand-gold mb-1">Create New Collection</h3>
               <p className="text-xs text-brand-muted">Create a new collection and table, then import records from a spreadsheet.</p>
             </button>
+            <button
+              onClick={() => { setMode('folder'); setCreatedFolder(null); setStep('collection'); }}
+              className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 text-left hover:border-brand-gold/25 transition-all group"
+            >
+              <FolderPlus className="w-8 h-8 text-brand-gold-light mb-3" />
+              <h3 className="font-display text-base font-semibold text-brand-cream group-hover:text-brand-gold mb-1">Create Folder</h3>
+              <p className="text-xs text-brand-muted">Group collections as tabs. No spreadsheet needed; folders can go inside folders.</p>
+            </button>
           </div>
         </div>
+      )}
+
+      {/* Step: Create Folder */}
+      {step === 'collection' && mode === 'folder' && (
+        createdFolder ? (
+          <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 sm:p-10 text-center">
+            <CheckCircle className="w-12 h-12 text-brand-sage mx-auto mb-4" aria-hidden="true" />
+            <h3 className="font-display text-lg font-semibold text-brand-cream mb-2">Folder created</h3>
+            <p className="text-sm text-brand-muted mb-6">
+              “{createdFolder.name}” is live. Its page shows “Coming Soon” until a collection goes inside it.
+            </p>
+            <div className="flex flex-col justify-center gap-3 sm:flex-row">
+              <Button
+                onClick={() => {
+                  setNewCollection((prev) => ({ ...prev, parentSlug: createdFolder.slug }));
+                  setCreatedFolder(null);
+                  setMode('new');
+                }}
+                className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
+              >
+                <Upload className="w-4 h-4 mr-1.5" aria-hidden="true" /> Create a collection inside it
+              </Button>
+              <Button variant="outline" onClick={() => setCreatedFolder(null)} className="border-brand-gold/20 text-brand-cream rounded-xl">
+                <FolderPlus className="w-4 h-4 mr-1.5" aria-hidden="true" /> Create another folder
+              </Button>
+              <Button variant="outline" onClick={() => router.push('/admin/collections')} className="border-brand-gold/20 text-brand-cream rounded-xl">
+                Go to Collections
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <CollectionFolderForm
+            collections={collections}
+            onCreated={(folder) => {
+              rememberFolder(folder);
+              setCreatedFolder(folder);
+            }}
+            onCancel={() => setStep('mode')}
+          />
+        )
       )}
 
       {/* Step: Collection (existing) */}
@@ -1054,15 +1117,36 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
 
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>Parent Collection</Label>
+              <Label htmlFor="new-collection-parent">Inside folder</Label>
               <select
+                id="new-collection-parent"
                 value={newCollection.parentSlug}
-                onChange={(e) => setNewCollection({ ...newCollection, parentSlug: e.target.value })}
+                onChange={(e) => {
+                  // "+ New folder…" opens the folder form; the new folder is selected once made.
+                  if (e.target.value === NEW_FOLDER) setFolderDialogOpen(true);
+                  else setNewCollection({ ...newCollection, parentSlug: e.target.value });
+                }}
                 className="w-full px-3 py-2 bg-brand-card border border-brand-gold/[0.08] rounded-xl text-sm text-brand-cream"
               >
                 <option value="">None (top-level)</option>
-                {parentCollections.map((c) => <option key={c.slug} value={c.slug}>{parentLabel(c)}</option>)}
+                {parentOptions.map((o) => <option key={o.slug} value={o.slug}>{o.label}</option>)}
+                <option value={NEW_FOLDER}>+ New folder…</option>
               </select>
+              <CollectionFolderDialog
+                open={folderDialogOpen}
+                onOpenChange={setFolderDialogOpen}
+                collections={collections}
+                defaults={{
+                  category: newCollection.category,
+                  era: newCollection.era,
+                  region: newCollection.region,
+                  accessTier: newCollection.accessTier,
+                }}
+                onCreated={(folder) => {
+                  rememberFolder(folder);
+                  setNewCollection((prev) => ({ ...prev, parentSlug: folder.slug }));
+                }}
+              />
             </div>
             <div className="space-y-2">
               <Label>Display Type</Label>

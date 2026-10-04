@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -8,15 +8,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ColumnManager } from '@/components/admin/column-manager';
 import type { Collection } from '@/lib/types';
+import { folderOptions, isFolder } from '@/lib/collections/folders';
 
 interface AdminCollectionEditModalProps {
   collection: Collection;
+  /** Every collection, for the folder picker. */
+  collections: Collection[];
   onClose: () => void;
   onSaved: () => void;
 }
 
 export function AdminCollectionEditModal({
   collection,
+  collections,
   onClose,
   onSaved,
 }: AdminCollectionEditModalProps) {
@@ -24,6 +28,10 @@ export function AdminCollectionEditModal({
   const [shortDescription, setShortDescription] = useState(collection.short_description || '');
   const [longDescription, setLongDescription] = useState(collection.long_description || '');
   const [sortOrder, setSortOrder] = useState<string>(String(collection.sort_order ?? 0));
+  const [parentSlug, setParentSlug] = useState(collection.parent_slug ?? '');
+  // Folders it can move into: never itself or anything inside it.
+  const parents = useMemo(() => folderOptions(collections, collection.slug), [collections, collection.slug]);
+  const folder = isFolder(collection, collections);
   const [titleColumnsRaw, setTitleColumnsRaw] = useState<string>(
     (collection.title_columns || []).join(', '),
   );
@@ -68,6 +76,10 @@ export function AdminCollectionEditModal({
           category: collection.category,
           era: collection.era,
           region: collection.region,
+          ...(folder && {
+            kind: 'folder',
+            tabNames: collections.filter((c) => c.parent_slug === collection.slug).map((c) => c.name),
+          }),
         }),
       });
       const data = await res.json();
@@ -95,7 +107,9 @@ export function AdminCollectionEditModal({
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+    const parentChanged = (collection.parent_slug ?? '') !== parentSlug;
     const updates = {
+      ...(parentChanged && { parent_slug: parentSlug || null }),
       name: name.trim(),
       short_description: shortDescription.trim() || null,
       long_description: longDescription.trim() || null,
@@ -118,7 +132,12 @@ export function AdminCollectionEditModal({
         setSaving(false);
         return;
       }
-      toast.success('Collection updated');
+      toast.success(parentChanged ? 'Collection updated and moved' : 'Collection updated');
+      if (parentChanged) {
+        // Folders show the total of what's inside them; both folders just changed.
+        const synced = await fetch('/api/admin/sync-counts', { method: 'POST' }).catch(() => null);
+        if (!synced?.ok) toast.error('Moved, but the folder record counts didn’t refresh. Use Sync Record Counts.');
+      }
       setSaving(false);
       onSaved();
     } catch (err) {
@@ -140,7 +159,7 @@ export function AdminCollectionEditModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-brand-gold/[0.08] flex-shrink-0">
           <div className="min-w-0">
             <h2 className="font-display text-lg font-semibold text-brand-cream">
-              Edit Collection
+              {folder ? 'Edit Folder' : 'Edit Collection'}
             </h2>
             <p className="text-xs text-brand-muted font-mono truncate mt-0.5">
               {collection.slug}
@@ -165,6 +184,24 @@ export function AdminCollectionEditModal({
               placeholder="Collection name"
               className="bg-brand-card border-brand-gold/[0.15]"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="edit-parent">Inside folder</Label>
+            <select
+              id="edit-parent"
+              value={parentSlug}
+              onChange={(e) => setParentSlug(e.target.value)}
+              className="w-full rounded-xl border border-brand-gold/[0.15] bg-brand-card px-3 py-2 text-sm text-brand-cream focus:border-brand-gold/40 focus:outline-none"
+            >
+              <option value="">None (top level)</option>
+              {parents.map((p) => <option key={p.slug} value={p.slug}>{p.label}</option>)}
+            </select>
+            <p className="text-[11px] text-brand-muted">
+              {folder
+                ? 'Moving a folder takes everything inside it along.'
+                : 'Moves this collection into a folder, where it shows as a tab.'}
+            </p>
           </div>
 
           <div className="space-y-3 border-t border-brand-gold/[0.08] pt-4">
@@ -207,6 +244,7 @@ export function AdminCollectionEditModal({
             </div>
           </div>
 
+          {!folder && (
           <div className="space-y-2 border-t border-brand-gold/[0.08] pt-4">
             <Label>Title Columns</Label>
             <Input
@@ -222,6 +260,7 @@ export function AdminCollectionEditModal({
               Leave blank to use the default heuristic.
             </p>
           </div>
+          )}
 
           {collection.table_name && (
             <div className="space-y-3 border-t border-brand-gold/[0.08] pt-4">
