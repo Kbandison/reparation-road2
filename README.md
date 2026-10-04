@@ -31,6 +31,7 @@ The import wizard loads an `.xlsx` into a new or existing collection. The rules 
 - **"Coming Soon" collections:** a collection with no table and no tabs shows up under Import to Existing marked *Empty*. Pick where its records go: the table its sibling tabs share (each row tagged, e.g. `collection_tag = aaron_lopez`) or a table of its own. The import connects the collection to that table (`link-collection`) and it shows its records straight away (`lib/import/placeholders.ts`).
 - **Tab tags:** tabs that share a table are told apart by a tag column (`discriminator_column`/`discriminator_value`). Every import into such a tab writes the tag on every row; a file column feeding the tag column is replaced by it.
 - **Record counts** are re-synced after every import, parents included.
+- **Image matching** (`lib/import/image-matching.ts`) runs on its own on the image step. Only exact name matches link (extension, case and punctuation ignored); near misses wait for confirmation, and Preview won't import names without a file until you confirm.
 
 ## Storage (Admin → Upload Images)
 

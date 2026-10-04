@@ -88,8 +88,8 @@ export function isSafeStoragePath(path: string): boolean {
   return path.split('/').every((segment) => segment.length > 0 && segment !== '.' && segment !== '..');
 }
 
-/** Image formats Supabase's transform endpoint can thumbnail. */
-const THUMBNAIL_RE = /\.(jpe?g|png|webp|gif|avif)$/i;
+/** Image formats Supabase's transform endpoint can thumbnail (TIFF scans come back as WebP). */
+const THUMBNAIL_RE = /\.(jpe?g|png|webp|gif|avif|tiff?)$/i;
 
 export function canThumbnail(name: string): boolean {
   return THUMBNAIL_RE.test(name);

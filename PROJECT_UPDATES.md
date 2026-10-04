@@ -2,6 +2,22 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-04T20:56Z: Import links scans automatically; Register of Guardian repaired
+
+The first import through the new flow, "Free Colored Register of Guardian" (428 records), saved bare filenames like `L20047_1845_no.2-53_001` instead of links to the scans already in `register-of-guardian-sc`. The wizard only matched images after a click on Auto-Match Images, and imported anyway without it. The Upload Images version showed the folder already added, which made the step look finished.
+
+**Minor updates**
+- Matching now runs by itself on the image step, and again whenever the names, folders or uploads change. The image column is preselected. Logic lives in `lib/import/image-matching.ts`.
+- Only exact matches link automatically. Names are compared without file extension, case or punctuation, and only real extensions are dropped (scan names contain dots). Near misses (one name containing the other, e.g. a missing `…_001` next to `…_001b`) are listed for the admin to confirm instead of being guessed.
+- The Preview step lists any image names still without a file and won't import until the admin confirms importing them without images.
+- Link to existing records uses the same comparison. It used to cut names at the last dot, so it couldn't repair names like these.
+- TIFF scans get thumbnails in the storage manager (Supabase renders them as WebP).
+- Data: linked all 427 unlinked Register of Guardian records to `register-of-guardian-sc/<file>` (294 distinct scans, all exact) and corrected its record count from 157 to 428. The row fixed by hand was left alone.
+- Data: new tab "Agenoria" under Slave Merchant Trade for the one record tagged with that vessel (`collection_tag` normalized to `agenoria`, set up like John Brown & Co.). The parent's count is now 1,645.
+
+**Next actions**
+- About 430 back-of-page scans (`…b` files) in `register-of-guardian-sc` aren't linked to any record. Records hold one image each; left as is for now.
+
 ## 2026-10-04T20:01Z: "Coming Soon" collections are importable, Upload Images is a full storage manager
 
 Twenty-eight collections (21 tabs, plus 7 empty state collections) had no table, so they showed "Coming Soon" and couldn't be filled: Import to Existing only listed collections with a table, and Create New refused their slugs. The Upload Images page's "Add folder" only changed the upload destination in the browser, so a folder vanished on refresh if nothing was uploaded into it. Both are fixed, along with a bug that made records imported into a shared-table tab invisible.

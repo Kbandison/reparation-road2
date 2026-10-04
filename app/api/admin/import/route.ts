@@ -7,6 +7,7 @@ import { assignUniqueSlugs } from '@/lib/import/slugs';
 import { describeColumns, fetchTableSchema, waitForSchema, type TableSchema } from '@/lib/import/table-schema';
 import { insertRows, loadExistingSlugs, normalizeRecords } from '@/lib/import/insert';
 import { canConvertToText, isBlank } from '@/lib/import/values';
+import { imageKey } from '@/lib/import/image-matching';
 
 // Table and column names are interpolated into SQL and select strings.
 const SAFE_IDENTIFIER = /^[a-z0-9_]+$/i;
@@ -224,23 +225,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid match column' }, { status: 400 });
     }
 
-    const base = (s: string) => s.split('/').pop() || s;
-    const stripExt = (s: string) => s.replace(/\.[^.]+$/, '');
-    // Decode so an encoded stored URL (…/Baldwin%201.jpg) matches a raw
-    // uploaded filename (Baldwin 1.jpg). Strip any trailing query string first.
-    const norm = (s: string) => {
-      let b = base(String(s).split('?')[0]).trim();
-      try { b = decodeURIComponent(b); } catch { /* keep raw on malformed % */ }
-      return b.toLowerCase();
-    };
-    const pushId = (map: Map<string, string[]>, key: string, id: string) => {
-      const arr = map.get(key);
-      if (arr) arr.push(id); else map.set(key, [id]);
+    // Compare basenames the same way the import wizard does (imageKey): no
+    // extension, case or punctuation. Decode first so an encoded stored URL
+    // (…/Baldwin%201.jpg) matches a raw uploaded filename (Baldwin 1.jpg), and
+    // drop any query string.
+    const keyOf = (value: string) => {
+      let name = String(value).split('?')[0].split('/').pop() || '';
+      try { name = decodeURIComponent(name); } catch { /* keep raw on malformed % */ }
+      return imageKey(name);
     };
 
-    // Index the table's match column: basename -> ids and basename-without-ext -> ids.
-    const byFull = new Map<string, string[]>();
-    const byStem = new Map<string, string[]>();
+    // Index the table's match column: key -> record ids.
+    const idsByKey = new Map<string, string[]>();
     const pageSize = 1000;
     let from = 0;
     let scanned = 0;
@@ -255,11 +251,10 @@ export async function POST(request: NextRequest) {
       for (const row of rows) {
         const raw = row[matchColumn];
         if (raw == null || raw === '') continue;
-        const id = String(row.id);
-        const nb = norm(String(raw));
-        if (!nb) continue;
-        pushId(byFull, nb, id);
-        pushId(byStem, stripExt(nb), id);
+        const key = keyOf(String(raw));
+        if (!key) continue;
+        const ids = idsByKey.get(key);
+        if (ids) ids.push(String(row.id)); else idsByKey.set(key, [String(row.id)]);
       }
       scanned += rows.length;
       if (rows.length < pageSize) break;
@@ -270,16 +265,14 @@ export async function POST(request: NextRequest) {
     const perFile: { name: string; matched: number }[] = [];
     const idToPath = new Map<string, string>();
     for (const f of files) {
-      const fname = norm(f.name);
-      const fstem = stripExt(fname);
-      const ids = new Set<string>([...(byFull.get(fname) || []), ...(byStem.get(fstem) || [])]);
+      const ids = idsByKey.get(keyOf(f.name)) || [];
       for (const id of ids) if (!idToPath.has(id)) idToPath.set(id, f.path);
-      perFile.push({ name: f.name, matched: ids.size });
+      perFile.push({ name: f.name, matched: ids.length });
     }
 
     // Apply — one UPDATE per distinct storage path, chunked to stay under URL limits.
     const byPath = new Map<string, string[]>();
-    for (const [id, path] of idToPath) pushId(byPath, path, id);
+    for (const [id, path] of idToPath) byPath.set(path, [...(byPath.get(path) ?? []), id]);
     let updated = 0;
     const errors: string[] = [];
     for (const [path, ids] of byPath) {

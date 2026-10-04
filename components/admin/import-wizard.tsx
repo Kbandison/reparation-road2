@@ -24,13 +24,15 @@ import { collectionCategories, collectionEras, collectionRegions } from '@/lib/c
 import { BUILT_IN_COLUMNS, SYSTEM_COLUMNS, collectionFixedValues, findConflicts, prepareRows, toTableName } from '@/lib/import/records';
 import { hasTabs, isPlaceholder, placementProblems, suggestPlacements, type Placement } from '@/lib/import/placeholders';
 import { isFailedRowsHelperHeader } from '@/lib/import/failed-rows';
-import { profileColumn, typeLabel, type ColumnProfile } from '@/lib/import/values';
+import { displayValue, isBlank, profileColumn, typeLabel, type ColumnProfile } from '@/lib/import/values';
+import { imageKey, isStorageLink, matchImages } from '@/lib/import/image-matching';
 import type { ImportColumnType, ImportFailure, TableColumns } from '@/lib/import/types';
 import { ImportColumnTypeField } from './import-column-type-field';
 import { ImportPreflight } from './import-preflight';
 import { ImportFailureList } from './import-failure-list';
 import { ImportFailedRowsDownload } from './import-failed-rows-download';
 import { ImportPlacementField } from './import-placement-field';
+import { ImportImageMatches } from './import-image-matches';
 
 type Step = 'mode' | 'collection' | 'upload' | 'mapping' | 'images' | 'preview' | 'importing' | 'done';
 
@@ -125,28 +127,6 @@ function looksLikeImageColumn(col: string): boolean {
   return IMAGE_HEADER_RE.test(col);
 }
 
-function fuzzyMatch(imageName: string, files: StorageFile[]): StorageFile | null {
-  const norm = normalize(imageName);
-  if (!norm) return null;
-
-  // Exact match (without extension)
-  for (const f of files) {
-    if (f.isFolder) continue;
-    const nameNoExt = f.name.replace(/\.[^.]+$/, '');
-    if (normalize(nameNoExt) === norm) return f;
-  }
-
-  // Partial match
-  for (const f of files) {
-    if (f.isFolder) continue;
-    const nameNoExt = f.name.replace(/\.[^.]+$/, '');
-    const fNorm = normalize(nameNoExt);
-    if (fNorm.includes(norm) || norm.includes(fNorm)) return f;
-  }
-
-  return null;
-}
-
 export function ImportWizard({ collections, imageSource = null, imageSourceVersion = 0, uploadsInProgress = 0 }: ImportWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('mode');
@@ -200,9 +180,10 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
   const [addingFolder, setAddingFolder] = useState(false);
   // Which folder wins for a filename that appears in more than one of them.
   const [conflictChoice, setConflictChoice] = useState<Record<string, string>>({});
-  const [imageMapping, setImageMapping] = useState<Record<string, string>>({});
-  // Pool size when matching last ran; a bigger pool means new uploads to match.
-  const [matchedPoolSize, setMatchedPoolSize] = useState<number | null>(null);
+  // Near misses the admin confirmed on the image step: image name → storage path.
+  const [acceptedNear, setAcceptedNear] = useState<Record<string, string>>({});
+  // How many unlinked image names the admin agreed to import without images.
+  const [ackedUnlinked, setAckedUnlinked] = useState<number | null>(null);
   const [imageColumn, setImageColumn] = useState('');
   const [browsingStorage, setBrowsingStorage] = useState(false);
   const [availableBuckets, setAvailableBuckets] = useState<{ name: string; public: boolean }[]>([]);
@@ -576,7 +557,7 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
     const map = new Map<string, { file: StorageFile; folderId: string }[]>();
     for (const src of sourceFolders) {
       for (const file of src.files) {
-        const key = normalize(file.name.replace(/\.[^.]+$/, ''));
+        const key = imageKey(file.name);
         if (!key) continue;
         const bucketList = map.get(key) ?? [];
         bucketList.push({ file, folderId: src.id });
@@ -622,22 +603,38 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
   }, [filesByName, conflictChoice]);
 
 
-  // Auto-match image names to storage files
-  const autoMatchImages = useCallback(() => {
-    if (!imageColumn || matchPool.length === 0) return;
-    const files = matchPool;
-    const mapping: Record<string, string> = {};
-
+  // Image names in every column that feeds image_path. Values that are already
+  // a storage path or URL go in as they are.
+  const imageNames = useMemo(() => {
+    const headers = Object.entries(columnMapping).filter(([, db]) => db === 'image_path').map(([h]) => h);
+    const names = new Set<string>();
     for (const row of allRows) {
-      const imgName = String(row[imageColumn] || '').trim();
-      if (!imgName || mapping[imgName]) continue;
-      const match = fuzzyMatch(imgName, files);
-      if (match) mapping[imgName] = match.path;
+      for (const header of headers) {
+        if (!isBlank(row[header])) names.add(displayValue(row[header]));
+      }
     }
+    return [...names];
+  }, [allRows, columnMapping]);
+  const namesNeedingFiles = useMemo(() => imageNames.filter((n) => !isStorageLink(n)), [imageNames]);
 
-    setImageMapping(mapping);
-    setMatchedPoolSize(matchPool.length);
-  }, [imageColumn, matchPool, allRows]);
+  // Matching runs by itself whenever the names or the pool change (including
+  // uploads landing mid-import). Only exact matches link without a confirmation.
+  const imageMatches = useMemo(
+    () => matchImages(namesNeedingFiles, matchPool.map((f) => ({ name: f.name, path: f.path }))),
+    [namesNeedingFiles, matchPool],
+  );
+  const imageMapping = useMemo(() => {
+    const mapping: Record<string, string> = { ...imageMatches.exact };
+    for (const [name, path] of Object.entries(acceptedNear)) {
+      if (imageMatches.near[name]?.some((f) => f.path === path)) mapping[name] = path;
+    }
+    return mapping;
+  }, [imageMatches, acceptedNear]);
+  // Names that would be saved as just the name, with no image on the record.
+  const unlinkedImageNames = useMemo(
+    () => namesNeedingFiles.filter((n) => !imageMapping[n]),
+    [namesNeedingFiles, imageMapping],
+  );
 
   // Every row as the record it will become, tagged with its spreadsheet row.
   const preparedRows = useMemo(
@@ -714,7 +711,9 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
     : [];
 
   const unmappedRequired = importConflicts.filter((c) => c.kind === 'unmapped');
-  const readyToImport = tableSchema !== null && importConflicts.length === 0 && blockers.length === 0;
+  const unlinkedAcknowledged = unlinkedImageNames.length === 0 || ackedUnlinked === unlinkedImageNames.length;
+  const readyToImport =
+    tableSchema !== null && importConflicts.length === 0 && blockers.length === 0 && unlinkedAcknowledged;
 
   // Whether the image-matching step applies (some column feeds image_path).
   const hasImageColumn = Object.values(columnMapping).includes('image_path');
@@ -1322,6 +1321,10 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
                 if (hasImageColumn) {
                   if (availableBuckets.length === 0 && !loadingBuckets) loadBuckets();
                   if (imageSource && !seededInPool) seedImageSource();
+                  if (!imageColumn) {
+                    const mapped = Object.entries(columnMapping).find(([, db]) => db === 'image_path');
+                    if (mapped) setImageColumn(mapped[0]);
+                  }
                   setStep('images');
                 } else {
                   setStep('preview');
@@ -1558,64 +1561,37 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
                 </div>
               )}
 
-              <div className="border-t border-brand-gold/[0.08] px-4 py-3">
-                <Button
-                  onClick={autoMatchImages}
-                  disabled={!imageColumn || matchPool.length === 0}
-                  className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-xs"
-                >
-                  <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
-                  Auto-Match Images
-                </Button>
-                {Object.keys(imageMapping).length > 0 && (
-                  <span className="text-xs text-brand-sage ml-3">
-                    {Object.keys(imageMapping).length} matched
+              {unresolvedConflicts.length > 0 && (
+                <div className="border-t border-brand-gold/[0.08] px-4 py-3">
+                  <span className="text-xs text-brand-burgundy-light">
+                    {unresolvedConflicts.length} filename{unresolvedConflicts.length === 1 ? '' : 's'} still ambiguous
                   </span>
-                )}
-                {unresolvedConflicts.length > 0 && (
-                  <span className="text-xs text-brand-burgundy-light ml-3">
-                    {unresolvedConflicts.length} still ambiguous
-                  </span>
-                )}
-                {matchedPoolSize !== null && matchPool.length !== matchedPoolSize && (
-                  <p className="text-xs text-brand-gold mt-2">
-                    The image pool changed since you matched ({matchPool.length.toLocaleString()} usable now). Run Auto-Match again to include them.
-                  </p>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Match preview */}
-          {Object.keys(imageMapping).length > 0 && (
-            <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden max-h-48 overflow-y-auto">
-              <div className="divide-y divide-brand-gold/[0.04]">
-                {Object.entries(imageMapping).slice(0, 20).map(([name, path]) => (
-                  <div key={name} className="px-4 py-1.5 flex items-center justify-between text-xs">
-                    <span className="text-brand-cream">{name}</span>
-                    <div className="flex items-center gap-1.5 text-brand-sage">
-                      <CheckCircle className="w-3 h-3" />
-                      <span className="truncate max-w-[200px]">{path.split('/').pop()}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Unmatched count */}
-          {imageColumn && allRows.length > 0 && Object.keys(imageMapping).length > 0 && (
-            (() => {
-              const uniqueNames = new Set(allRows.map((r) => String(r[imageColumn] || '').trim()).filter(Boolean));
-              const unmatched = [...uniqueNames].filter((n) => !imageMapping[n]);
-              if (unmatched.length === 0) return <p className="text-xs text-brand-sage flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> All images matched</p>;
-              return (
-                <p className="text-xs text-brand-gold flex items-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5" /> {unmatched.length} image name{unmatched.length > 1 ? 's' : ''} unmatched
-                </p>
-              );
-            })()
-          )}
+          <ImportImageMatches
+            totalNames={namesNeedingFiles.length}
+            poolSize={matchPool.length}
+            result={imageMatches}
+            accepted={acceptedNear}
+            onAccept={(name, path) =>
+              setAcceptedNear((prev) => {
+                const next = { ...prev };
+                if (path) next[name] = path;
+                else delete next[name];
+                return next;
+              })
+            }
+            onAcceptAll={() =>
+              setAcceptedNear((prev) => {
+                const next = { ...prev };
+                for (const [name, files] of Object.entries(imageMatches.near)) if (!next[name]) next[name] = files[0].path;
+                return next;
+              })
+            }
+          />
 
           <div className="flex gap-3">
             <Button variant="outline" onClick={() => setStep('mapping')} className="border-brand-gold/20 text-brand-cream rounded-xl">
@@ -1637,6 +1613,34 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
           <p className="text-sm text-brand-muted">
             Preview of {Math.min(5, sampleRows.length)} of {rowCount.toLocaleString()} rows to be imported.
           </p>
+
+          {unlinkedImageNames.length > 0 && (
+            <div role="alert" className="space-y-2 rounded-xl border border-brand-gold/30 bg-brand-gold/[0.06] px-4 py-3">
+              <p className="flex items-start gap-2 text-xs text-brand-cream">
+                <AlertCircle className="w-4 h-4 mt-px shrink-0 text-brand-gold" aria-hidden="true" />
+                <span>
+                  <span className="font-medium">
+                    {unlinkedImageNames.length.toLocaleString()} image name{unlinkedImageNames.length === 1 ? '' : 's'} didn’t match a file
+                  </span>
+                  , so those records would be saved with just the name and show no image. Go back to Images to add the
+                  folder they’re in, or import anyway and link them later from Upload Images → Link to existing records.
+                </span>
+              </p>
+              <p className="pl-6 font-mono text-[11px] text-brand-muted break-all">
+                {unlinkedImageNames.slice(0, 8).join(' · ')}
+                {unlinkedImageNames.length > 8 && ` · and ${(unlinkedImageNames.length - 8).toLocaleString()} more`}
+              </p>
+              <label className="flex items-center gap-2 pl-6 text-xs text-brand-cream cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={ackedUnlinked === unlinkedImageNames.length}
+                  onChange={(e) => setAckedUnlinked(e.target.checked ? unlinkedImageNames.length : null)}
+                  className="accent-[#C8956C]"
+                />
+                Import them anyway without images
+              </label>
+            </div>
+          )}
 
           <ImportPreflight
             tableName={targetTable}
@@ -1833,8 +1837,8 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
                 setRowNumbers([]);
                 setSampleRows([]);
                 setColumnMapping({});
-                setImageMapping({});
-                setMatchedPoolSize(null);
+                setAcceptedNear({});
+                setAckedUnlinked(null);
                 setSelectedSlug('');
                 setPlacement(null);
                 setTaggedHeaders([]);
