@@ -8,6 +8,8 @@ interface AdminConfirmDeleteModalProps {
   title: string;
   confirmLabel: string;
   busy?: boolean;
+  /** Holds the confirm button back, e.g. until the name is typed out. */
+  confirmDisabled?: boolean;
   error?: string | null;
   onConfirm: () => void;
   onClose: () => void;
@@ -22,6 +24,7 @@ export function AdminConfirmDeleteModal({
   title,
   confirmLabel,
   busy = false,
+  confirmDisabled = false,
   error = null,
   onConfirm,
   onClose,
@@ -93,7 +96,7 @@ export function AdminConfirmDeleteModal({
           </Button>
           <Button
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             className="bg-brand-burgundy text-white hover:bg-brand-burgundy/85 rounded-xl"
           >
             {busy ? (

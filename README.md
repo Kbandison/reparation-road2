@@ -28,6 +28,20 @@ The import wizard loads an `.xlsx` into a new or existing collection. The rules 
 - **Checked before writing:** the Preview step compares every row with the table's real column types (read from PostgREST's OpenAPI description with the service key) and flags mismatches and blank required cells by spreadsheet row. An existing number or yes/no column can be converted to text there.
 - **Drafts:** a new collection stays a Draft until every record is in, then publishes itself.
 - **Partial failures:** if the database rejects some rows anyway, the rest are saved and the rejected rows are listed by spreadsheet row. **Download rows to fix** gives you just those rows with the reason beside each. Correct them and import that file into the same collection; the wizard skips the two helper columns. Re-importing the whole file would duplicate the rows already saved.
+- **"Coming Soon" collections:** a collection with no table and no tabs shows up under Import to Existing marked *Empty*. Pick where its records go: the table its sibling tabs share (each row tagged, e.g. `collection_tag = aaron_lopez`) or a table of its own. The import connects the collection to that table (`link-collection`) and it shows its records straight away (`lib/import/placeholders.ts`).
+- **Tab tags:** tabs that share a table are told apart by a tag column (`discriminator_column`/`discriminator_value`). Every import into such a tab writes the tag on every row; a file column feeding the tag column is replaced by it.
+- **Record counts** are re-synced after every import, parents included.
+
+## Storage (Admin → Upload Images)
+
+A file manager over Supabase Storage (`components/admin/storage-*`, `lib/storage/`, `/api/admin/storage`).
+
+- **Buckets, folders, files:** create, rename and delete from the page. Bucket and folder names are cleaned to lowercase letters, numbers and hyphens; file renames keep the name as typed (spreadsheets match scans by filename) and keep the extension. New buckets are always public, since record pages link to files by their public URL. Folders are real: an empty folder is kept with Supabase's hidden `.emptyFolderPlaceholder` file, and a folder emptied by deletes gets one back.
+- **Renames keep record links working.** Storage has no rename, so every object moves to its new key (in batches of 50 the browser drives), then every collection record linking to a moved file is rewritten in the same shape it had (`bucket/path`, raw URL, or percent-encoded URL). Links are found in each collection table's `image_path` and in `collections.thumbnail_url`. Files that fail to move keep their old links; the dialog offers a retry.
+- **Deletes warn first:** the dialog lists how many records, in which collections, link to what's being deleted, and asks for the name to be typed for folders, buckets and anything linked.
+- **Locked buckets:** `forum-media` and `family-tree-media` are view-only here, because the forum and family tree link to their files by name.
+- **Uploads** go straight into the open folder through signed URLs (no size limit). Names already in the folder are flagged with Replace / Skip instead of being overwritten. Dropping files onto the open folder uploads them at once.
+- **Attach to records:** *Add new records from a spreadsheet* runs the import wizard with the upload folder already in its image pool (new uploads join it as they land); *Link to existing records* writes uploaded files' paths onto records whose chosen column matches the filename.
 
 ## Public forms and bot protection
 

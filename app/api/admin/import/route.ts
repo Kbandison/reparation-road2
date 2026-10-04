@@ -201,39 +201,6 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const supabase = createAdminClient();
 
-  // Create a new storage bucket for uploads.
-  if (body.action === 'create-bucket') {
-    const rawName = String(body.name || '').trim();
-    const name = rawName.replace(/[^a-z0-9-]/gi, '-').toLowerCase().replace(/^-+|-+$/g, '');
-    if (!name) return NextResponse.json({ error: 'A valid bucket name is required' }, { status: 400 });
-    const { error } = await supabase.storage.createBucket(name, {
-      public: body.public !== false,
-    });
-    // "already exists" is fine — treat it as success so the picker just uses it.
-    if (error && !/already exists/i.test(error.message)) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-    return NextResponse.json({ success: true, name });
-  }
-
-  // Issue a short-lived signed URL so the browser can upload a file straight to
-  // Storage (bypassing the ~4.5MB serverless request-body limit for big scans).
-  if (body.action === 'signed-upload-url') {
-    const bucket = String(body.bucket || '').trim();
-    const path = String(body.path || '').trim().replace(/^\/+/, '');
-    if (!bucket || !path) {
-      return NextResponse.json({ error: 'bucket and path are required' }, { status: 400 });
-    }
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .createSignedUploadUrl(path, { upsert: true });
-    if (error || !data) {
-      return NextResponse.json({ error: error?.message || 'Could not create upload URL' }, { status: 400 });
-    }
-    const publicUrl = supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-    return NextResponse.json({ signedUrl: data.signedUrl, token: data.token, path: data.path, publicUrl });
-  }
-
   // Match uploaded filenames to records and write the storage path onto their
   // image_path. Matching is by filename: a record matches a file when its
   // chosen column's value (basename, case-insensitive) equals the file name,

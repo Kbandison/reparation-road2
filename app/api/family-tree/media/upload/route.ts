@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { FAMILY_TREE_MEDIA_BUCKET } from '@/lib/storage/names';
 
 export const maxDuration = 60;
 
-const BUCKET = 'family-tree-media';
+const BUCKET = FAMILY_TREE_MEDIA_BUCKET;
 const MAX_BYTES = 15 * 1024 * 1024;
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff']);
 

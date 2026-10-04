@@ -2,6 +2,29 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-04T20:01Z: "Coming Soon" collections are importable, Upload Images is a full storage manager
+
+Twenty-eight collections (21 tabs, plus 7 empty state collections) had no table, so they showed "Coming Soon" and couldn't be filled: Import to Existing only listed collections with a table, and Create New refused their slugs. The Upload Images page's "Add folder" only changed the upload destination in the browser, so a folder vanished on refresh if nothing was uploaded into it. Both are fixed, along with a bug that made records imported into a shared-table tab invisible.
+
+**Minor updates**
+- Placeholder collections appear under Import to Existing, marked *Empty*. The wizard suggests where their records go: the table their sibling tabs share, with a tag (the 10 slave-merchant tabs go to `slave_merchants` with `collection_tag = aaron_lopez`, etc.; Alabama and Louisiana go to `slave_importation` with `state = alabama`/`louisiana`), or a table of their own (Native American agencies, NC/SC, the state collections). The new `link-collection` action points the collection at its table only if it still has none. The collections stay live.
+- Imports into a tab that shares its table now write the tab's tag on every row. Before, rows went in without it and never showed in the tab unless the spreadsheet happened to carry a matching column.
+- Record counts (and parents' totals) re-sync after every import.
+- `create-table` accepts a file whose only columns are built-ins, and creates the table whenever it doesn't exist yet.
+- Removed the orphaned duplicate tab `ms-persons-of-color-passports`: its parent didn't exist, and it showed the same 97 records as the live "Mississippi Passport & Slave Affidavits" tab. The records are untouched.
+- Upload Images is now a file manager: buckets → folders → files with thumbnails, current folder kept in the URL. Create, rename and delete buckets (delete only), folders and files. Names get the bucket cleanup (lowercase-hyphen); file renames keep their name and extension.
+- Renaming a file or folder moves every object and rewrites every collection record's `image_path` link (any of the three stored formats) to match, so no image breaks. Deletes show how many records link to what's going and need the name typed for folders, buckets and anything linked.
+- `forum-media` and `family-tree-media` are view-only in the manager. Their bucket names now come from `lib/storage/names.ts`.
+- New buckets are always public, and any file type can be uploaded. Uploads flag names already in the folder (Replace / Skip) instead of silently overwriting.
+- "Attach to records" has two modes. *Add new records from a spreadsheet* runs the import wizard with the upload folder already in its image pool, so records and scans go in together. *Link to existing records* works as before.
+- Storage actions moved out of `/api/admin/import` into `/api/admin/storage` (which existed but was unused).
+- Verified: typecheck, production build, lint (same 11 pre-existing errors, none new). Reference finding and rewriting were checked read-only against live data (renaming `slave-importation/kentucky` would update all 273 Kentucky links). Bucket/folder/file create, list, rename, delete and the overwrite guard were run end to end in a throwaway bucket, since deleted. Logged-out requests to the storage API get 403.
+
+**Next actions**
+- Click through Upload Images and a placeholder import while logged in as an admin (not yet done in a browser).
+- The import wizard's image step and the record editor's image picker still list folders with the older `list()` call, which may cap very large folders; switch them to the paged listing in `lib/storage/objects.ts`.
+- Most of the 7 empty state collections will get tabs: create each tab with Create New Collection (parent = the state collection) rather than importing into the state collection itself.
+
 ## 2026-09-27T20:07Z: Security upgrades, npm audit down from 26 findings to 0
 
 Next.js 16.1.6 carried about 30 advisories, including two critical remote-code-execution bugs (one in the image optimizer) and several middleware/proxy bypasses. That matters here because `middleware.ts` is what sends logged-out visitors away from `/admin` and `/dashboard`. `xlsx` 0.18.5 had a prototype-pollution bug and a ReDoS when reading crafted files. npm no longer carries fixed versions, because SheetJS now publishes only from its own CDN.

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -90,6 +90,15 @@ type CollectionInfo = ImportCollection;
 
 interface ImportWizardProps {
   collections: CollectionInfo[];
+  /**
+   * Upload Images page only: the folder the scans were just uploaded into.
+   * The image step starts with it already in the match pool.
+   */
+  imageSource?: { bucket: string; folder: string } | null;
+  /** Changes whenever more uploads land in imageSource, so the pool re-reads it. */
+  imageSourceVersion?: number;
+  /** Uploads into imageSource still running. */
+  uploadsInProgress?: number;
 }
 
 // Normalize a string for fuzzy matching
@@ -138,7 +147,7 @@ function fuzzyMatch(imageName: string, files: StorageFile[]): StorageFile | null
   return null;
 }
 
-export function ImportWizard({ collections }: ImportWizardProps) {
+export function ImportWizard({ collections, imageSource = null, imageSourceVersion = 0, uploadsInProgress = 0 }: ImportWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('mode');
   const [mode, setMode] = useState<'existing' | 'new'>('existing');
@@ -192,6 +201,8 @@ export function ImportWizard({ collections }: ImportWizardProps) {
   // Which folder wins for a filename that appears in more than one of them.
   const [conflictChoice, setConflictChoice] = useState<Record<string, string>>({});
   const [imageMapping, setImageMapping] = useState<Record<string, string>>({});
+  // Pool size when matching last ran; a bigger pool means new uploads to match.
+  const [matchedPoolSize, setMatchedPoolSize] = useState<number | null>(null);
   const [imageColumn, setImageColumn] = useState('');
   const [browsingStorage, setBrowsingStorage] = useState(false);
   const [availableBuckets, setAvailableBuckets] = useState<{ name: string; public: boolean }[]>([]);
@@ -458,60 +469,101 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     setLoadingBuckets(false);
   }, []);
 
-  // Commit the folder currently open in the browser to the match pool.
-  const addCurrentFolder = async () => {
-    if (!storageBucket) return;
-    const key = `${storageBucket}:${storageFolder}`;
-    if (sourceFolders.some((f) => `${f.bucket}:${f.folder}` === key)) {
-      toast.error('That folder is already added');
-      return;
+  // Every file in a storage folder (optionally its subfolders too).
+  const readFolder = async (bucket: string, folder: string, recursive: boolean) => {
+    const params = new URLSearchParams({ action: 'storage-files', bucket, folder, recursive: String(recursive) });
+    const res = await fetch(`/api/admin/import?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to read that folder');
+    return {
+      files: (data.items || []).filter((f: StorageFile) => !f.isFolder) as StorageFile[],
+      truncated: Boolean(data.truncated),
+    };
+  };
+
+  // Commit a folder to the match pool. Resolves true when it's in the pool.
+  const addFolder = async (bucket: string, folder: string, recursive: boolean, quiet = false): Promise<boolean> => {
+    const key = `${bucket}:${folder}`;
+    if (sourceFolders.some((f) => f.id === key)) {
+      if (!quiet) toast.error('That folder is already added');
+      return true;
     }
 
     setAddingFolder(true);
     try {
-      const params = new URLSearchParams({
-        action: 'storage-files',
-        bucket: storageBucket,
-        folder: storageFolder,
-        recursive: String(recurseNext),
-      });
-      const res = await fetch(`/api/admin/import?${params}`);
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'Failed to read that folder');
-        return;
-      }
-
-      const files = (data.items || []).filter((f: StorageFile) => !f.isFolder);
+      const { files, truncated } = await readFolder(bucket, folder, recursive);
       if (files.length === 0) {
-        toast.error(
-          recurseNext ? 'No images found in that folder or below it' : 'No images directly in that folder — try including subfolders',
-        );
-        return;
+        if (!quiet) {
+          toast.error(
+            recursive ? 'No images found in that folder or below it' : 'No images directly in that folder — try including subfolders',
+          );
+        }
+        return false;
       }
 
-      setSourceFolders((prev) => [
-        ...prev,
-        {
-          id: key,
-          bucket: storageBucket,
-          folder: storageFolder,
-          recursive: recurseNext,
-          files,
-          truncated: Boolean(data.truncated),
-        },
-      ]);
-      if (data.truncated) {
+      setSourceFolders((prev) =>
+        prev.some((f) => f.id === key) ? prev : [...prev, { id: key, bucket, folder, recursive, files, truncated }],
+      );
+      if (truncated) {
         toast.error(`Stopped at ${files.length} files — that folder is very large`);
-      } else {
+      } else if (!quiet) {
         toast.success(`Added ${files.length} image${files.length === 1 ? '' : 's'}`);
       }
+      return true;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to read that folder');
+      return false;
     } finally {
       setAddingFolder(false);
     }
   };
+
+  // Commit the folder currently open in the browser to the match pool.
+  const addCurrentFolder = () => {
+    if (!storageBucket) return;
+    void addFolder(storageBucket, storageFolder, recurseNext);
+  };
+
+  // Upload Images page: open the image step on the folder just uploaded into,
+  // with it already in the pool. If nothing has finished uploading yet, the
+  // folder joins the pool when the first batch lands.
+  const [seedPending, setSeedPending] = useState(false);
+  const seedImageSource = () => {
+    if (!imageSource) return;
+    setStorageBucket(imageSource.bucket);
+    void browseStorage(imageSource.bucket, imageSource.folder);
+    void addFolder(imageSource.bucket, imageSource.folder, false, true).then((added) => setSeedPending(!added));
+  };
+
+  // More uploads landed in the seeded folder: re-read it (or add it, if it was
+  // still empty) so the new files can be matched. A folder the admin removed
+  // from the pool stays removed.
+  const seededId = imageSource ? `${imageSource.bucket}:${imageSource.folder}` : null;
+  const seededInPool = Boolean(seededId && sourceFolders.some((f) => f.id === seededId));
+  useEffect(() => {
+    if (!imageSource || imageSourceVersion === 0 || (!seededInPool && !seedPending)) return;
+    let active = true;
+    const { bucket, folder } = imageSource;
+    const id = `${bucket}:${folder}`;
+    readFolder(bucket, folder, false)
+      .then(({ files, truncated }) => {
+        if (!active || files.length === 0) return;
+        setSourceFolders((prev) =>
+          prev.some((f) => f.id === id)
+            ? prev.map((f) => (f.id === id ? { ...f, files, truncated } : f))
+            : [...prev, { id, bucket, folder, recursive: false, files, truncated }],
+        );
+        setSeedPending(false);
+      })
+      .catch(() => {
+        // Keep the files already listed; the next upload batch tries again.
+      });
+    return () => {
+      active = false;
+    };
+    // Re-read only when a new upload batch finishes, not on every pool change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageSourceVersion]);
 
   const removeFolder = (id: string) => {
     setSourceFolders((prev) => prev.filter((f) => f.id !== id));
@@ -584,6 +636,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     }
 
     setImageMapping(mapping);
+    setMatchedPoolSize(matchPool.length);
   }, [imageColumn, matchPool, allRows]);
 
   // Every row as the record it will become, tagged with its spreadsheet row.
@@ -1268,6 +1321,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
               onClick={() => {
                 if (hasImageColumn) {
                   if (availableBuckets.length === 0 && !loadingBuckets) loadBuckets();
+                  if (imageSource && !seededInPool) seedImageSource();
                   setStep('images');
                 } else {
                   setStep('preview');
@@ -1286,8 +1340,16 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       {step === 'images' && (
         <div className="space-y-4">
           <p className="text-sm text-brand-muted">
-            Select the storage folder containing the images, then we&apos;ll match them to your spreadsheet.
+            {imageSource
+              ? <>The folder you just uploaded into is already added below. Add more folders if some images live elsewhere, then match them to your spreadsheet.</>
+              : <>Select the storage folder containing the images, then we&apos;ll match them to your spreadsheet.</>}
           </p>
+          {uploadsInProgress > 0 && (
+            <p className="flex items-center gap-2 rounded-xl border border-brand-gold/25 bg-brand-gold/[0.06] px-3 py-2 text-xs text-brand-cream" aria-live="polite">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-gold shrink-0" aria-hidden="true" />
+              {uploadsInProgress} upload{uploadsInProgress === 1 ? ' is' : 's are'} still running. They join the pool as soon as they finish.
+            </p>
+          )}
 
           {/* Which column has image names */}
           <div className="space-y-2">
@@ -1514,6 +1576,11 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                   <span className="text-xs text-brand-burgundy-light ml-3">
                     {unresolvedConflicts.length} still ambiguous
                   </span>
+                )}
+                {matchedPoolSize !== null && matchPool.length !== matchedPoolSize && (
+                  <p className="text-xs text-brand-gold mt-2">
+                    The image pool changed since you matched ({matchPool.length.toLocaleString()} usable now). Run Auto-Match again to include them.
+                  </p>
                 )}
               </div>
             </div>
@@ -1767,6 +1834,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                 setSampleRows([]);
                 setColumnMapping({});
                 setImageMapping({});
+                setMatchedPoolSize(null);
                 setSelectedSlug('');
                 setPlacement(null);
                 setTaggedHeaders([]);

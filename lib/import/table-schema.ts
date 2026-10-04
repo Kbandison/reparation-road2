@@ -36,18 +36,7 @@ interface OpenApiDefinition {
  * waitForSchema).
  */
 export async function fetchTableSchema(tableName: string): Promise<TableSchema | null> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase admin credentials are not configured');
-
-  const res = await fetch(`${url}/rest/v1/`, {
-    headers: { apikey: key, Authorization: `Bearer ${key}` },
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new Error(`Couldn't read the database schema (HTTP ${res.status})`);
-
-  const spec = (await res.json()) as { definitions?: Record<string, OpenApiDefinition> };
-  const definition = spec.definitions?.[tableName];
+  const definition = (await fetchSchemaDefinitions())[tableName];
   if (!definition?.properties) return null;
 
   const notNull = new Set(definition.required ?? []);
@@ -60,6 +49,33 @@ export async function fetchTableSchema(tableName: string): Promise<TableSchema |
     };
   }
   return { columns };
+}
+
+/** PostgREST's OpenAPI description of every table it serves, keyed by table name. */
+async function fetchSchemaDefinitions(): Promise<Record<string, OpenApiDefinition>> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('Supabase admin credentials are not configured');
+
+  const res = await fetch(`${url}/rest/v1/`, {
+    headers: { apikey: key, Authorization: `Bearer ${key}` },
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Couldn't read the database schema (HTTP ${res.status})`);
+
+  const spec = (await res.json()) as { definitions?: Record<string, OpenApiDefinition> };
+  return spec.definitions ?? {};
+}
+
+/** Column names of many tables from a single schema read. Tables that don't exist are left out. */
+export async function fetchColumnNames(tableNames: string[]): Promise<Map<string, Set<string>>> {
+  const definitions = await fetchSchemaDefinitions();
+  const out = new Map<string, Set<string>>();
+  for (const table of tableNames) {
+    const properties = definitions[table]?.properties;
+    if (properties) out.set(table, new Set(Object.keys(properties)));
+  }
+  return out;
 }
 
 /**

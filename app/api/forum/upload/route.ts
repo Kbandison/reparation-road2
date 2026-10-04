@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { FORUM_MEDIA_BUCKET } from '@/lib/storage/names';
 
-const BUCKET = 'forum-media';
+const BUCKET = FORUM_MEDIA_BUCKET;
 const MAX_BYTES = 6 * 1024 * 1024;
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
