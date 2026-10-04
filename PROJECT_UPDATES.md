@@ -2,6 +2,19 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-04T21:48Z: Ex-Slave Pension shows its scans; hidden-collections audit
+
+An audit for hidden collections found none: no drafts, orphans, tabs under unpublished or record-holding parents, or missing tables. It did find a collection with scans that never showed, a duplicate table, and a count bug.
+
+**Minor updates**
+- Ex-Slave Pension (127 letters) was marked "has images", but its table had no `image_path`, so no record showed its scan. `ex_slave_pension_scans_and_cleanup.sql` (run by hand) added the column and filled it from `ex_slave_pension_with_image` (same ids). All 127 resolve to files in `ex-slave-pension`.
+- The same SQL dropped `sc_register_guardian`, an exact copy of Free Colored Register of Guardian (428 rows) left behind when the first import's placeholder tab was deleted.
+- Sync Record Counts now totals nested folders from the bottom (`e02ed66`). Moving two registers into the new Diocese of St. Augustine folder had left Florida & Louisiana Records at 98 instead of 182 (corrected).
+
+**Next actions**
+- About 45 tables no collection uses are mostly pre-merge copies (`va_books_*`, `register_free_persons_*`, `slave_merchants_*`, `slave-importation-*`, `*_legacy`, `*_backup_*`), plus `ex_slave_pension_with_image`/`ex_slave_pension_images` (now redundant) and `archive_pages` (not read on main). Clean up later, checking each one's rows exist in the live table before dropping.
+- Enslaved Catholic Baptisms — Kentucky is published but its table (`enslaved_catholic_kentuky`) is empty, so its page shows an empty list rather than "Coming Soon".
+
 ## 2026-10-04T21:17Z: Folders can be created and moved into; AI descriptions run on Claude
 
 Folders (collections that hold other collections as tabs) could only be made in the database: Create New Collection needs a spreadsheet, and nothing let an admin move a collection into a folder. An empty folder also looked exactly like an empty tab, so the import offered it as a target. Separately, "Generate with AI" ran on Fireworks' Llama 3.3; it now uses Claude Sonnet like the site assistant.
