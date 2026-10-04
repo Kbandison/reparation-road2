@@ -339,7 +339,9 @@ export async function POST(request: NextRequest) {
       columns: { name: string; type: string }[];
     };
 
-    if (!tableName || !columns?.length) {
+    // An empty column list is valid: a file whose only columns are built-ins
+    // (slug, image_path, ocr_text) still needs its table created.
+    if (!tableName || !Array.isArray(columns)) {
       return NextResponse.json({ error: 'tableName and columns are required' }, { status: 400 });
     }
 
@@ -353,7 +355,15 @@ export async function POST(request: NextRequest) {
       const pgType = c.type === 'integer' ? 'integer' : c.type === 'boolean' ? 'boolean' : 'text';
       return { safCol, pgType };
     });
-    const colDefs = typedCols.map((c) => `"${c.safCol}" ${c.pgType}`);
+    const tableDefs = [
+      'id uuid NOT NULL DEFAULT gen_random_uuid()',
+      "slug text NOT NULL DEFAULT ''",
+      ...typedCols.map((c) => `"${c.safCol}" ${c.pgType}`),
+      "image_path text DEFAULT ''",
+      "ocr_text text DEFAULT ''",
+      'created_at timestamptz DEFAULT now()',
+      `CONSTRAINT "${safeName}_pkey" PRIMARY KEY (id)`,
+    ];
 
     // If the table already exists from an earlier (possibly partial) run,
     // CREATE TABLE IF NOT EXISTS is a no-op — so explicitly add any missing
@@ -371,13 +381,7 @@ export async function POST(request: NextRequest) {
 
     const sql = `
       CREATE TABLE IF NOT EXISTS public."${safeName}" (
-        id uuid NOT NULL DEFAULT gen_random_uuid(),
-        slug text NOT NULL DEFAULT '',
-        ${colDefs.join(',\n        ')},
-        image_path text DEFAULT '',
-        ocr_text text DEFAULT '',
-        created_at timestamptz DEFAULT now(),
-        CONSTRAINT "${safeName}_pkey" PRIMARY KEY (id)
+        ${tableDefs.join(',\n        ')}
       );
 
       ${alterDefs.join('\n      ')}
@@ -488,6 +492,94 @@ export async function POST(request: NextRequest) {
       .eq('id', collection.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ success: true, recordCount });
+  }
+
+  // Give a placeholder collection (no table, no tabs, shown as "Coming Soon")
+  // the table its records are going into. Only ever touches a collection that
+  // has no table yet, so a configured collection can't be repointed by mistake.
+  if (body.action === 'link-collection') {
+    const slug = String(body.slug || '').trim();
+    const tableName = String(body.tableName || '').trim();
+    const discriminatorColumn = String(body.discriminatorColumn || '').trim();
+    const discriminatorValue = String(body.discriminatorValue || '').trim();
+    if (!slug || !SAFE_IDENTIFIER.test(tableName)) {
+      return NextResponse.json({ error: 'slug and a valid tableName are required' }, { status: 400 });
+    }
+    if (Boolean(discriminatorColumn) !== Boolean(discriminatorValue) || (discriminatorColumn && !SAFE_IDENTIFIER.test(discriminatorColumn))) {
+      return NextResponse.json({ error: 'A tab tag needs both a column and a value' }, { status: 400 });
+    }
+
+    const { data: collection, error: findError } = await supabase
+      .from('collections')
+      .select('id, name, table_name, display_columns, search_columns')
+      .eq('slug', slug)
+      .maybeSingle();
+    if (findError) return NextResponse.json({ error: findError.message }, { status: 400 });
+    if (!collection) return NextResponse.json({ error: `No collection with the slug "${slug}"` }, { status: 404 });
+    if (collection.table_name) {
+      return NextResponse.json({ error: `"${collection.name}" already has a table (${collection.table_name}).` }, { status: 409 });
+    }
+
+    const { count: tabs } = await supabase
+      .from('collections')
+      .select('id', { count: 'exact', head: true })
+      .eq('parent_slug', slug);
+    if (tabs) {
+      return NextResponse.json({ error: `"${collection.name}" has tabs. Import into one of its tabs instead.` }, { status: 409 });
+    }
+
+    // The same ownership rules the wizard shows, enforced here too.
+    const { data: sameTable } = await supabase
+      .from('collections')
+      .select('name, discriminator_column, discriminator_value')
+      .eq('table_name', tableName);
+    const clash = (sameTable || []).find((c) =>
+      discriminatorColumn
+        ? !c.discriminator_column ||
+          (c.discriminator_column === discriminatorColumn &&
+            c.discriminator_value?.toLowerCase() === discriminatorValue.toLowerCase())
+        : true,
+    );
+    if (clash) {
+      return NextResponse.json(
+        {
+          error: discriminatorColumn && clash.discriminator_column
+            ? `"${clash.name}" already uses ${discriminatorColumn} = ${clash.discriminator_value}.`
+            : `The table ${tableName} already belongs to "${clash.name}".`,
+        },
+        { status: 409 },
+      );
+    }
+
+    // Keep any display setup the placeholder already had; otherwise use the
+    // columns this import fills, the same rule a new collection gets.
+    const columnList = (value: unknown) =>
+      Array.isArray(value) ? value.filter((c): c is string => typeof c === 'string' && SAFE_IDENTIFIER.test(c)) : [];
+    const displayColumns = columnList(collection.display_columns).length
+      ? collection.display_columns
+      : columnList(body.displayColumns);
+    const searchColumns = columnList(collection.search_columns).length
+      ? collection.search_columns
+      : columnList(body.searchColumns);
+
+    const { data: updated, error } = await supabase
+      .from('collections')
+      .update({
+        table_name: tableName,
+        discriminator_column: discriminatorColumn || null,
+        discriminator_value: discriminatorValue || null,
+        display_columns: displayColumns,
+        search_columns: searchColumns,
+        has_images: Boolean(body.hasImages),
+      })
+      .eq('id', collection.id)
+      .is('table_name', null)
+      .select('id');
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (!updated?.length) {
+      return NextResponse.json({ error: `"${collection.name}" was linked to a table by someone else. Reload and try again.` }, { status: 409 });
+    }
+    return NextResponse.json({ success: true });
   }
 
   // Widen an existing number or yes/no column to text so values like
@@ -644,12 +736,13 @@ Rules:
   }
 
   if (body.action === 'insert-records') {
-    const { tableName, records, rowNumbers, columnMapping, imageMapping, dryRun } = body as {
+    const { tableName, records, rowNumbers, columnMapping, imageMapping, fixedValues, dryRun } = body as {
       tableName: string;
       records: Record<string, unknown>[];
       rowNumbers?: number[]; // spreadsheet row of each record, for error reports
       columnMapping: Record<string, string>; // file col -> db col
       imageMapping?: Record<string, string>; // file image name -> storage path
+      fixedValues?: Record<string, string>; // db col -> value written on every row (a shared table's tab tag)
       dryRun?: boolean; // check the file against the table without writing
     };
 
@@ -657,7 +750,14 @@ Rules:
       return NextResponse.json({ error: 'tableName, records, and columnMapping are required' }, { status: 400 });
     }
 
-    const mappedColumns = [...new Set(Object.values(columnMapping).filter(Boolean))];
+    const fixed = fixedValues && typeof fixedValues === 'object' ? fixedValues : {};
+    for (const [column, value] of Object.entries(fixed)) {
+      if (!SAFE_IDENTIFIER.test(column) || SYSTEM_COLUMNS.has(column) || typeof value !== 'string' || !value.trim()) {
+        return NextResponse.json({ error: `Invalid tag for column "${column}"` }, { status: 400 });
+      }
+    }
+
+    const mappedColumns = [...new Set([...Object.values(columnMapping).filter(Boolean), ...Object.keys(fixed)])];
     const managed = mappedColumns.filter((c) => SYSTEM_COLUMNS.has(c));
     if (managed.length > 0) {
       return NextResponse.json(
@@ -680,7 +780,7 @@ Rules:
     }
     if (!schema) return NextResponse.json({ error: `Table "${tableName}" does not exist` }, { status: 404 });
 
-    const prepared = prepareRows(records, rowNumbers, columnMapping, imageMapping);
+    const prepared = prepareRows(records, rowNumbers, columnMapping, imageMapping, fixed);
 
     // Check every value against the table's real column types before writing
     // anything. A single "7months" in a whole-number column used to fail its

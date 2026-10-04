@@ -8,7 +8,6 @@ import {
   FileSpreadsheet,
   ArrowRight,
   ArrowLeft,
-  Check,
   X,
   Loader2,
   FolderOpen,
@@ -20,9 +19,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { Collection } from '@/lib/types';
+import type { ImportCollection } from '@/lib/collections/queries';
 import { collectionCategories, collectionEras, collectionRegions } from '@/lib/constants';
-import { BUILT_IN_COLUMNS, SYSTEM_COLUMNS, findConflicts, prepareRows, toTableName } from '@/lib/import/records';
+import { BUILT_IN_COLUMNS, SYSTEM_COLUMNS, collectionFixedValues, findConflicts, prepareRows, toTableName } from '@/lib/import/records';
+import { hasTabs, isPlaceholder, placementProblems, suggestPlacements, type Placement } from '@/lib/import/placeholders';
 import { isFailedRowsHelperHeader } from '@/lib/import/failed-rows';
 import { profileColumn, typeLabel, type ColumnProfile } from '@/lib/import/values';
 import type { ImportColumnType, ImportFailure, TableColumns } from '@/lib/import/types';
@@ -30,6 +30,7 @@ import { ImportColumnTypeField } from './import-column-type-field';
 import { ImportPreflight } from './import-preflight';
 import { ImportFailureList } from './import-failure-list';
 import { ImportFailedRowsDownload } from './import-failed-rows-download';
+import { ImportPlacementField } from './import-placement-field';
 
 type Step = 'mode' | 'collection' | 'upload' | 'mapping' | 'images' | 'preview' | 'importing' | 'done';
 
@@ -46,9 +47,11 @@ interface ImportResult {
   error: string | null;
   // Where the target collection stands afterwards; 'none' if a new one was never created.
   collection: 'none' | 'draft' | 'published';
+  // A placeholder collection got its table during this import.
+  linkedPlaceholder: boolean;
 }
 
-const EMPTY_RESULT: ImportResult = { inserted: 0, total: 0, failures: [], error: null, collection: 'none' };
+const EMPTY_RESULT: ImportResult = { inserted: 0, total: 0, failures: [], error: null, collection: 'none', linkedPlaceholder: false };
 
 /** POSTs a JSON action to the import API and hands back the status with the parsed body. */
 async function postImport(payload: Record<string, unknown>) {
@@ -83,7 +86,7 @@ interface StorageFile {
   url: string;
 }
 
-type CollectionInfo = Pick<Collection, 'slug' | 'name' | 'table_name' | 'parent_slug' | 'display_columns' | 'search_columns' | 'sort_columns' | 'has_images' | 'has_ocr' | 'discriminator_column' | 'discriminator_value' | 'is_published'>;
+type CollectionInfo = ImportCollection;
 
 interface ImportWizardProps {
   collections: CollectionInfo[];
@@ -142,6 +145,10 @@ export function ImportWizard({ collections }: ImportWizardProps) {
 
   // Collection selection
   const [selectedSlug, setSelectedSlug] = useState('');
+  // Where a placeholder collection's records go (null for any other target).
+  const [placement, setPlacement] = useState<Placement | null>(null);
+  // Spreadsheet headers that fed the tab's tag column; the tag replaces them.
+  const [taggedHeaders, setTaggedHeaders] = useState<string[]>([]);
 
   // New collection form
   const [newCollection, setNewCollection] = useState({
@@ -205,11 +212,89 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       ? (a.parent_slug ? 1 : 0) - (b.parent_slug ? 1 : 0) || a.name.localeCompare(b.name)
       : aRoot.localeCompare(bRoot);
   });
-  const collectionBySlug = new Map(collections.map((c) => [c.slug, c]));
+  const collectionBySlug = useMemo(() => new Map(collections.map((c) => [c.slug, c])), [collections]);
   const parentLabel = (c: CollectionInfo): string => {
     if (!c.parent_slug) return c.name;
     const parent = collectionBySlug.get(c.parent_slug);
     return parent ? `${parent.name} → ${c.name}` : c.name;
+  };
+
+  // A "Coming Soon" collection (no table, no tabs) picked as the target.
+  const selectedIsPlaceholder = mode === 'existing' && !!selectedCollection && isPlaceholder(selectedCollection, collections);
+  const activePlacement = selectedIsPlaceholder ? placement : null;
+  const placementOptions = useMemo(
+    () => (selectedIsPlaceholder && selectedCollection ? suggestPlacements(selectedCollection, collections) : null),
+    [selectedIsPlaceholder, selectedCollection, collections],
+  );
+  const placementIssues = useMemo(
+    () => (activePlacement && selectedCollection ? placementProblems(activePlacement, selectedCollection, collections) : []),
+    [activePlacement, selectedCollection, collections],
+  );
+
+  // The tag written on every row when the target shares its table with sibling
+  // tabs. Without it the rows go in but never show in the tab.
+  const fixedValues = useMemo<Record<string, string>>(() => {
+    if (activePlacement?.kind === 'shared') return { [activePlacement.column]: activePlacement.value.trim() };
+    return mode === 'existing' ? collectionFixedValues(selectedCollection) : {};
+  }, [activePlacement, mode, selectedCollection]);
+  const fixedColumns = useMemo(() => new Set(Object.keys(fixedValues)), [fixedValues]);
+
+  const targetTable = mode === 'existing'
+    ? (selectedCollection?.table_name ?? activePlacement?.table ?? '')
+    : newTableName;
+  const targetName = mode === 'existing' ? (selectedCollection?.name ?? '') : newCollection.name;
+
+  // "Import to Existing" offers every collection with a table plus every
+  // placeholder, grouped under the collection whose tabs they are.
+  const existingOptions = useMemo(() => {
+    const rootOf = (c: CollectionInfo) => {
+      let node = c;
+      for (let depth = 0; node.parent_slug && depth < 10; depth++) {
+        const parent = collectionBySlug.get(node.parent_slug);
+        if (!parent) break;
+        node = parent;
+      }
+      return node;
+    };
+    const pathBelow = (c: CollectionInfo, root: CollectionInfo) => {
+      const names: string[] = [];
+      let node: CollectionInfo | undefined = c;
+      for (let depth = 0; node && node.slug !== root.slug && depth < 10; depth++) {
+        names.unshift(node.name);
+        node = node.parent_slug ? collectionBySlug.get(node.parent_slug) : undefined;
+      }
+      return names.join(' → ') || c.name;
+    };
+
+    const groups = new Map<string, { label: string; options: { slug: string; label: string }[] }>();
+    for (const c of collections) {
+      const empty = isPlaceholder(c, collections);
+      if (!c.table_name && !empty) continue;
+      const root = rootOf(c);
+      // Standalone collections share one group instead of a group each.
+      const grouped = root.slug !== c.slug || hasTabs(c, collections);
+      const key = grouped ? root.slug : '';
+      const group = groups.get(key) ?? { label: grouped ? root.name : 'Collections', options: [] };
+      group.options.push({
+        slug: c.slug,
+        label: `${pathBelow(c, root)}${empty ? ' · Empty' : ''}${c.is_published ? '' : ' · Draft'}`,
+      });
+      groups.set(key, group);
+    }
+    return [...groups.values()]
+      .map((g) => ({ ...g, options: g.options.sort((a, b) => a.label.localeCompare(b.label)) }))
+      .sort((a, b) => (a.label === 'Collections' ? -1 : b.label === 'Collections' ? 1 : a.label.localeCompare(b.label)));
+  }, [collections, collectionBySlug]);
+
+  const chooseExisting = (slug: string) => {
+    setSelectedSlug(slug);
+    const picked = collections.find((c) => c.slug === slug);
+    if (picked && isPlaceholder(picked, collections)) {
+      const suggested = suggestPlacements(picked, collections);
+      setPlacement(suggested.shared ?? suggested.own);
+    } else {
+      setPlacement(null);
+    }
   };
 
   // Step: Upload file
@@ -227,10 +312,12 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       // table normally doesn't exist yet, but an earlier failed run can leave
       // one behind, and its types are what the rows must fit.
       const table = mode === 'existing'
-        ? (selectedCollection?.table_name ?? '')
+        ? (selectedCollection?.table_name ?? activePlacement?.table ?? '')
         : (toTableName(newCollection.slug) || 'new_table');
       const schema = await loadTableSchema(table);
-      if (mode === 'existing' && !schema.exists) {
+      // A placeholder getting its own table is the one existing target whose
+      // table can legitimately not exist yet.
+      if (mode === 'existing' && !schema.exists && activePlacement?.kind !== 'own') {
         toast.error(`This collection's table (${table}) doesn't exist`);
         setUploading(false);
         return;
@@ -252,6 +339,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
         // Auto-map by matching names; a header that matches no existing column
         // maps to a NEW column (added on import) instead of being dropped.
         const mapping: Record<string, string> = {};
+        const tagged: string[] = [];
         for (const header of data.headers) {
           if (isFailedRowsHelperHeader(header)) {
             mapping[header] = '';
@@ -263,11 +351,19 @@ export function ImportWizard({ collections }: ImportWizardProps) {
           }
           const normHeader = normalize(header);
           const match = existingCols.find((c: string) => normalize(c) === normHeader);
-          mapping[header] = match || toColumnName(header);
+          const target = match || toColumnName(header);
+          // The tab's tag owns this column; the file's copy would fight it.
+          if (fixedColumns.has(target)) {
+            mapping[header] = '';
+            tagged.push(header);
+            continue;
+          }
+          mapping[header] = target;
         }
         // Offer both the existing columns and any new ones as mapping targets.
-        setDbColumns([...new Set([...existingCols, ...dataHeaders.map(toColumnName)])]);
+        setDbColumns([...new Set([...existingCols, ...dataHeaders.map(toColumnName)])].filter((c) => !fixedColumns.has(c)));
         setColumnMapping(mapping);
+        setTaggedHeaders(tagged);
       } else {
         // New collection — DB columns are derived from the file (plus any a
         // leftover table already has).
@@ -287,7 +383,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       toast.error(err instanceof Error ? err.message : 'Failed to parse file');
     }
     setUploading(false);
-  }, [mode, selectedCollection, newCollection.slug]);
+  }, [mode, selectedCollection, activePlacement, fixedColumns, newCollection.slug]);
 
   // Generate descriptions with AI
   const generateDescriptions = async () => {
@@ -490,17 +586,19 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     setImageMapping(mapping);
   }, [imageColumn, matchPool, allRows]);
 
-  const targetTable = mode === 'existing' ? (selectedCollection?.table_name ?? '') : newTableName;
-  const targetName = mode === 'existing' ? (selectedCollection?.name ?? '') : newCollection.name;
-
   // Every row as the record it will become, tagged with its spreadsheet row.
   const preparedRows = useMemo(
-    () => prepareRows(allRows, rowNumbers, columnMapping),
-    [allRows, rowNumbers, columnMapping],
+    () => prepareRows(allRows, rowNumbers, columnMapping, undefined, fixedValues),
+    [allRows, rowNumbers, columnMapping, fixedValues],
   );
   const mappedColumns = useMemo(
     () => [...new Set(Object.values(columnMapping).filter(Boolean))],
     [columnMapping],
+  );
+  // The tag column is checked against the table along with the mapped ones.
+  const checkedColumns = useMemo(
+    () => [...new Set([...mappedColumns, ...fixedColumns])],
+    [mappedColumns, fixedColumns],
   );
 
   // Columns this import will create, each with the types every one of its values
@@ -527,31 +625,34 @@ export function ImportWizard({ collections }: ImportWizardProps) {
 
   // Every row checked against the columns the table already has.
   const importConflicts = useMemo(
-    () => (tableSchema?.exists ? findConflicts(preparedRows, mappedColumns, tableSchema) : []),
-    [tableSchema, preparedRows, mappedColumns],
+    () => (tableSchema?.exists ? findConflicts(preparedRows, checkedColumns, tableSchema) : []),
+    [tableSchema, preparedRows, checkedColumns],
   );
 
   const slugTaken = mode === 'new' && !!newCollection.slug && collections.some((c) => c.slug === newCollection.slug);
 
   // Problems with where the rows are going, rather than with the rows themselves.
   const blockers = useMemo(() => {
-    if (mode !== 'new') return [];
-    const list: string[] = [];
-    if (slugTaken) {
+    const list: string[] = [...placementIssues];
+    if (mode === 'new' && slugTaken) {
       list.push(`A collection with the slug "${newCollection.slug}" already exists. Import into it as an existing collection, or change the slug.`);
     }
-    if (tableSchema?.exists) {
+    // A new collection, or a placeholder getting its own table, creates the table.
+    const createsTable = mode === 'new' || activePlacement?.kind === 'own';
+    if (createsTable && tableSchema?.exists) {
+      const ownSlug = mode === 'new' ? newCollection.slug : selectedCollection?.slug;
+      const fix = mode === 'new' ? 'change the slug' : 'pick another table name';
       // An empty table no collection uses is a leftover from a failed run and is
       // safe to reuse. Anything else would mix these rows into someone else's.
-      const owner = collections.find((c) => c.table_name === newTableName);
-      if (owner && owner.slug !== newCollection.slug) {
-        list.push(`The table ${newTableName} already belongs to "${owner.name}". Import into that collection instead, or change the slug.`);
+      const owner = collections.find((c) => c.table_name === targetTable);
+      if (owner && owner.slug !== ownSlug) {
+        list.push(`The table ${targetTable} already belongs to "${owner.name}". Import into that collection instead, or ${fix}.`);
       } else if (tableSchema.rowCount !== 0) {
-        list.push(`A table named ${newTableName} already holds ${tableSchema.rowCount?.toLocaleString() ?? 'some'} records. Change the slug so this collection gets its own table.`);
+        list.push(`A table named ${targetTable} already holds ${tableSchema.rowCount?.toLocaleString() ?? 'some'} records. Go back and ${fix} so this collection gets its own table.`);
       }
     }
-    return list;
-  }, [mode, slugTaken, newCollection.slug, tableSchema, collections, newTableName]);
+    return [...new Set(list)];
+  }, [placementIssues, mode, slugTaken, newCollection.slug, activePlacement, tableSchema, selectedCollection, collections, targetTable]);
 
   // Columns that keep the target collection in document order: sort_columns
   // when set, else the first display column (see lib/collections/queries.ts).
@@ -561,6 +662,9 @@ export function ImportWizard({ collections }: ImportWizardProps) {
 
   const unmappedRequired = importConflicts.filter((c) => c.kind === 'unmapped');
   const readyToImport = tableSchema !== null && importConflicts.length === 0 && blockers.length === 0;
+
+  // Whether the image-matching step applies (some column feeds image_path).
+  const hasImageColumn = Object.values(columnMapping).includes('image_path');
 
   // Preview step: widen an existing column to text so its values can go in as written.
   const handleConvert = async (column: string) => {
@@ -580,12 +684,14 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     setStep('importing');
 
     const tableName = targetTable;
+    const placementAtImport = activePlacement;
     const recordsPayload = {
       tableName,
       records: allRows,
       rowNumbers,
       columnMapping,
       imageMapping: Object.keys(imageMapping).length > 0 ? imageMapping : undefined,
+      fixedValues: fixedColumns.size > 0 ? fixedValues : undefined,
     };
 
     // A failure before any rows are written goes back to Preview with the reason,
@@ -602,29 +708,51 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       setStep('preview');
     };
 
+    // image_path renders inside the record modal and ocr_text/slug aren't
+    // useful columns, so none of them are displayed or searched.
+    const userMappedCols = mappedColumns.filter((c) => !SYSTEM_COLUMNS.has(c) && !BUILT_IN_COLUMNS.has(c));
+
     let collectionCreated = false;
+    let linkedPlaceholder = false;
     try {
-      // 1. Make sure every mapped column exists. create-table is idempotent
-      //    (CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS): new columns get
-      //    the types chosen on the Mapping step, existing ones are left alone.
+      // 1. Make sure the table and every mapped column exist. create-table is
+      //    idempotent (CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS):
+      //    new columns get the types chosen on the Mapping step, existing ones
+      //    are left alone.
       const columns = Object.entries(newColumnTypes).map(([name, type]) => ({ name, type }));
-      if (columns.length > 0) {
+      if (columns.length > 0 || !tableSchema?.exists) {
         const created = await postImport({ action: 'create-table', tableName, columns });
         if (!created.ok) return await backToPreview(created.data.error || 'Failed to prepare table columns');
       }
 
-      if (mode === 'new') {
+      if (mode === 'new' || placementAtImport) {
         // 2. Have the server confirm the whole file fits BEFORE the collection
-        //    exists. A problem here leaves nothing behind but an empty table,
-        //    which the next attempt reuses.
+        //    exists (or a placeholder is pointed at the table). A problem here
+        //    leaves nothing behind but an empty table, which the next attempt reuses.
         const check = await postImport({ ...recordsPayload, action: 'insert-records', dryRun: true });
         if (!check.ok) return await backToPreview(check.data.error || 'The file failed its final check', check.status === 422);
+      }
 
-        // 3. Collection metadata, created as a Draft so visitors see nothing
-        //    until every record is in. image_path renders inside the record
-        //    modal and ocr_text/slug aren't useful columns, so none of them
-        //    are displayed or searched.
-        const userMappedCols = mappedColumns.filter((c) => !SYSTEM_COLUMNS.has(c) && !BUILT_IN_COLUMNS.has(c));
+      if (placementAtImport && selectedCollection) {
+        // 3a. Point the placeholder at its table (and tag). It stays live, so
+        //     the records show the moment they land.
+        const linked = await postImport({
+          action: 'link-collection',
+          slug: selectedCollection.slug,
+          tableName,
+          discriminatorColumn: placementAtImport.kind === 'shared' ? placementAtImport.column : undefined,
+          discriminatorValue: placementAtImport.kind === 'shared' ? placementAtImport.value.trim() : undefined,
+          displayColumns: userMappedCols.slice(0, 12),
+          searchColumns: userMappedCols.slice(0, 4),
+          hasImages: hasImageColumn,
+        });
+        if (!linked.ok) return await backToPreview(linked.data.error || `Couldn't connect ${selectedCollection.name} to its table`);
+        linkedPlaceholder = true;
+      }
+
+      if (mode === 'new') {
+        // 3b. Collection metadata, created as a Draft so visitors see nothing
+        //     until every record is in.
         const createdCollection = await postImport({
           action: 'create-collection',
           slug: newCollection.slug,
@@ -665,12 +793,20 @@ export function ImportWizard({ collections }: ImportWizardProps) {
         else toast.error(published.data.error || 'The records are in, but publishing failed. Publish it from Admin → Collections.');
       }
 
+      // 6. Record counts on collection cards (and their parents' totals) are
+      //    stored, so refresh them now that rows were added.
+      if (Number(inserted.data.inserted) > 0) {
+        const synced = await fetch('/api/admin/sync-counts', { method: 'POST' }).catch(() => null);
+        if (!synced?.ok) toast.error('The records are in, but the record counts didn’t refresh. Use Sync Record Counts in Admin → Collections.');
+      }
+
       setResult({
         inserted: inserted.data.inserted ?? 0,
         total: inserted.data.total ?? allRows.length,
         failures: inserted.data.failures ?? [],
         error: null,
         collection,
+        linkedPlaceholder,
       });
       if (inserted.data.success) toast.success(`Imported ${Number(inserted.data.inserted).toLocaleString()} records`);
       else toast.error(`Imported ${inserted.data.inserted} of ${inserted.data.total}. Some rows need attention`);
@@ -683,6 +819,7 @@ export function ImportWizard({ collections }: ImportWizardProps) {
         collection: mode === 'existing'
           ? (selectedCollection?.is_published ? 'published' : 'draft')
           : collectionCreated ? 'draft' : 'none',
+        linkedPlaceholder,
       });
     }
 
@@ -706,9 +843,6 @@ export function ImportWizard({ collections }: ImportWizardProps) {
     toast.success(`${targetName} is live`);
     router.refresh();
   };
-
-  // Check if image step is needed
-  const hasImageColumn = Object.values(columnMapping).includes('image_path');
 
   return (
     <div className="max-w-4xl">
@@ -752,24 +886,45 @@ export function ImportWizard({ collections }: ImportWizardProps) {
       {/* Step: Collection (existing) */}
       {step === 'collection' && mode === 'existing' && (
         <div className="space-y-4">
-          <Label>Select Collection</Label>
+          <Label htmlFor="existing-collection">Select Collection</Label>
           <select
+            id="existing-collection"
             value={selectedSlug}
-            onChange={(e) => setSelectedSlug(e.target.value)}
+            onChange={(e) => chooseExisting(e.target.value)}
             className="w-full px-3 py-2.5 bg-brand-card border border-brand-gold/[0.08] rounded-xl text-sm text-brand-cream focus:outline-none focus:border-brand-gold/25"
           >
             <option value="">Choose a collection...</option>
-            {collections.filter((c) => c.table_name).map((c) => (
-              <option key={c.slug} value={c.slug}>{c.name}{c.parent_slug ? ` (${c.parent_slug})` : ''}{c.is_published ? '' : ' · Draft'}</option>
+            {existingOptions.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.options.map((o) => (
+                  <option key={o.slug} value={o.slug}>{o.label}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
+          <p className="text-[11px] text-brand-muted">
+            Collections marked <span className="text-brand-cream">Empty</span> show “Coming Soon” on the site until records
+            are imported into them.
+          </p>
+
+          {selectedIsPlaceholder && selectedCollection && placement && placementOptions && (
+            <ImportPlacementField
+              collectionName={selectedCollection.name}
+              isTopLevel={!selectedCollection.parent_slug}
+              suggestions={placementOptions}
+              placement={placement}
+              onChange={setPlacement}
+              problems={placementIssues}
+            />
+          )}
+
           <div className="flex gap-3">
             <Button variant="outline" onClick={() => setStep('mode')} className="border-brand-gold/20 text-brand-cream rounded-xl">
               <ArrowLeft className="w-4 h-4 mr-1" /> Back
             </Button>
             <Button
               onClick={() => setStep('upload')}
-              disabled={!selectedSlug}
+              disabled={!selectedSlug || placementIssues.length > 0}
               className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
             >
               Next <ArrowRight className="w-4 h-4 ml-1" />
@@ -1009,8 +1164,27 @@ export function ImportWizard({ collections }: ImportWizardProps) {
             </div>
           )}
 
+          {fixedColumns.size > 0 && (
+            <div className="flex items-start gap-2 rounded-xl border border-brand-sage/30 bg-brand-sage/[0.08] px-4 py-3">
+              <CheckCircle className="w-4 h-4 text-brand-sage mt-0.5 shrink-0" aria-hidden="true" />
+              <p className="text-xs text-brand-cream">
+                Every record will be tagged{' '}
+                {Object.entries(fixedValues).map(([column, value]) => (
+                  <span key={column} className="font-mono">{column} = {value}</span>
+                ))}{' '}
+                so it shows in {targetName}.
+                {taggedHeaders.length > 0 && (
+                  <span className="text-brand-muted">
+                    {' '}The file&apos;s {taggedHeaders.map((h) => `“${h}”`).join(' and ')} column{taggedHeaders.length === 1 ? ' is' : 's are'} replaced by the tag.
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+
           {(() => {
-            const skipped = fileHeaders.filter((h) => !columnMapping[h] && !isFailedRowsHelperHeader(h));
+            const tagged = new Set(taggedHeaders);
+            const skipped = fileHeaders.filter((h) => !columnMapping[h] && !isFailedRowsHelperHeader(h) && !tagged.has(h));
             const helpers = fileHeaders.filter((h) => !columnMapping[h] && isFailedRowsHelperHeader(h));
             return (
               <>
@@ -1455,10 +1629,24 @@ export function ImportWizard({ collections }: ImportWizardProps) {
               <li>Target: <span className="text-brand-cream">{targetName}</span></li>
               <li>
                 Table: <span className="text-brand-cream font-mono">{targetTable}</span>
-                {mode === 'new' && tableSchema?.exists && blockers.length === 0 && (
+                {(mode === 'new' || activePlacement?.kind === 'own') && tableSchema?.exists && blockers.length === 0 && (
                   <span> (the empty table left by an earlier attempt, reused)</span>
                 )}
+                {activePlacement?.kind === 'own' && !tableSchema?.exists && <span> (new)</span>}
               </li>
+              {fixedColumns.size > 0 && (
+                <li>
+                  Tagged:{' '}
+                  <span className="text-brand-cream font-mono">
+                    {Object.entries(fixedValues).map(([column, value]) => `${column} = ${value}`).join(', ')}
+                  </span>
+                </li>
+              )}
+              {activePlacement && (
+                <li>
+                  Shows on the site: <span className="text-brand-cream">as soon as the import finishes, in place of “Coming Soon”.</span>
+                </li>
+              )}
               {Object.keys(imageMapping).length > 0 && (
                 <li>Images matched: <span className="text-brand-cream">{Object.keys(imageMapping).length}</span></li>
               )}
@@ -1544,6 +1732,12 @@ export function ImportWizard({ collections }: ImportWizardProps) {
             </p>
           )}
 
+          {result.linkedPlaceholder && result.collection === 'published' && result.inserted > 0 && (
+            <p className="text-sm text-brand-sage mt-4 flex items-center justify-center gap-1.5">
+              <CheckCircle className="w-4 h-4 shrink-0" aria-hidden="true" /> {targetName} now shows its records instead of “Coming Soon”.
+            </p>
+          )}
+
           {result.collection === 'draft' && (
             <div className="mt-4 flex flex-col items-center gap-3 rounded-xl border border-brand-gold/30 bg-brand-gold/[0.06] px-4 py-3 text-left sm:flex-row sm:justify-between">
               <p className="text-xs text-brand-cream">
@@ -1574,6 +1768,8 @@ export function ImportWizard({ collections }: ImportWizardProps) {
                 setColumnMapping({});
                 setImageMapping({});
                 setSelectedSlug('');
+                setPlacement(null);
+                setTaggedHeaders([]);
                 setTableSchema(null);
                 setTypeOverrides({});
                 setResult(EMPTY_RESULT);

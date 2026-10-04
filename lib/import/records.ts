@@ -44,17 +44,34 @@ export function mapRow(
  * Maps every row and tags it with its spreadsheet row number, so problems are
  * reported as rows the admin can find in Excel. Falls back to index + 2 (the
  * header is row 1) when row numbers aren't supplied.
+ *
+ * `fixedValues` is written onto every record last. A tab that shares its table
+ * with sibling tabs is told apart by a tag column (e.g. collection_tag =
+ * "john_brown"); without the tag, imported rows land in the table but never
+ * show in the tab.
  */
 export function prepareRows(
   rows: Record<string, unknown>[],
   rowNumbers: number[] | undefined,
   columnMapping: Record<string, string>,
   imageMapping?: Record<string, string>,
+  fixedValues?: Record<string, string>,
 ): PreparedRow[] {
   return rows.map((row, i) => ({
     row: rowNumbers?.[i] ?? i + 2,
-    record: mapRow(row, columnMapping, imageMapping),
+    record: { ...mapRow(row, columnMapping, imageMapping), ...fixedValues },
   }));
+}
+
+/**
+ * The tag a collection stamps on its rows when it shares a table with its
+ * sibling tabs, as `{ column: value }`. Empty for a collection with its own table.
+ */
+export function collectionFixedValues(
+  collection: { discriminator_column: string | null; discriminator_value: string | null } | null | undefined,
+): Record<string, string> {
+  if (!collection?.discriminator_column || !collection.discriminator_value) return {};
+  return { [collection.discriminator_column]: collection.discriminator_value };
 }
 
 /**

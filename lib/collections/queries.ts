@@ -279,3 +279,33 @@ export async function getRelatedRecords(
   if (error) return [];
   return (data || []) as RelatedRecord[];
 }
+
+/** What the admin import (and the Upload Images page's spreadsheet import) needs about each collection. */
+export type ImportCollection = Pick<
+  Collection,
+  | 'slug'
+  | 'name'
+  | 'table_name'
+  | 'parent_slug'
+  | 'display_columns'
+  | 'search_columns'
+  | 'sort_columns'
+  | 'has_images'
+  | 'has_ocr'
+  | 'discriminator_column'
+  | 'discriminator_value'
+  | 'is_published'
+>;
+
+/** Every collection, Drafts and placeholders included, for the admin import. */
+export async function getImportCollections(supabase: SupabaseClient): Promise<ImportCollection[]> {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('slug, name, table_name, parent_slug, display_columns, search_columns, sort_columns, has_images, has_ocr, discriminator_column, discriminator_value, is_published')
+    .order('name');
+  if (error) {
+    console.error('Failed to fetch collections for import:', error.message);
+    return [];
+  }
+  return (data || []) as ImportCollection[];
+}
