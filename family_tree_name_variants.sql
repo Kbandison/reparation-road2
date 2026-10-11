@@ -35,6 +35,13 @@ CREATE EXTENSION IF NOT EXISTS fuzzystrmatch WITH SCHEMA extensions;
 -- Powers)"), so fields are split at commas, semicolons, ampersands, "and" and
 -- parentheses, and words only count together within one piece. A surname-first
 -- name ("Bowers, John") stays whole.
+
+-- Earlier drafts of this function had different parameters; remove any that
+-- were installed so only the current one below exists.
+DROP FUNCTION IF EXISTS public.match_name_variants(text, text[], text[], integer[], text, text, integer);
+DROP FUNCTION IF EXISTS public.match_name_variants(text, text[], text[], text[], integer[], boolean[], integer, text, text, integer);
+DROP FUNCTION IF EXISTS public.match_name_variants(text, text[], text[], text[], text[], integer[], boolean[], integer, text, text, integer);
+
 CREATE OR REPLACE FUNCTION public.match_name_variants(
   p_table text,
   p_match_columns text[],
