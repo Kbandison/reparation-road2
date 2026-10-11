@@ -8,6 +8,10 @@ import type { Collection, CollectionRecord } from '@/lib/types';
 import { buildImageUrl, isPdfPath } from '@/lib/collections/helpers';
 import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
 import { BookmarkButton } from '@/components/collection/bookmark-button';
+import { SaveToTreeButton, SavedToTreeNote } from '@/components/collection/save-to-tree-button';
+import { useUser } from '@/contexts/user-context';
+import { canUseFamilyTree } from '@/lib/family-tree/access';
+import { useTreeSaves } from '@/lib/hooks/use-tree-saves';
 import { ModalRelatedRecords } from '@/components/collection/modal-related-records';
 import { RecordCitation } from '@/components/collection/record-citation';
 import { ZoomableImage } from '@/components/collection/zoomable-image';
@@ -67,6 +71,10 @@ export function RecordModal({
   // Use override data when navigated, otherwise use props
   const activeCollection = overrideData?.collection ?? collection;
   const activeRecord = overrideData?.record ?? record;
+  // Family-tree users can save the record to someone in their tree.
+  const { profile } = useUser();
+  const canSaveToTree = canUseFamilyTree(profile);
+  const treeSaves = useTreeSaves(activeCollection.slug, String(activeRecord?.id ?? ''), canSaveToTree);
 
   const imagePath = (activeRecord.image_path as string) || (activeRecord.image_url as string);
   const isPdf = isPdfPath(imagePath);
@@ -306,6 +314,15 @@ export function RecordModal({
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {canSaveToTree && (
+              <SaveToTreeButton
+                collectionSlug={activeCollection.slug}
+                recordId={String(activeRecord.id)}
+                recordTitle={String(title)}
+                saves={treeSaves.saves}
+                onChanged={treeSaves.refresh}
+              />
+            )}
             <BookmarkButton
               collectionSlug={activeCollection.slug}
               recordId={activeRecord.slug || activeRecord.id}
@@ -319,6 +336,8 @@ export function RecordModal({
             </button>
           </div>
         </div>
+
+        <SavedToTreeNote saves={treeSaves.saves} />
 
         {/* Body */}
         <div className="overflow-y-auto flex-1">

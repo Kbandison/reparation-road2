@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import type { TreeArchiveMatch } from '@/lib/types';
+import { syncArchivePointer } from '@/lib/family-tree/saved-records';
 
 const STATUSES = new Set(['suggested', 'linked', 'dismissed']);
 
 // PATCH — change a match's status. Body: { status }.
-//  - 'linked'    confirms the record onto the individual (sets archive_*).
+//  - 'linked'    saves the record to the person (alongside any others).
 //  - 'dismissed' hides the suggestion.
-//  - 'suggested' restores it (and clears the individual's link if it pointed here).
+//  - 'suggested' turns a saved record back into a suggestion.
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ matchId: string }> },
@@ -35,41 +36,6 @@ export async function PATCH(
 
   const m = match as TreeArchiveMatch;
 
-  if (status === 'linked') {
-    // Only one linked record per person — demote any other linked rows.
-    await supabase
-      .from('tree_individual_matches')
-      .update({ status: 'suggested' })
-      .eq('individual_id', m.individual_id)
-      .eq('status', 'linked')
-      .neq('id', m.id);
-
-    await supabase
-      .from('tree_individuals')
-      .update({
-        archive_collection_slug: m.collection_slug,
-        archive_record_id: m.record_id,
-        archive_record_title: m.title,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', m.individual_id)
-      .eq('user_id', user.id);
-  }
-
-  if (status === 'suggested' && m.status === 'linked') {
-    // Unlinking the currently-linked record.
-    await supabase
-      .from('tree_individuals')
-      .update({
-        archive_collection_slug: null,
-        archive_record_id: null,
-        archive_record_title: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', m.individual_id)
-      .eq('user_id', user.id);
-  }
-
   const { data: updated, error } = await supabase
     .from('tree_individual_matches')
     .update({ status })
@@ -78,6 +44,10 @@ export async function PATCH(
     .select('*')
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // A person can have any number of saved ('linked') records; their archive_*
+  // fields just mirror the first one for the tree's link badge.
+  await syncArchivePointer(supabase, m.individual_id, user.id);
 
   return NextResponse.json({ match: updated });
 }

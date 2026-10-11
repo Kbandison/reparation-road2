@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { fetchAllRows } from '@/lib/family-tree/fetch-all';
+import { loadSavedRecordPreviews } from '@/lib/family-tree/saved-records';
 import { fullName, lifespan } from '@/lib/family-tree/display';
 import { PersonProfile, type RelRef, type ProfileEvent } from '@/components/family-tree/person-profile';
 import type {
@@ -77,6 +78,12 @@ export default async function PersonProfilePage({ params }: Props) {
       .order('score', { ascending: false });
     matches = (data as TreeArchiveMatch[]) ?? [];
   }
+
+  // Records saved to this person, with their scans and a few details, read live.
+  const savedRecords = await loadSavedRecordPreviews(
+    supabase,
+    matches.filter((m) => m.status === 'linked'),
+  );
 
   // Life events for this person (degrades to empty before the full-import
   // migration is run).
@@ -212,6 +219,7 @@ export default async function PersonProfilePage({ params }: Props) {
       initialPerson={person as TreeIndividual}
       relatives={relatives}
       initialMatches={matches}
+      savedRecords={savedRecords}
       events={profileEvents}
       sources={sources}
       media={media}

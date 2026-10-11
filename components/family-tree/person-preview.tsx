@@ -253,12 +253,18 @@ export function PersonPreview({
         )}
 
         {person.archive_record_id && person.archive_collection_slug && (
+          // Your own tree: every record saved to them is on their profile.
+          // Someone else's tree: their profile is private, so link the record.
           <Link
-            href={`/collection/${person.archive_collection_slug}/${person.archive_record_id}`}
+            href={
+              canEdit && !isNew
+                ? `/family-tree/${person.tree_id}/person/${person.id}`
+                : `/collection/${person.archive_collection_slug}/${person.archive_record_id}`
+            }
             className="mt-5 inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
           >
             <Link2 className="w-3.5 h-3.5" />
-            {person.archive_record_title || 'Linked archive record'}
+            {canEdit && !isNew ? 'Saved archive records' : person.archive_record_title || 'Linked archive record'}
           </Link>
         )}
 

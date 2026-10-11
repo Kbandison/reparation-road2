@@ -2,6 +2,20 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-11T17:09Z: Save archive records to people in your family tree
+
+Any archive record can be saved to someone in your family tree, and a person can hold any number of records. Before, each person could have one linked record, chosen only from the auto-found suggestions.
+
+**Minor updates**
+- Record view: a "Save to family tree" button (family-tree users only) opens a picker. Choose the tree, find the person with the tree search (pre-filled with the record's name), and save. Records you've saved show "Saved to Amos Bird in My Family Tree" with links to the profiles, and can be removed from the picker.
+- Profile: "Archive records" lists every saved record as a card with the scan, collection, a few key fields (read live from the archive), Open record and Remove. Possible matches now have Save, which adds to the list instead of replacing.
+- Saved records are `tree_individual_matches` rows with status 'linked' (no database change). Removing one marks it dismissed so a re-scan won't suggest it again. The person's `archive_*` fields mirror the first saved record, which keeps the link badge on tree cards (`lib/family-tree/saved-records.ts`).
+- New routes: `/api/family-tree/saved-records` (list for a record, save, remove) and `/api/family-tree/[treeId]/people` (a light list of people for the picker).
+- The tree's person pop-up links to "Saved archive records" on the profile for your own trees.
+
+**Next actions**
+- 1,399 of the 9,287 suggestions point at the old per-county Register of Free Persons collections, which were merged away. Their links are dead and saving them is refused. Clear them, or re-run archive matching so they point at the merged collection.
+
 ## 2026-10-11T16:50Z: Family tree search
 
 A search box on the family tree finds anyone in the tree by name as you type, then takes the view to them.

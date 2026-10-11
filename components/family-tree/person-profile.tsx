@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Pencil,
   Loader2,
   ExternalLink,
-  Link2,
+  BookmarkPlus,
   X,
   Search,
   Users,
@@ -28,6 +29,8 @@ import { fullName, initials, lifespan } from '@/lib/family-tree/display';
 import type { TreeIndividual, TreeArchiveMatch, TreeSource, TreeMedia } from '@/lib/types';
 import { PersonConnections } from '@/components/family-tree/person-connections';
 import { Linkify } from '@/components/shared/linkify';
+import { SavedRecordCard } from '@/components/family-tree/saved-record-card';
+import type { SavedRecordPreview } from '@/lib/family-tree/saved-records';
 
 export interface RelRef {
   id: string;
@@ -54,6 +57,8 @@ interface Props {
   initialPerson: TreeIndividual;
   relatives: { parents: RelRef[]; spouses: RelRef[]; children: RelRef[]; siblings: RelRef[] };
   initialMatches: TreeArchiveMatch[];
+  /** Archive records saved to this person, with their scans and key details. */
+  savedRecords: SavedRecordPreview[];
   events: ProfileEvent[];
   sources: TreeSource[];
   media: TreeMedia[];
@@ -81,10 +86,12 @@ export function PersonProfile({
   initialPerson,
   relatives,
   initialMatches,
+  savedRecords,
   events,
   sources,
   media,
 }: Props) {
+  const router = useRouter();
   const [person, setPerson] = useState(initialPerson);
   const [matches, setMatches] = useState(initialMatches);
   const [editing, setEditing] = useState(false);
@@ -93,9 +100,10 @@ export function PersonProfile({
   const [matching, setMatching] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const suggestions = matches.filter(
-    (m) => m.status === 'suggested' && m.record_id !== person.archive_record_id,
-  );
+  const suggestions = matches.filter((m) => m.status === 'suggested');
+  // Saved records removed this visit, hidden until the refreshed list arrives.
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+  const saved = savedRecords.filter((r) => !removedIds.has(r.matchId));
 
   function set<K extends keyof TreeIndividual>(key: K, value: TreeIndividual[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -143,7 +151,8 @@ export function PersonProfile({
     }
   }
 
-  async function linkMatch(m: TreeArchiveMatch) {
+  // Save a suggested match to the person, alongside any records already saved.
+  async function saveMatch(m: TreeArchiveMatch) {
     setBusyId(m.id);
     try {
       const res = await fetch(`/api/family-tree/matches/${m.id}`, {
@@ -152,21 +161,9 @@ export function PersonProfile({
         body: JSON.stringify({ status: 'linked' }),
       });
       if (res.ok) {
-        setPerson((p) => ({
-          ...p,
-          archive_collection_slug: m.collection_slug,
-          archive_record_id: m.record_id,
-          archive_record_title: m.title,
-        }));
-        setMatches((prev) =>
-          prev.map((x) =>
-            x.id === m.id
-              ? { ...x, status: 'linked' }
-              : x.status === 'linked'
-                ? { ...x, status: 'suggested' }
-                : x,
-          ),
-        );
+        setMatches((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: 'linked' } : x)));
+        // The saved list (with scans and details) is built on the server.
+        router.refresh();
       }
     } finally {
       setBusyId(null);
@@ -187,34 +184,14 @@ export function PersonProfile({
     }
   }
 
-  async function unlink() {
-    const linked = matches.find((m) => m.status === 'linked' || m.record_id === person.archive_record_id);
-    setBusyId('unlink');
+  async function removeSaved(matchId: string) {
+    setBusyId(matchId);
     try {
-      if (linked) {
-        await fetch(`/api/family-tree/matches/${linked.id}`, {
-          method: 'PATCH',
-          headers: json,
-          body: JSON.stringify({ status: 'suggested' }),
-        });
-        setMatches((prev) => prev.map((x) => (x.id === linked.id ? { ...x, status: 'suggested' } : x)));
-      } else {
-        await fetch(`/api/family-tree/individuals/${person.id}`, {
-          method: 'PATCH',
-          headers: json,
-          body: JSON.stringify({
-            archive_collection_slug: null,
-            archive_record_id: null,
-            archive_record_title: null,
-          }),
-        });
+      const res = await fetch(`/api/family-tree/saved-records?matchId=${encodeURIComponent(matchId)}`, { method: 'DELETE' });
+      if (res.ok) {
+        setRemovedIds((prev) => new Set(prev).add(matchId));
+        router.refresh();
       }
-      setPerson((p) => ({
-        ...p,
-        archive_collection_slug: null,
-        archive_record_id: null,
-        archive_record_title: null,
-      }));
     } finally {
       setBusyId(null);
     }
@@ -499,41 +476,27 @@ export function PersonProfile({
           </Button>
         </div>
 
-        {/* Linked */}
-        {person.archive_record_id && (
-          <div className="rounded-xl border border-brand-sage/30 bg-brand-sage/[0.06] p-4 mb-4">
-            <p className="text-[11px] uppercase tracking-wide text-brand-muted mb-1">Linked record</p>
-            <p className="text-sm text-brand-cream mb-2">{person.archive_record_title || 'Record'}</p>
-            <div className="flex items-center gap-3">
-              {person.archive_collection_slug && (
-                <a
-                  href={`/collection/${person.archive_collection_slug}?record=${encodeURIComponent(person.archive_record_id)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-brand-gold hover:text-brand-gold-light"
-                >
-                  <ExternalLink className="w-3 h-3" /> View record
-                </a>
-              )}
-              <button
-                onClick={unlink}
-                disabled={busyId === 'unlink'}
-                className="text-xs text-brand-muted hover:text-brand-burgundy-light ml-auto inline-flex items-center gap-1"
-              >
-                {busyId === 'unlink' ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-                Unlink
-              </button>
-            </div>
+        {/* Saved */}
+        {saved.length > 0 ? (
+          <div className="mb-5 space-y-2">
+            <p className="text-[11px] uppercase tracking-wide text-brand-muted">
+              {saved.length} saved {saved.length === 1 ? 'record' : 'records'}
+            </p>
+            {saved.map((r) => (
+              <SavedRecordCard key={r.matchId} record={r} onRemove={() => removeSaved(r.matchId)} removing={busyId === r.matchId} />
+            ))}
           </div>
+        ) : (
+          <p className="mb-4 text-sm text-brand-muted">
+            No records saved yet. Open any record in the archive and use <span className="text-brand-cream">Save to family tree</span>, or save one of the possible matches below.
+          </p>
         )}
 
         {/* Suggestions */}
         {suggestions.length === 0 ? (
-          !person.archive_record_id && (
-            <p className="text-sm text-brand-muted">
-              No archive matches found yet. Try re-scanning, or add a birth year or place to improve results.
-            </p>
-          )
+          <p className="text-sm text-brand-muted">
+            No possible matches found yet. Try re-scanning, or add a birth year or place to improve results.
+          </p>
         ) : (
           <div className="space-y-2">
             <p className="text-[11px] uppercase tracking-wide text-brand-muted">
@@ -553,12 +516,12 @@ export function PersonProfile({
                 </div>
                 <div className="flex items-center gap-3 mt-2 pl-6">
                   <button
-                    onClick={() => linkMatch(m)}
+                    onClick={() => saveMatch(m)}
                     disabled={busyId === m.id}
                     className="inline-flex items-center gap-1 text-xs text-brand-gold hover:text-brand-gold-light"
                   >
-                    {busyId === m.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
-                    Link
+                    {busyId === m.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <BookmarkPlus className="w-3 h-3" />}
+                    Save
                   </button>
                   {m.detail_url && (
                     <a
