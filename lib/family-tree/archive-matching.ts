@@ -4,6 +4,11 @@ import {
   searchCandidateCollection,
   type MatchValues,
 } from '@/lib/collections/matching';
+import {
+  mergeScoredResults,
+  searchVariantCollection,
+  type VariantSearchInput,
+} from './variant-matching';
 
 const NAME_STOP_TOKENS = new Set([
   'jr', 'sr', 'i', 'ii', 'iii', 'iv', 'v', 'mr', 'mrs', 'ms', 'dr',
@@ -29,7 +34,8 @@ interface FindOptions {
 /**
  * Find archive records that plausibly refer to the same person as a tree
  * individual. Reuses the scored cross-collection search engine from
- * lib/collections/matching.ts, scoped across every published collection.
+ * lib/collections/matching.ts, scoped across every published collection, and
+ * adds spelling variants and nicknames (./variant-matching.ts).
  */
 export async function findArchiveMatches(
   supabase: SupabaseClient,
@@ -58,6 +64,11 @@ export async function findArchiveMatches(
   )].slice(0, 2);
 
   const matchValues: MatchValues = { nameTokens, locations, dates };
+  const variantInput: VariantSearchInput = {
+    given: tokenizeName(person.given_name),
+    surname: tokenizeName(person.surname),
+    locations,
+  };
 
   const { data, error } = await supabase
     .from('collections')
@@ -76,12 +87,16 @@ export async function findArchiveMatches(
     )
     .slice(0, maxCollections);
 
+  // Exact and spelling-variant searches run side by side; each collection keeps
+  // its best few records across both.
   const perCollectionResults = await Promise.all(
-    collections.map((c) =>
-      searchCandidateCollection(supabase, c, matchValues, perCollection).catch(
-        () => []
-      )
-    )
+    collections.map(async (c) => {
+      const [exact, variants] = await Promise.all([
+        searchCandidateCollection(supabase, c, matchValues, perCollection).catch(() => []),
+        searchVariantCollection(supabase, c, variantInput, perCollection).catch(() => []),
+      ]);
+      return mergeScoredResults(exact, variants).slice(0, perCollection);
+    })
   );
 
   return perCollectionResults

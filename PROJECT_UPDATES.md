@@ -2,6 +2,27 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-11T18:09Z: Names spelled differently, and the picker fix
+
+Name matching now allows for the way old records spell people: Pinkard and Pinckard, Elijah and Eilja, Wm for William, Polly for Mary. This covers the family-tree search, the "Save to family tree" picker, and archive suggestions. Exact matches still come first, and variant matches are labeled "Similar spelling" or "Nickname".
+
+**Minor updates**
+- Three kinds of variant (`lib/names/`), tuned against real archive rows so different names that look alike stay apart:
+  - Same Soundex code, spelled within a letter or two, about the same length.
+  - One letter added, dropped or swapped with its neighbour, same first letter, five letters or more. A letter replaced by a different one usually makes another real name (Waller/Walker, Clara/Clark), so that doesn't count.
+  - About 85 groups of period nicknames and clerks' abbreviations (Jno, Thos, Wm, Chas, Patsy, Sukey…).
+- Tree search and picker results show the label chip (`components/family-tree/name-variant-badge.tsx`). The picker dialog no longer widens off-screen on a phone when a name is very long.
+- Archive suggestions: `lib/family-tree/variant-matching.ts` runs beside the exact search (`lib/collections/matching.ts`, also used by Related Records, unchanged), and each collection keeps its best three across both. The Postgres function `match_name_variants` (`family_tree_name_variants.sql`) finds candidates, and the app judges them with the same rules as the tree search. Until the SQL is run, suggestions stay exact-only.
+- Variant matches stay inside one person's name. Fields listing several people are split at commas, `&`, "and" and parentheses ("Tom, Kate & Nan"), while "Bowers, John" stays whole. Separate first/last name columns are joined back into one name. Only name columns are compared, not places, ships, dates or OCR text.
+- A person with a first name and a surname needs the surname plus a first name. Nicknames only count for first names, and only alongside another name word.
+- Variant hits score 2 per name word against exact's 3, so an exact record always outranks its variant twin.
+- Rehearsed on 158 real tree people against a local copy of 18 archive tables. 30 people gained suggestions, 145 in total. 39 were spelling variants (Ann McIntosh → Anna MacIntosh, John Radford → John Redford, William Ford → William Foard). The other 106 were exact full-name matches the old search was dropping: it only scored the first 50 rows mentioning any one of a person's names.
+- Also in this push: `43ac9ca` makes the "Save to family tree" picker open above the record viewer instead of behind it, and stops arrow keys in its search box from paging records.
+
+**Next actions**
+- Run `family_tree_name_variants.sql` in the Supabase SQL editor, then re-run archive matching for everyone in every tree.
+- Enslaved Catholic Baptisms — Kentucky isn't empty: `enslaved_catholic_kentuky` has 4,006 rows but no `id` (or `slug`) column, so every query for it fails and the page shows nothing. Archive matching skips it for the same reason.
+
 ## 2026-10-11T17:09Z: Save archive records to people in your family tree
 
 Any archive record can be saved to someone in your family tree, and a person can hold any number of records. Before, each person could have one linked record, chosen only from the auto-found suggestions.

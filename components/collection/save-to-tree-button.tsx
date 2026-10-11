@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { lifespan } from '@/lib/family-tree/display';
 import { buildSearchIndex, searchPeople } from '@/lib/family-tree/search';
+import { NameVariantBadge } from '@/components/family-tree/name-variant-badge';
 import type { FamilyTree, TreeIndividual } from '@/lib/types';
 import type { TreeSave } from '@/lib/hooks/use-tree-saves';
 
@@ -150,10 +151,11 @@ export function SaveToTreeButton({ collectionSlug, recordId, recordTitle, saves,
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        {/* Opened from inside the record viewer (z-[100], full-screen scan z-[110]), so it has to sit above both. */}
+        {/* Opened from inside the record viewer (z-[100], full-screen scan z-[110]), so it has to sit above both.
+            The dialog body is a grid; min-w-0 on its children lets long names truncate instead of widening it off-screen. */}
         <DialogContent
           overlayClassName="z-[120]"
-          className="z-[130] max-h-[90vh] overflow-y-auto border-brand-gold/[0.12] bg-brand-card text-brand-cream sm:max-w-lg"
+          className="z-[130] max-h-[90vh] overflow-y-auto border-brand-gold/[0.12] bg-brand-card text-brand-cream sm:max-w-lg [&>*]:min-w-0"
         >
           <DialogHeader>
             <DialogTitle className="font-display text-brand-cream">Save to family tree</DialogTitle>
@@ -247,7 +249,10 @@ export function SaveToTreeButton({ collectionSlug, recordId, recordTitle, saves,
                     return (
                       <li key={entry.id} className="flex items-center gap-3 px-3 py-2">
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm text-brand-cream">{entry.name}</p>
+                          <p className="flex items-center gap-1.5 text-sm text-brand-cream">
+                            <span className="truncate">{entry.name}</span>
+                            {entry.variant && <NameVariantBadge label={entry.variant} />}
+                          </p>
                           {meta && <p className="truncate text-[11px] text-brand-muted">{meta}</p>}
                         </div>
                         {already ? (

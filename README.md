@@ -59,6 +59,15 @@ The contact form, booking and newsletter signup are public, so each one is guard
 
 Bookings are created only through `/api/bookings` (see `bookings_lockdown.sql`), never straight from the browser. Anything a visitor types is escaped with `lib/html.ts` before it goes into an email.
 
+## Family tree name matching
+
+Old records spell one person several ways, so the tree search, the "Save to family tree" picker and archive suggestions all allow for variants (`lib/names/`):
+
+- **Similar spelling:** same Soundex code and spelled within a letter or two (Pinkard/Pinckard, Elijah/Eilja), or one letter added, dropped or swapped (Johnson/Johnston).
+- **Nickname:** period nicknames and clerks' abbreviations (`lib/names/nicknames.ts`: Wm, Jno, Thos, Polly, Patsy…). Add a line there to teach it a new group.
+
+Exact matches always rank first, and variants are labeled. Archive suggestions find variant candidates with the Postgres function in `family_tree_name_variants.sql`, then score them in `lib/family-tree/variant-matching.ts`. Without that function, suggestions are exact-only.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

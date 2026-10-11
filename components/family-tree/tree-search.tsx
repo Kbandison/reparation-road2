@@ -5,6 +5,7 @@ import { Search, X } from 'lucide-react';
 import type { TreeIndividual } from '@/lib/types';
 import { lifespan } from '@/lib/family-tree/display';
 import { buildSearchIndex, searchPeople } from '@/lib/family-tree/search';
+import { NameVariantBadge } from './name-variant-badge';
 
 const MAX_RESULTS = 8;
 
@@ -140,7 +141,10 @@ export function TreeSearch({ individuals, onPick }: TreeSearchProps) {
                     }}
                     className={`cursor-pointer px-3 py-2 ${i === active ? 'bg-brand-card-hover' : ''}`}
                   >
-                    <p className="truncate text-sm text-brand-cream">{entry.name}</p>
+                    <p className="flex items-center gap-1.5 text-sm text-brand-cream">
+                      <span className="truncate">{entry.name}</span>
+                      {entry.variant && <NameVariantBadge label={entry.variant} />}
+                    </p>
                     {(years || place) && (
                       <p className="truncate text-[11px] text-brand-muted">
                         {[years, place].filter(Boolean).join(' · ')}
