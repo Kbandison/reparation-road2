@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Collection, CollectionRecord } from '@/lib/types';
 import { getRecordTitle } from '@/lib/collections/helpers';
+import { getColumnTypes } from '@/lib/import/table-schema';
 
 // Reuse nameFields from helpers.ts concept
 const NAME_FIELDS = [
@@ -143,6 +144,18 @@ export interface ScoredResult {
   score: number;
 }
 
+// Column types a text pattern (ILIKE) can run against.
+const TEXT_TYPES = new Set(['text', 'character varying', 'character', 'citext']);
+
+/**
+ * Double-quotes a column name or value for a PostgREST filter or select list.
+ * Unquoted, a comma or parenthesis in a value ("Warren County, Georgia") breaks
+ * the whole filter, and spaces in a column name ("Entry Type") are dropped.
+ */
+function quoted(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
 export async function searchCandidateCollection(
   supabase: SupabaseClient,
   candidate: Collection,
@@ -151,33 +164,46 @@ export async function searchCandidateCollection(
 ): Promise<ScoredResult[]> {
   if (!candidate.table_name) return [];
 
-  const searchCols = candidate.search_columns?.length
-    ? candidate.search_columns
-    : candidate.display_columns?.slice(0, 3) || [];
+  // The table's real columns: collection settings can name a column the table
+  // doesn't have, and a table may lack a slug (or an id, which a match needs).
+  const columns = await getColumnTypes(candidate.table_name).catch(() => null);
+  if (!columns?.has('id')) return [];
 
-  if (searchCols.length === 0) return [];
+  const searchCols = (
+    candidate.search_columns?.length
+      ? candidate.search_columns
+      : candidate.display_columns?.slice(0, 3) || []
+  ).filter((c) => columns.has(c));
+  // Number and date columns can't take a text pattern, so they aren't filtered on.
+  const textCols = searchCols.filter((c) => TEXT_TYPES.has(columns.get(c) ?? ''));
+
+  if (textCols.length === 0) return [];
 
   // Build OR filter from every name token and a couple of locations. Using
   // every token (not just the first 3) means a record with a matching last
   // name in a longer source name still surfaces.
   const orParts: string[] = [];
   for (const token of matchValues.nameTokens) {
-    for (const col of searchCols) {
-      orParts.push(`${col}.ilike.%${token}%`);
+    for (const col of textCols) {
+      orParts.push(`${quoted(col)}.ilike.${quoted(`%${token}%`)}`);
     }
   }
   for (const loc of matchValues.locations.slice(0, 2)) {
-    for (const col of searchCols) {
-      orParts.push(`${col}.ilike.%${loc}%`);
+    for (const col of textCols) {
+      orParts.push(`${quoted(col)}.ilike.${quoted(`%${loc}%`)}`);
     }
   }
 
   if (orParts.length === 0) return [];
 
   const selectCols = [
-    'id', 'slug',
-    ...new Set([...searchCols, ...(candidate.display_columns || []).slice(0, 3)]),
-  ].join(',');
+    'id',
+    ...(columns.has('slug') ? ['slug'] : []),
+    ...new Set([
+      ...searchCols,
+      ...(candidate.display_columns || []).slice(0, 3).filter((c) => columns.has(c)),
+    ]),
+  ].map(quoted).join(',');
 
   try {
     let query = supabase

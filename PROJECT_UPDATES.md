@@ -2,6 +2,20 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-11T18:32Z: Archive matching and Related Records stop failing silently
+
+The exact record search behind family-tree suggestions and Related Records (`searchCandidateCollection` in `lib/collections/matching.ts`) had been erroring for most searches. It swallows errors and returns "no matches", so nothing looked wrong.
+
+**Minor updates**
+- 68% of tree people (1,940 of 2,846) got no exact suggestions at all. A comma or parenthesis in a birth or death place ("Warren County, Georgia") broke PostgREST's `or()` filter for every collection. The same happened in Related Records for any record whose place had a comma. Filter values are now double-quoted.
+- Some collections could never be searched. Slave Compensation Claims, Liberation Census Rolls, Emigrants to Liberia and Slave Voyages have no `slug` column. Cherokee Henderson, Cherokee Reservation Claims and Seminole Captured Negroes have number columns that a text pattern can't run on. Enslaved Persons — Alabama has column names with spaces ("Entry Type"), which the request dropped. The search now reads each table's real columns and types (`getColumnTypes` in `lib/import/table-schema.ts`, the same schema read imports use, shared for five minutes). It filters only text columns, asks for `slug` only where it exists, and skips tables with no `id`.
+- Checked live: 0 failed requests (was 279 for 12 people), and 10 of those 12 people now get suggestions (was 2). Related Records for records with comma places went from 0 to 1–5 results. Records that already worked are unchanged, at about 200–270ms.
+- Alabama's collection settings were correct; only the search's request was wrong.
+- `enslaved_catholic_kentucky_id.sql` gives Enslaved Catholic Baptisms — Kentucky the `id` every other collection table has (uuid primary key) and sets its record count. Its 4,006 rows were there all along. Without an id, its records couldn't be opened, bookmarked or matched, and Sync Record Counts read 0. Its table is hidden from logged-out visitors like most scholar-tier tables, which is the paywall working as intended.
+
+**Next actions**
+- Run `enslaved_catholic_kentucky_id.sql`, then re-run archive matching for everyone in every tree, so suggestions include exact matches, spelling variants and the Kentucky baptisms.
+
 ## 2026-10-11T18:09Z: Names spelled differently, and the picker fix
 
 Name matching now allows for the way old records spell people: Pinkard and Pinckard, Elijah and Eilja, Wm for William, Polly for Mary. This covers the family-tree search, the "Save to family tree" picker, and archive suggestions. Exact matches still come first, and variant matches are labeled "Similar spelling" or "Nickname".
@@ -16,7 +30,7 @@ Name matching now allows for the way old records spell people: Pinkard and Pinck
 - Variant matches stay inside one person's name. Fields listing several people are split at commas, `&`, "and" and parentheses ("Tom, Kate & Nan"), while "Bowers, John" stays whole. Separate first/last name columns are joined back into one name. Only name columns are compared, not places, ships, dates or OCR text.
 - A person with a first name and a surname needs the surname plus a first name. Nicknames only count for first names, and only alongside another name word.
 - Variant hits score 2 per name word against exact's 3, so an exact record always outranks its variant twin.
-- Rehearsed on 158 real tree people against a local copy of 18 archive tables. 30 people gained suggestions, 145 in total. 39 were spelling variants (Ann McIntosh → Anna MacIntosh, John Radford → John Redford, William Ford → William Foard). The other 106 were exact full-name matches the old search was dropping: it only scored the first 50 rows mentioning any one of a person's names.
+- Rehearsed on 158 real tree people against a local copy of 18 archive tables. 30 people gained suggestions, 145 in total. 39 were spelling variants (Ann McIntosh → Anna MacIntosh, John Radford → John Redford, William Ford → William Foard). The other 106 were exact full-name matches the old search was missing, mostly because it was failing outright (see the next entry).
 - Also in this push: `43ac9ca` makes the "Save to family tree" picker open above the record viewer instead of behind it, and stops arrow keys in its search box from paging records.
 
 **Next actions**

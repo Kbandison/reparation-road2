@@ -67,6 +67,31 @@ async function fetchSchemaDefinitions(): Promise<Record<string, OpenApiDefinitio
   return spec.definitions ?? {};
 }
 
+// The schema read is ~660 KB and takes 0.2–1.5s, too slow to repeat for every
+// archive match or Related Records lookup. Those reads share one for a few
+// minutes; imports, which change tables, keep reading fresh.
+const SHARED_SCHEMA_MS = 5 * 60_000;
+let sharedSchema: { at: number; definitions: Promise<Record<string, OpenApiDefinition>> } | null = null;
+
+/**
+ * A table's columns and their Postgres types ("text", "integer", "uuid"…), or
+ * null when the table doesn't exist. Uses a schema read shared for a few
+ * minutes, so a column added just now may not show yet.
+ */
+export async function getColumnTypes(tableName: string): Promise<Map<string, string> | null> {
+  if (!sharedSchema || Date.now() - sharedSchema.at > SHARED_SCHEMA_MS) {
+    const definitions = fetchSchemaDefinitions();
+    sharedSchema = { at: Date.now(), definitions };
+    // A failed read isn't kept, so the next call tries again.
+    definitions.catch(() => {
+      if (sharedSchema?.definitions === definitions) sharedSchema = null;
+    });
+  }
+  const properties = (await sharedSchema.definitions)[tableName]?.properties;
+  if (!properties) return null;
+  return new Map(Object.entries(properties).map(([name, prop]) => [name, prop.format ?? prop.type ?? 'unknown']));
+}
+
 /** Column names of many tables from a single schema read. Tables that don't exist are left out. */
 export async function fetchColumnNames(tableNames: string[]): Promise<Map<string, Set<string>>> {
   const definitions = await fetchSchemaDefinitions();
