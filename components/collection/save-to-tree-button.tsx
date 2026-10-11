@@ -150,7 +150,11 @@ export function SaveToTreeButton({ collectionSlug, recordId, recordTitle, saves,
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto border-brand-gold/[0.12] bg-brand-card text-brand-cream sm:max-w-lg">
+        {/* Opened from inside the record viewer (z-[100], full-screen scan z-[110]), so it has to sit above both. */}
+        <DialogContent
+          overlayClassName="z-[120]"
+          className="z-[130] max-h-[90vh] overflow-y-auto border-brand-gold/[0.12] bg-brand-card text-brand-cream sm:max-w-lg"
+        >
           <DialogHeader>
             <DialogTitle className="font-display text-brand-cream">Save to family tree</DialogTitle>
             <DialogDescription className="text-brand-muted">

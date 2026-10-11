@@ -198,6 +198,12 @@ export function RecordModal({
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      // A pop-up opened from the record (e.g. Save to family tree) handles its
+      // own keys, Escape included: it shouldn't page or close the record behind it.
+      if (target?.closest('[data-slot="dialog-content"]')) return;
+      // Arrow keys in a text box move the cursor, not the record.
+      if (e.key !== 'Escape' && target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return;
       if (e.key === 'Escape') {
         // Close the full-screen zoom first if it's open, otherwise the modal.
         if (imageZoom) setImageZoom(false);
