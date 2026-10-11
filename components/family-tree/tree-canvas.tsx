@@ -18,6 +18,7 @@ import {
   Baby,
   Loader2,
   Sparkles,
+  CornerUpLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -27,6 +28,7 @@ import type {
 } from '@/lib/types';
 import { CARD_W, CARD_H, computeLayout } from '@/lib/family-tree/layout';
 import {
+  ancestorPath,
   buildPedigree,
   pickDefaultFocal,
   DEFAULT_DEPTH,
@@ -35,6 +37,7 @@ import {
 import { fullName, initials, lifespan } from '@/lib/family-tree/display';
 import { PersonPreview } from './person-preview';
 import { ImportDialog } from './import-dialog';
+import { TreeSearch } from './tree-search';
 
 interface Props {
   readOnly?: boolean;
@@ -61,6 +64,12 @@ type Mode = 'pedigree' | 'free';
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 2;
 const PAD = 90;
+// How long the view takes to glide to a searched person.
+const GLIDE_MS = 550;
+// How long a found person's card pulses after arriving.
+const PING_MS = 1800;
+
+const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 const json = { 'Content-Type': 'application/json' };
 
@@ -129,6 +138,17 @@ function PersonCardInner({
   );
 }
 
+// A gold ring that ripples out from a card the search just landed on. Users who
+// ask for reduced motion get a steady ring instead.
+function FoundPulse() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute -inset-1.5 rounded-[1.1rem] border-2 border-brand-gold motion-safe:animate-ping"
+    />
+  );
+}
+
 const REL_ICON: Record<OffLineRelative['relation'], typeof Heart> = {
   spouse: Heart,
   child: Baby,
@@ -161,8 +181,14 @@ export function TreeCanvas({
     if (home && initialIndividuals.some((i) => i.id === home)) return home;
     return pickDefaultFocal(initialIndividuals, initialRelationships);
   });
+  // The saved home person. Search can center the pedigree on someone else for
+  // a while (focalId) without changing it.
+  const [homeId, setHomeId] = useState<string | null>(focalId);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openRelatives, setOpenRelatives] = useState<string | null>(null);
+  // The person search last took the view to, and whether their card is pulsing.
+  const [foundId, setFoundId] = useState<string | null>(null);
+  const [pinging, setPinging] = useState(false);
   // A relative being drafted against an anchor. Null until "Add parent" and
   // again once it is saved or abandoned.
   const [draft, setDraft] = useState<{
@@ -206,6 +232,10 @@ export function TreeCanvas({
   indRef.current = individuals;
 
   const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const glideRef = useRef<number | null>(null);
+  const pingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set when search moves the view itself, so the frame-on-focal-change effect stands down.
+  const skipAutoFrameRef = useRef(false);
   const panRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
   const movedRef = useRef(false);
 
@@ -216,6 +246,9 @@ export function TreeCanvas({
   }, [individuals]);
 
   const selected = selectedId ? byId.get(selectedId) ?? null : null;
+  // The saved home person, or the current center if that person is gone.
+  const effectiveHomeId = homeId && byId.has(homeId) ? homeId : focalId;
+  const homePerson = effectiveHomeId ? byId.get(effectiveHomeId) ?? null : null;
 
   const pedigree = useMemo(
     () =>
@@ -279,6 +312,10 @@ export function TreeCanvas({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    if (skipAutoFrameRef.current) {
+      skipAutoFrameRef.current = false;
+      return;
+    }
     if (mode === 'pedigree') {
       const ped = pedigreeRef.current;
       if (ped && focalId && ped.positions[focalId]) {
@@ -296,6 +333,136 @@ export function TreeCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, focalId]);
 
+  // ── search: glide to a person ─────────────────────────────────────────
+  const stopGlide = () => {
+    if (glideRef.current !== null) cancelAnimationFrame(glideRef.current);
+    glideRef.current = null;
+  };
+
+  // Animate the view to `target`, moving the point at the screen's center in a
+  // straight line while the zoom eases, so the camera doesn't swing in an arc.
+  // Instant for anyone whose device asks for reduced motion.
+  function glideTo(target: View, onDone?: () => void) {
+    stopGlide();
+    const el = containerRef.current;
+    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (!el || reduce) {
+      setView(target);
+      onDone?.();
+      return;
+    }
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    const from = viewRef.current;
+    const c0 = { x: (w / 2 - from.x) / from.scale, y: (h / 2 - from.y) / from.scale };
+    const c1 = { x: (w / 2 - target.x) / target.scale, y: (h / 2 - target.y) / target.scale };
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / GLIDE_MS);
+      const e = easeInOutCubic(t);
+      const scale = from.scale + (target.scale - from.scale) * e;
+      const cx = c0.x + (c1.x - c0.x) * e;
+      const cy = c0.y + (c1.y - c0.y) * e;
+      setView({ scale, x: w / 2 - cx * scale, y: h / 2 - cy * scale });
+      if (t < 1) {
+        glideRef.current = requestAnimationFrame(step);
+      } else {
+        glideRef.current = null;
+        onDone?.();
+      }
+    };
+    glideRef.current = requestAnimationFrame(step);
+  }
+
+  useEffect(() => () => {
+    stopGlide();
+    if (pingTimerRef.current) clearTimeout(pingTimerRef.current);
+  }, []);
+
+  // The view that centers a card on screen, at a readable zoom.
+  function viewOnCard(pos: { x: number; y: number }): View | null {
+    const el = containerRef.current;
+    if (!el) return null;
+    const scale = Math.min(MAX_SCALE, Math.max(1, viewRef.current.scale));
+    return {
+      scale,
+      x: el.clientWidth / 2 - (pos.x + CARD_W / 2) * scale,
+      y: el.clientHeight / 2 - (pos.y + CARD_H / 2) * scale,
+    };
+  }
+
+  function markFound(id: string) {
+    setFoundId(id);
+    setPinging(true);
+    if (pingTimerRef.current) clearTimeout(pingTimerRef.current);
+    pingTimerRef.current = setTimeout(() => setPinging(false), PING_MS);
+  }
+
+  /**
+   * Take the view to a person picked in search.
+   * Free mode: glide to their card, then open their details.
+   * Pedigree mode, whichever gets them on screen first:
+   *   - already on the chart: glide there;
+   *   - an ancestor past the shown generations: open the line up to them;
+   *   - anyone else (cousin, descendant, in-law): center the chart on them for
+   *     now; "Back to …" returns to the saved home person.
+   * Their relatives dropdown opens when they have one.
+   */
+  function goToPerson(id: string) {
+    setSelectedId(null);
+    setDraft(null);
+
+    if (mode === 'free') {
+      const p = byId.get(id);
+      const target = p && viewOnCard({ x: p.pos_x, y: p.pos_y });
+      if (!target) return;
+      markFound(id);
+      glideTo(target, () => setSelectedId(id));
+      return;
+    }
+
+    if (!focalId) return;
+    let nextFocal = focalId;
+    let nextExpanded = expanded;
+    let ped = pedigree;
+    if (!ped?.positions[id]) {
+      const path = ancestorPath(individuals, relationships, focalId, id);
+      if (path) nextExpanded = new Set([...expanded, ...path]);
+      else {
+        nextFocal = id;
+        nextExpanded = new Set();
+      }
+      ped = buildPedigree(individuals, relationships, { focalId: nextFocal, baseDepth: DEFAULT_DEPTH, expanded: nextExpanded });
+    }
+    const pos = ped.positions[id];
+    const target = pos && viewOnCard(pos);
+    if (!target) return;
+
+    if (nextFocal !== focalId) {
+      skipAutoFrameRef.current = true;
+      setFocalId(nextFocal);
+    }
+    if (nextExpanded !== expanded) setExpanded(nextExpanded);
+    setOpenRelatives((ped.offLine[id]?.length ?? 0) > 0 ? id : null);
+    markFound(id);
+    glideTo(target);
+  }
+
+  // Leave a search-centered view for the saved home person.
+  function backToHome() {
+    const home = effectiveHomeId;
+    if (!home) return;
+    const ped = buildPedigree(individuals, relationships, { focalId: home, baseDepth: DEFAULT_DEPTH, expanded: new Set() });
+    const pos = ped.positions[home];
+    skipAutoFrameRef.current = true;
+    setFocalId(home);
+    setExpanded(new Set());
+    setOpenRelatives(null);
+    setFoundId(null);
+    const target = pos && viewOnCard(pos);
+    if (target) glideTo(target);
+  }
+
   // ── pointer drag / pan ────────────────────────────────────────────────
   useEffect(() => {
     function onMove(e: PointerEvent) {
@@ -312,7 +479,14 @@ export function TreeCanvas({
         const p = panRef.current;
         const dx = e.clientX - p.sx;
         const dy = e.clientY - p.sy;
-        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) movedRef.current = true;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          movedRef.current = true;
+          // A drag takes over from a glide in progress.
+          if (glideRef.current !== null) {
+            cancelAnimationFrame(glideRef.current);
+            glideRef.current = null;
+          }
+        }
         setView((v) => ({ ...v, x: p.ox + dx, y: p.oy + dy }));
       }
     }
@@ -326,6 +500,7 @@ export function TreeCanvas({
         if (!movedRef.current) {
           setSelectedId(null);
           setOpenRelatives(null);
+          setFoundId(null);
         }
         panRef.current = null;
       }
@@ -345,6 +520,10 @@ export function TreeCanvas({
     if (!el) return;
     function onWheel(e: WheelEvent) {
       e.preventDefault();
+      if (glideRef.current !== null) {
+        cancelAnimationFrame(glideRef.current);
+        glideRef.current = null;
+      }
       const rect = el!.getBoundingClientRect();
       const lx = e.clientX - rect.left;
       const ly = e.clientY - rect.top;
@@ -441,7 +620,7 @@ export function TreeCanvas({
 
   function onBackgroundPointerDown(e: React.PointerEvent) {
     movedRef.current = false;
-    panRef.current = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
+    panRef.current = { sx: e.clientX, sy: e.clientY, ox: viewRef.current.x, oy: viewRef.current.y };
   }
 
   function toggleExpand(id: string) {
@@ -455,6 +634,7 @@ export function TreeCanvas({
 
   function setFocal(id: string) {
     setFocalId(id);
+    setHomeId(id);
     setExpanded(new Set());
     setOpenRelatives(null);
     // Remember the choice so it survives reloads and future sessions.
@@ -527,7 +707,8 @@ export function TreeCanvas({
     setRelationships((r) => r.filter((e) => e.from_id !== id && e.to_id !== id));
     setIndividuals((p) => p.filter((x) => x.id !== id));
     setSelectedId(null);
-    if (focalId === id) setFocalId(null); // repair effect picks a new default
+    // Back to the home person; failing that the repair effect picks a new default.
+    if (focalId === id) setFocalId(effectiveHomeId && effectiveHomeId !== id ? effectiveHomeId : null);
   }
 
   async function arrange() {
@@ -547,7 +728,7 @@ export function TreeCanvas({
     fitTo(Object.values(pos));
   }
 
-  async function reload(homeId?: string) {
+  async function reload(importedHomeId?: string) {
     const res = await fetch(`/api/family-tree/${tree.id}`);
     const data = await res.json();
     const inds: TreeIndividual[] = data.individuals ?? [];
@@ -558,9 +739,10 @@ export function TreeCanvas({
     setExpanded(new Set());
     const persisted = data.tree?.home_person_id as string | null | undefined;
     const home =
-      homeId ??
+      importedHomeId ??
       (persisted && inds.some((i) => i.id === persisted) ? persisted : pickDefaultFocal(inds, rels));
     setFocalId(home);
+    setHomeId(home);
     // Newly imported people haven't been searched yet — match them now.
     runMatchLoop();
   }
@@ -646,9 +828,10 @@ export function TreeCanvas({
     >
       {/* Toolbar */}
       <div
-        className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-2"
+        className="absolute top-3 left-3 right-3 sm:right-auto z-30 flex flex-wrap items-center gap-2"
         onPointerDown={(e) => e.stopPropagation()}
       >
+        {individuals.length > 0 && <TreeSearch individuals={individuals} onPick={goToPerson} />}
         <div className="inline-flex rounded-xl border border-brand-gold/20 bg-brand-card/90 backdrop-blur overflow-hidden">
           <button
             className={cn('px-3 py-1.5 text-xs transition-colors', mode === 'pedigree' ? 'bg-brand-gold text-brand-bg' : 'text-brand-cream hover:text-brand-gold')}
@@ -663,6 +846,11 @@ export function TreeCanvas({
             Free
           </button>
         </div>
+        {mode === 'pedigree' && focalId && effectiveHomeId && focalId !== effectiveHomeId && (
+          <button className={toolBtn} onClick={backToHome} title="Center the pedigree on the home person again">
+            <CornerUpLeft className="w-3.5 h-3.5" /> Back to {fullName(homePerson ?? ({} as TreeIndividual)) || 'home person'}
+          </button>
+        )}
         {canEdit && (
           <>
             <button className={toolBtn} onClick={addPerson}>
@@ -683,7 +871,7 @@ export function TreeCanvas({
       {/* Background archive-matching progress */}
       {matchProgress && (matchProgress.remaining > 0 || matchProgress.done > 0) && (
         <div
-          className="absolute top-3 right-3 z-20 inline-flex items-center gap-2 rounded-xl border border-brand-gold/20 bg-brand-card/90 px-3 py-1.5 text-xs text-brand-cream backdrop-blur"
+          className="absolute bottom-3 right-3 sm:bottom-auto sm:top-3 z-20 inline-flex items-center gap-2 rounded-xl border border-brand-gold/20 bg-brand-card/90 px-3 py-1.5 text-xs text-brand-cream backdrop-blur"
           onPointerDown={(e) => e.stopPropagation()}
         >
           {matchProgress.remaining > 0 ? (
@@ -734,6 +922,8 @@ export function TreeCanvas({
               const canExpand = pedigree!.expandable[id];
               const isExpanded = expanded.has(id);
               const isFocal = id === focalId;
+              const isHome = id === effectiveHomeId;
+              const isFound = id === foundId;
               return (
                 <div
                   key={id}
@@ -741,7 +931,7 @@ export function TreeCanvas({
                   onClick={() => setSelectedId(id)}
                   className={cn(
                     'absolute rounded-2xl border bg-brand-card px-3.5 py-2.5 shadow-sm cursor-pointer transition-shadow',
-                    selectedId === id
+                    selectedId === id || isFound
                       ? 'border-brand-gold ring-2 ring-brand-gold/40'
                       : isFocal
                         ? 'border-brand-sage/60'
@@ -750,9 +940,10 @@ export function TreeCanvas({
                   style={{ left: pos.x, top: pos.y, width: CARD_W, minHeight: CARD_H, zIndex: openRelatives === id ? 40 : undefined }}
                 >
                   <PersonCardInner p={p} overlapCount={overlapCounts[p.id] ?? 0} />
+                  {isFound && pinging && <FoundPulse />}
 
-                  {/* Home / set-focal control (top-left) */}
-                  {isFocal ? (
+                  {/* Home / set-home control (top-left) */}
+                  {isHome ? (
                     <span className="absolute -top-2 -left-2 inline-flex items-center gap-1 rounded-full bg-brand-sage px-1.5 py-0.5 text-[10px] font-medium text-brand-bg">
                       <Home className="w-2.5 h-2.5" /> Home
                     </span>
@@ -764,7 +955,7 @@ export function TreeCanvas({
                       }}
                       onPointerDown={(e) => e.stopPropagation()}
                       className="absolute -top-2 -left-2 flex items-center justify-center w-5 h-5 rounded-full bg-brand-card border border-brand-gold/30 text-brand-muted hover:text-brand-gold"
-                      title="Center the pedigree on this person"
+                      title="Make this the home person"
                     >
                       <Target className="w-3 h-3" />
                     </button>
@@ -837,13 +1028,14 @@ export function TreeCanvas({
                 onPointerDown={(e) => onFreeCardPointerDown(e, p.id)}
                 className={cn(
                   'absolute rounded-2xl border bg-brand-card px-3.5 py-2.5 shadow-sm cursor-grab active:cursor-grabbing transition-shadow',
-                  selectedId === p.id
+                  selectedId === p.id || foundId === p.id
                     ? 'border-brand-gold ring-2 ring-brand-gold/40'
                     : 'border-brand-gold/[0.15] hover:border-brand-gold/35'
                 )}
                 style={{ left: p.pos_x, top: p.pos_y, width: CARD_W, minHeight: CARD_H }}
               >
                 <PersonCardInner p={p} overlapCount={overlapCounts[p.id] ?? 0} />
+                {foundId === p.id && pinging && <FoundPulse />}
               </div>
             ))}
       </div>

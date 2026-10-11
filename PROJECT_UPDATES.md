@@ -2,6 +2,20 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-11T16:50Z: Family tree search
+
+A search box on the family tree finds anyone in the tree by name as you type, then takes the view to them.
+
+**Minor updates**
+- `components/family-tree/tree-search.tsx`: names in any order, partial words, accents and case ignored (`lib/family-tree/search.ts`). Results show life dates and birthplace. Arrow keys, Enter and Escape work, and "/" jumps into the box. Full width on phones. Works on read-only shared trees too.
+- Pedigree view, whichever gets the person on screen: glide to them if they're drawn; open the line up to them if they're an ancestor past the shown generations (`ancestorPath` in `pedigree.ts`); otherwise center the chart on them for now, with "Back to [home person]". The saved home person only changes through the card's home button. Their ▾ relatives list opens when they have one.
+- Free view: glide to their card, then open their details.
+- The view glides over about half a second (instant with reduced motion). Dragging or zooming takes over, and the found card pulses, then keeps a gold ring until you click away.
+- Checked against the three live trees: all 2,846 people land on screen (31 already drawn, 121 by expanding, 1,251 by re-centering in the 1,403-person tree). Each landing takes about 1ms to compute; a search under 5ms.
+
+**Next actions**
+- Try it on a phone and a laptop while logged in as an allowlisted admin (not checked in a browser here).
+
 ## 2026-10-04T21:48Z: Ex-Slave Pension shows its scans; hidden-collections audit
 
 An audit for hidden collections found none: no drafts, orphans, tabs under unpublished or record-holding parents, or missing tables. It did find a collection with scans that never showed, a duplicate table, and a count bug.

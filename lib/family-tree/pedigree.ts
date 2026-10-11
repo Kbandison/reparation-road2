@@ -221,4 +221,41 @@ export function buildPedigree(
   return result;
 }
 
+/**
+ * The bloodline chain from the focal person up to an ancestor: every person
+ * that has to be expanded for `targetId` to appear on the pedigree, focal
+ * first, the target's child last. Null when the target isn't an ancestor of
+ * the focal person (a cousin, descendant or in-law); [] when it's the focal
+ * person. Breadth-first, so it takes the shortest line, the same one
+ * buildPedigree reveals first.
+ */
+export function ancestorPath(
+  individuals: TreeIndividual[],
+  relationships: TreeRelationship[],
+  focalId: string,
+  targetId: string,
+): string[] | null {
+  if (focalId === targetId) return [];
+  const { parents } = buildMaps(individuals, relationships);
+  const cameFrom = new Map<string, string>([[focalId, focalId]]);
+  const queue = [focalId];
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const p of parents.get(id) ?? []) {
+      if (cameFrom.has(p)) continue;
+      cameFrom.set(p, id);
+      if (p === targetId) {
+        const path: string[] = [];
+        for (let node = id; ; node = cameFrom.get(node)!) {
+          path.unshift(node);
+          if (node === focalId) break;
+        }
+        return path;
+      }
+      queue.push(p);
+    }
+  }
+  return null;
+}
+
 export { CARD_W, CARD_H };
