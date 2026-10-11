@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ArchiveMatch, TreeIndividual } from '@/lib/types';
+import { mapWithConcurrency } from '@/lib/async';
 import { findArchiveMatches } from './archive-matching';
 
 // Run archive matching for one individual and persist the results.
@@ -57,18 +58,13 @@ export async function matchAndPersist(
 }
 
 // Run a set of individuals through matching with a small concurrency cap so a
-// batch doesn't overwhelm the database or the function's time budget.
+// batch doesn't overwhelm the database or the function's time budget. Two at a
+// time: the database is shared with the live site, and four at a time (with
+// spelling-variant searches) slowed pages down for everyone.
 export async function matchBatch(
   admin: SupabaseClient,
   people: TreeIndividual[],
-  concurrency = 4,
+  concurrency = 2,
 ): Promise<void> {
-  let cursor = 0;
-  async function worker() {
-    while (cursor < people.length) {
-      const person = people[cursor++];
-      await matchAndPersist(admin, person);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, people.length) }, worker));
+  await mapWithConcurrency(people, concurrency, (person) => matchAndPersist(admin, person));
 }

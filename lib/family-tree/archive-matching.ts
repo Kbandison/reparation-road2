@@ -4,11 +4,15 @@ import {
   searchCandidateCollection,
   type MatchValues,
 } from '@/lib/collections/matching';
+import { mapWithConcurrency } from '@/lib/async';
 import {
   mergeScoredResults,
   searchVariantCollection,
   type VariantSearchInput,
 } from './variant-matching';
+
+// Collections searched at once for one person (see findArchiveMatches).
+const COLLECTIONS_AT_ONCE = 4;
 
 const NAME_STOP_TOKENS = new Set([
   'jr', 'sr', 'i', 'ii', 'iii', 'iv', 'v', 'mr', 'mrs', 'ms', 'dr',
@@ -88,15 +92,19 @@ export async function findArchiveMatches(
     .slice(0, maxCollections);
 
   // Exact and spelling-variant searches run side by side; each collection keeps
-  // its best few records across both.
-  const perCollectionResults = await Promise.all(
-    collections.map(async (c) => {
+  // its best few records across both. A few collections at a time: each search
+  // reads a whole table on the database the live site uses, and firing all of
+  // them at once (~60 requests a person) slowed the site down.
+  const perCollectionResults = await mapWithConcurrency(
+    collections,
+    COLLECTIONS_AT_ONCE,
+    async (c) => {
       const [exact, variants] = await Promise.all([
         searchCandidateCollection(supabase, c, matchValues, perCollection).catch(() => []),
         searchVariantCollection(supabase, c, variantInput, perCollection).catch(() => []),
       ]);
       return mergeScoredResults(exact, variants).slice(0, perCollection);
-    })
+    }
   );
 
   return perCollectionResults

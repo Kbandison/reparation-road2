@@ -2,6 +2,19 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-11T19:08Z: Archive matching goes easier on the live database
+
+Re-running archive matching for every tree person, four people at a time, slowed the whole site. Typical page queries went from about 70ms to 174ms, with spikes near a second, and the family tree was slow to open. The tree's automatic "match everyone" loop, which runs after a GEDCOM import, has the same pattern. The re-run was stopped at 1,150 of 2,846 people (all saved).
+
+**Minor updates**
+- Each person's ~30 collection searches now run four at a time instead of all at once (`lib/async.ts` `mapWithConcurrency`, used in `findArchiveMatches`). `matchBatch` matches two people at a time instead of four. During a 12-person "match everyone" batch, a typical page query measured 72ms (50ms idle), and the batch took about 11s of its 60s limit.
+- `match_name_variants` now splits each table's names into words once per search and compares each distinct word once, instead of once per record. On a local copy of 18 archive tables: identical results on 1,200 real searches, 1.6x faster. Most of the remaining cost is reading and splitting every name on each search. Only a stored word index would remove that.
+
+**Next actions**
+- Run the updated `family_tree_name_variants.sql`.
+- Finish the re-run for the remaining 1,696 people, one at a time, pausing automatically whenever page queries slow past ~250ms.
+- Decide whether to build a stored name-word index (much faster variant search; needs upkeep whenever records change).
+
 ## 2026-10-11T18:32Z: Archive matching and Related Records stop failing silently
 
 The exact record search behind family-tree suggestions and Related Records (`searchCandidateCollection` in `lib/collections/matching.ts`) had been erroring for most searches. It swallows errors and returns "no matches", so nothing looked wrong.

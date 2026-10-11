@@ -88,7 +88,9 @@ BEGIN
   WHERE c.table_schema = 'public' AND c.table_name = p_table
     AND (c.column_name = 'id' OR c.column_name = ANY (p_select_columns));
 
-  IF (v_match IS NULL AND v_joined IS NULL) OR coalesce(array_length(p_terms, 1), 0) = 0 THEN
+  -- Records are matched and linked by id, so a table without one has nothing to return.
+  IF (v_match IS NULL AND v_joined IS NULL) OR coalesce(array_length(p_terms, 1), 0) = 0
+     OR NOT ('id' = ANY (coalesce(v_select, '{}'))) THEN
     RETURN;
   END IF;
 
@@ -121,6 +123,11 @@ BEGIN
   -- up to two edits keeping the first letter, which covers a swapped pair of
   -- letters), so nothing the app would accept is missed here. A record ranks
   -- by its best-matching name.
+  --
+  -- Every name in the table is split into words once, and each distinct word
+  -- is compared with the search terms once. Common words ("john", "smith")
+  -- appear thousands of times, so comparing per distinct word rather than per
+  -- record keeps the search light on a database the live site shares.
   RETURN QUERY EXECUTE format($query$
     WITH terms AS (
       SELECT t.term,
@@ -128,37 +135,52 @@ BEGIN
              CASE WHEN t.fuzzy AND length(t.term) >= 4 THEN soundex(t.term) END AS sx,
              CASE WHEN length(t.term) >= 5 THEN 2 ELSE 0 END AS slips
       FROM unnest($1::text[], $2::integer[], $3::boolean[]) AS t(term, grp, fuzzy)
+    ),
+    name_words AS (
+      SELECT r.id AS rid, v.vn, s.pn, w.word
+      FROM public.%I AS r
+      CROSS JOIN LATERAL unnest(%s) WITH ORDINALITY AS v(val, vn)
+      CROSS JOIN LATERAL regexp_split_to_table(
+        CASE WHEN v.val ~ '^\s*[[:alpha:]''-]+\s*,[^,]*$' THEN replace(v.val, ',', ' ') ELSE v.val END,
+        '[,;&()]|\mand\M', 'i'
+      ) WITH ORDINALITY AS s(piece, pn)
+      CROSS JOIN LATERAL regexp_split_to_table(lower(s.piece), '[^[:alpha:]]+') AS w(word)
+      WHERE w.word <> '' %s
+    ),
+    distinct_words AS (
+      SELECT word, soundex(word) AS wsx FROM (SELECT DISTINCT word FROM name_words) AS d
+    ),
+    hit_words AS (
+      SELECT dw.word, terms.grp
+      FROM distinct_words AS dw
+      JOIN terms ON dw.word = terms.term
+        OR (terms.sx IS NOT NULL AND length(dw.word) >= 4 AND (
+              dw.wsx = terms.sx
+              OR (terms.slips > 0 AND left(dw.word, 1) = left(terms.term, 1)
+                  AND levenshtein_less_equal(dw.word, terms.term, terms.slips) <= terms.slips)
+           ))
+    ),
+    per_name AS (
+      SELECT nw.rid,
+             count(DISTINCT hw.grp) AS hits,
+             (cardinality($6::integer[]) = 0 OR bool_or(hw.grp = ANY ($6::integer[]))) AS has_required
+      FROM name_words AS nw
+      JOIN hit_words AS hw ON hw.word = nw.word
+      GROUP BY nw.rid, nw.vn, nw.pn
+    ),
+    best AS (
+      SELECT rid, max(hits) AS hits
+      FROM per_name
+      WHERE has_required
+      GROUP BY rid
+      HAVING max(hits) >= $4
     )
     SELECT %s
-    FROM public.%I AS r
-    CROSS JOIN LATERAL (
-      SELECT coalesce(max(per_name.hits) FILTER (WHERE per_name.has_required), 0) AS hits
-      FROM (
-        SELECT count(DISTINCT terms.grp) AS hits,
-               (cardinality($6::integer[]) = 0 OR bool_or(terms.grp = ANY ($6::integer[]))) AS has_required
-        FROM unnest(%s) WITH ORDINALITY AS v(val, vn)
-        CROSS JOIN LATERAL regexp_split_to_table(
-          CASE WHEN v.val ~ '^\s*[[:alpha:]''-]+\s*,[^,]*$' THEN replace(v.val, ',', ' ') ELSE v.val END,
-          '[,;&()]|\mand\M', 'i'
-        ) WITH ORDINALITY AS s(piece, pn)
-        CROSS JOIN LATERAL (
-          SELECT DISTINCT w, soundex(w) AS wsx
-          FROM regexp_split_to_table(lower(s.piece), '[^[:alpha:]]+') AS w
-          WHERE w <> ''
-        ) AS words
-        JOIN terms ON words.w = terms.term
-          OR (terms.sx IS NOT NULL AND length(words.w) >= 4 AND (
-                words.wsx = terms.sx
-                OR (terms.slips > 0 AND left(words.w, 1) = left(terms.term, 1)
-                    AND levenshtein_less_equal(words.w, terms.term, terms.slips) <= terms.slips)
-             ))
-        GROUP BY v.vn, s.pn
-      ) AS per_name
-    ) AS m
-    WHERE m.hits >= $4 %s
-    ORDER BY m.hits DESC
+    FROM best
+    JOIN public.%I AS r ON r.id = best.rid
+    ORDER BY best.hits DESC
     LIMIT $5
-  $query$, v_row, p_table, v_values, v_filter)
+  $query$, p_table, v_values, v_filter, v_row, p_table)
   USING p_terms, p_groups, p_fuzzy, greatest(p_min_hits, 1), least(greatest(p_limit, 1), 200),
         coalesce(p_required_groups, '{}');
 END;
