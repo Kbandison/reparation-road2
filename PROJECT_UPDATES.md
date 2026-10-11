@@ -14,7 +14,7 @@ Any archive record can be saved to someone in your family tree, and a person can
 - The tree's person pop-up links to "Saved archive records" on the profile for your own trees.
 
 **Next actions**
-- 1,399 of the 9,287 suggestions point at the old per-county Register of Free Persons collections, which were merged away. Their links are dead and saving them is refused. Clear them, or re-run archive matching so they point at the merged collection.
+- Done the same day: the 1,399 suggestions pointing at the old per-county Register of Free Persons collections were deleted (none saved or dismissed), and archive matching was re-run for the 494 people they belonged to, with the app's own `matchAndPersist`. The result is 9,319 suggestions, none stale, 650 of them from the merged Register of Free Persons.
 
 ## 2026-10-11T16:50Z: Family tree search
 
