@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
+import { OPUS } from '@/lib/ai/models';
 
 /** What Claude returns for one scanned page. */
 export const TranscriptSchema = z.object({
@@ -51,6 +52,17 @@ const jsonFormat = JSON.parse(JSON.stringify(zodOutputFormat(TranscriptSchema)))
 const MAX_TOKENS = 16_000;
 
 /**
+ * How hard each model works on a page. In the pilot, Opus 5.5 at high effort
+ * reasoned through all 16,000 (and then 32,000) tokens on a dense Cherokee
+ * Henderson Roll page without writing a word; at medium it finished in 6,300
+ * tokens, for 15¢, with every column heading read. Sonnet 5 at high never ran
+ * away (8,400 tokens at most).
+ */
+function effortFor(model: string): 'high' | 'medium' {
+  return model === OPUS ? 'medium' : 'high';
+}
+
+/**
  * The Messages API request that transcribes one scan. The image goes by URL,
  * so Anthropic fetches it, and a batch of thousands stays small.
  */
@@ -58,8 +70,7 @@ export function transcriptionRequest(model: string, imageUrl: string): Anthropic
   return {
     model,
     max_tokens: MAX_TOKENS,
-    // Same effort for every model, so the pilot compares like with like.
-    output_config: { effort: 'high', format: jsonFormat },
+    output_config: { effort: effortFor(model), format: jsonFormat },
     messages: [
       {
         role: 'user',
