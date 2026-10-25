@@ -38,7 +38,7 @@ Site search read every table with the service key and returned matching records 
 
 **Next actions**
 - Deployed 2026-10-25 and checked live (logged out): 43 of 47 groups locked with no record data; members-only record refused with 403.
-- Found while testing, not fixed: the forum's "Attach an archive record" picker treats each search result group as a single record, so it lists collections with blank titles.
+- Fixed the same day: the forum's "Attach an archive record" picker treated each search result group as a single record, so it listed collections with blank titles and attached nothing usable. It now lists the records themselves (`components/forum/record-picker.tsx`): real titles, up to 5 per collection so one large collection can't fill the list, and nothing from members-only collections the user can't open (it says how many matches those hold). Checked against live search results for "john" and "smith": 20 and 16 records with names, none blank.
 
 ## 2026-10-25T18:10Z: Imports of any size
 

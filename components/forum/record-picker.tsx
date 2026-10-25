@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { X, Search, Loader2, FileText } from 'lucide-react';
+import { getRecordTitle } from '@/lib/collections/helpers';
 import type { ForumAttachedRecord } from '@/lib/types';
 
 interface SearchResult {
@@ -12,6 +13,37 @@ interface SearchResult {
   collectionName: string;
 }
 
+/** One collection's matches, as /api/collection-search returns them. */
+interface SearchGroup {
+  collectionSlug: string;
+  collectionName: string;
+  /** Members-only for this viewer: a count, no records. */
+  locked?: 'login' | 'subscribe';
+  total: number;
+  records: { id: string; slug?: string; matchValue: string; displayFields: Record<string, string> }[];
+}
+
+const MAX_RESULTS = 20;
+/** So one large collection can't fill the whole list. */
+const PER_COLLECTION = 5;
+
+/** The search's collection groups as one list of records the user can open and attach. */
+function toResults(groups: SearchGroup[]): SearchResult[] {
+  return groups
+    .filter((g) => !g.locked)
+    .flatMap((g) =>
+      g.records.slice(0, PER_COLLECTION).map((r) => ({
+        id: r.id,
+        slug: r.slug,
+        // Display fields are the collection's display columns, in order.
+        title: getRecordTitle(r.displayFields ?? {}, Object.keys(r.displayFields ?? {})) || r.matchValue,
+        collectionSlug: g.collectionSlug,
+        collectionName: g.collectionName,
+      })),
+    )
+    .slice(0, MAX_RESULTS);
+}
+
 interface Props {
   onPick: (record: ForumAttachedRecord) => void;
   onClose: () => void;
@@ -20,6 +52,8 @@ interface Props {
 export function RecordPicker({ onPick, onClose }: Props) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
+  // Matches in members-only collections this user can't open (and so can't attach).
+  const [lockedMatches, setLockedMatches] = useState(0);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
 
@@ -32,9 +66,12 @@ export function RecordPicker({ onPick, onClose }: Props) {
     try {
       const res = await fetch(`/api/collection-search?q=${encodeURIComponent(query)}`);
       const data = await res.json();
-      setResults(Array.isArray(data.records) ? data.records.slice(0, 20) : []);
+      const groups: SearchGroup[] = Array.isArray(data.records) ? data.records : [];
+      setResults(toResults(groups));
+      setLockedMatches(groups.filter((g) => g.locked).reduce((n, g) => n + g.total, 0));
     } catch {
       setResults([]);
+      setLockedMatches(0);
     } finally {
       setLoading(false);
     }
@@ -71,7 +108,11 @@ export function RecordPicker({ onPick, onClose }: Props) {
             </div>
           ) : results.length === 0 ? (
             <p className="text-sm text-brand-muted text-center py-6">
-              {searched ? 'No records found.' : 'Search the archive to attach a record to your post.'}
+              {!searched
+                ? 'Search the archive to attach a record to your post.'
+                : lockedMatches > 0
+                  ? `No matches you can open. ${lockedMatches.toLocaleString()} are in members-only collections.`
+                  : 'No records found.'}
             </p>
           ) : (
             <div className="space-y-1">
@@ -94,6 +135,11 @@ export function RecordPicker({ onPick, onClose }: Props) {
                   </div>
                 </button>
               ))}
+              {lockedMatches > 0 && (
+                <p className="px-3 pt-2 text-[11px] text-brand-muted">
+                  {lockedMatches.toLocaleString()} more match{lockedMatches === 1 ? '' : 'es'} in members-only collections.
+                </p>
+              )}
             </div>
           )}
         </div>
