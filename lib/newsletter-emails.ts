@@ -1,4 +1,4 @@
-import { Resend } from 'resend';
+import { getResend } from '@/lib/resend';
 import {
   EMAIL,
   emailButton,
@@ -13,8 +13,6 @@ import {
   confirmUrl,
   unsubscribeUrl,
 } from '@/lib/newsletter';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * Newsletter email templates.
@@ -48,7 +46,7 @@ async function send(label: string, opts: {
     return { ok: false, error: 'RESEND_API_KEY not configured' };
   }
   try {
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResend().emails.send({
       from: NEWSLETTER_FROM,
       replyTo: NEWSLETTER_REPLY_TO,
       to: [opts.to],

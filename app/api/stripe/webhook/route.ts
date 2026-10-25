@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
-import { Resend } from 'resend';
-import { stripe } from '@/lib/stripe/client';
+import { getResend } from '@/lib/resend';
+import { getStripe } from '@/lib/stripe/client';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { sendMembershipEmail } from '@/lib/email';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = 'Reparation Road <noreply@reparationroad.org>';
 const ADMIN_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'admin@reparationroad.org';
 
@@ -14,7 +13,7 @@ export async function POST(request: Request) {
 
   let event;
   try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
+    event = getStripe().webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
   } catch {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
@@ -28,7 +27,7 @@ export async function POST(request: Request) {
       const subscriptionId = session.subscription as string;
 
       if (userId && subscriptionId) {
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
         const sub = subscription as unknown as {
           items: { data: { plan: { interval: string } }[] };
           current_period_start: number;
@@ -66,7 +65,7 @@ export async function POST(request: Request) {
             const planName = interval === 'year' ? 'Premium Yearly' : 'Premium Monthly';
 
             // Notify owner of new upgrade
-            await resend.emails.send({
+            await getResend().emails.send({
               from: FROM,
               to: [ADMIN_EMAIL],
               subject: `New Premium Member: ${userName}`,

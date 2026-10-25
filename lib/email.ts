@@ -1,8 +1,8 @@
-import { Resend, type CreateEmailOptions } from 'resend';
+import type { CreateEmailOptions } from 'resend';
+import { getResend } from '@/lib/resend';
 import { EMAIL, emailShell, emailSignoff } from '@/lib/email-theme';
 import { escapeHtml, textToHtml } from '@/lib/html';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = 'Reparation Road <noreply@reparationroad.org>';
 const ADMIN_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'admin@reparationroad.org';
 
@@ -20,7 +20,7 @@ async function send(label: string, opts: CreateEmailOptions): Promise<{ ok: bool
     return { ok: false, error: 'RESEND_API_KEY not configured' };
   }
   try {
-    const { data, error } = await resend.emails.send(opts);
+    const { data, error } = await getResend().emails.send(opts);
     if (error) {
       console.error(`[email:${label}] Resend error sending to ${JSON.stringify(opts.to)}:`, error);
       return { ok: false, error: (error as { message?: string }).message || 'send failed' };
@@ -41,7 +41,7 @@ export async function sendMembershipEmail(
   const name = escapeHtml(firstName || 'there');
   const planName = interval === 'year' ? 'Premium Yearly' : 'Premium Monthly';
 
-  await resend.emails.send({
+  await getResend().emails.send({
     from: FROM,
     to: [email],
     subject: 'Welcome to Reparation Road Premium!',
@@ -95,7 +95,7 @@ export async function sendAccountWelcomeEmail(email: string, firstName?: string 
     console.error('[email:welcome] RESEND_API_KEY is not set — email not sent');
     return { ok: false };
   }
-  const { error } = await resend.emails.send({
+  const { error } = await getResend().emails.send({
     from: FROM,
     to: [email],
     subject: 'Welcome to Reparation Road!',
@@ -131,7 +131,7 @@ export async function sendAccountWelcomeEmail(email: string, firstName?: string 
 /** Tell the owner someone signed up. */
 export async function notifyAdminOfSignup(email: string, name: string) {
   if (!process.env.RESEND_API_KEY) return { ok: false };
-  const { error } = await resend.emails.send({
+  const { error } = await getResend().emails.send({
     from: FROM,
     to: [ADMIN_EMAIL],
     subject: `New Signup: ${name}`,

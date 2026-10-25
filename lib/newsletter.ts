@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { Resend } from 'resend';
+import { getResend } from '@/lib/resend';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 /**
@@ -15,8 +15,6 @@ import { createAdminClient } from '@/lib/supabase/admin';
  * so callers get a result object rather than an exception, and the reconcile
  * cron picks up whatever didn't land.
  */
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 const AUDIENCE_ID = process.env.RESEND_NEWSLETTER_AUDIENCE_ID;
 
@@ -198,13 +196,13 @@ export async function syncContactToResend(input: {
     // idempotent path: a repeat call for the same address updates rather than
     // duplicating. That property is what lets the reconcile cron re-run over
     // everyone safely.
-    const created = await resend.contacts.create({ audienceId, email, ...fields });
+    const created = await getResend().contacts.create({ audienceId, email, ...fields });
 
     if (!created.error && created.data?.id) {
       return { ok: true, contactId: created.data.id };
     }
 
-    const updated = await resend.contacts.update({ audienceId, email, ...fields });
+    const updated = await getResend().contacts.update({ audienceId, email, ...fields });
     if (updated.error) {
       const message =
         (updated.error as { message?: string }).message || 'contact update failed';
@@ -212,7 +210,7 @@ export async function syncContactToResend(input: {
       return { ok: false, error: message };
     }
 
-    const found = await resend.contacts.get({ audienceId, email });
+    const found = await getResend().contacts.get({ audienceId, email });
     return { ok: true, contactId: found.data?.id ?? input.contactId ?? undefined };
   } catch (e) {
     const message = e instanceof Error ? e.message : 'contact sync threw';
@@ -242,7 +240,7 @@ export async function replaceContactEmail(input: {
 
   if (input.oldContactId || input.oldEmail) {
     try {
-      await resend.contacts.remove(
+      await getResend().contacts.remove(
         input.oldContactId
           ? { audienceId: AUDIENCE_ID!, id: input.oldContactId }
           : { audienceId: AUDIENCE_ID!, email: normalizeEmail(input.oldEmail!) },
@@ -271,7 +269,7 @@ export async function unsubscribeContactInResend(input: {
   const email = normalizeEmail(input.email);
 
   try {
-    const { error } = await resend.contacts.update(
+    const { error } = await getResend().contacts.update(
       input.contactId
         ? { audienceId: AUDIENCE_ID!, id: input.contactId, unsubscribed: true }
         : { audienceId: AUDIENCE_ID!, email, unsubscribed: true },

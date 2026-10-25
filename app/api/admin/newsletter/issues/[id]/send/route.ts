@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server';
-import { Resend } from 'resend';
+import { getResend } from '@/lib/resend';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireAdmin } from '@/lib/admin-auth';
 import { getIssueStats, renderIssueHtml } from '@/lib/newsletter-issue';
 import { getRecipients, type NewsletterSegment } from '@/lib/newsletter-segments';
 import { NEWSLETTER_FROM, NEWSLETTER_REPLY_TO, unsubscribeUrl } from '@/lib/newsletter';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 /** Resend accepts up to 100 messages per batch call. */
 const BATCH_SIZE = 100;
@@ -83,7 +81,7 @@ export async function POST(
   if (typeof body.test === 'string' && body.test.trim()) {
     const to = body.test.trim();
     const html = renderIssueHtml({ ...issue, auto_stats: stats }, { email: to });
-    const { error } = await resend.emails.send(send(to, html));
+    const { error } = await getResend().emails.send(send(to, html));
 
     if (error) {
       console.error('[newsletter] test send failed:', error);
@@ -181,7 +179,7 @@ export async function POST(
     );
 
     try {
-      const { error } = await resend.batch.send(payload);
+      const { error } = await getResend().batch.send(payload);
       if (error) {
         failed += chunk.length;
         console.error(`[newsletter] batch at offset ${i} failed:`, error);

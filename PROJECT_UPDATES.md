@@ -19,6 +19,7 @@ Built on a branch off main, kept off main until Kevin says so: page transcriptio
   - **Batch:** all 26 pages done in about 3 minutes for $0.33 (estimate $0.52). Collecting the results a second time didn't double-count. Search found "Plantation" on a page through its transcript; logged out, the collection stayed locked.
   - **Assistant:** 0.2–1.1¢ per question with prompt caching. As a free account, 7 members-only groups came back with no record data.
 - **SQL tests:** 14 PGlite tests of the migration, run with Supabase's default grants.
+- **Previews build without email or payment keys:** the Resend and Stripe clients were created when their modules loaded, and both constructors throw without a key. A Vercel preview (no `RESEND_API_KEY`) therefore failed the whole build at `/auth/callback`. Both are now created on first use (`lib/resend.ts` `getResend`, `lib/stripe/client.ts` `getStripe`); with the keys set, production behaves exactly as before. Reproduced locally by building with `.env` files skipped (`__NEXT_PROCESSED_ENV=true`). A preview still needs the three Supabase variables: the sitemap reads the archive at build time. It also needs `ANTHROPIC_API_KEY` for the AI features.
 
 **Next actions**
 - Kevin and the client compare the pilot readings in Admin → Transcriptions, then choose the batch model, per collection where it matters.
