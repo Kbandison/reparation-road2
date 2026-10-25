@@ -14,6 +14,9 @@ import {
   Upload,
   ImagePlus,
   Network,
+  ScrollText,
+  Sparkles,
+  Gauge,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -27,6 +30,7 @@ export const platformNavItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Collection', href: '/collection', icon: Library },
   { label: 'Search', href: '/search', icon: Search },
+  { label: 'Assistant', href: '/assistant', icon: Sparkles },
   { label: 'Family Tree', href: '/family-tree', icon: Network },
   { label: 'Bookmarks', href: '/dashboard/bookmarks', icon: Bookmark },
   { label: 'Forum', href: '/forum', icon: MessageSquare },
@@ -40,6 +44,8 @@ export const adminNavItems: NavItem[] = [
   { label: 'Import Records', href: '/admin/import', icon: Upload },
   { label: 'Upload Images', href: '/admin/images', icon: ImagePlus },
   { label: 'Related Records', href: '/admin/related-records', icon: Link2 },
+  { label: 'Transcriptions', href: '/admin/transcriptions', icon: ScrollText },
+  { label: 'AI Usage', href: '/admin/ai-usage', icon: Gauge },
   { label: 'Forum', href: '/admin/forum', icon: MessageSquare },
   { label: 'Bookings', href: '/admin/bookings', icon: CalendarDays },
   { label: 'Newsletter', href: '/admin/newsletter', icon: Mail },

@@ -7,7 +7,9 @@ import { describeColumns, fetchTableSchema, waitForSchema, type TableSchema } fr
 import { insertRows, loadExistingSlugs, normalizeRecords } from '@/lib/import/insert';
 import { canConvertToText } from '@/lib/import/values';
 import { imageKey } from '@/lib/import/image-matching';
-import { DescriptionError, generateDescriptions } from '@/lib/ai/descriptions';
+import { generateDescriptions } from '@/lib/ai/descriptions';
+import { suggestMapping } from '@/lib/ai/mapping';
+import { AiError } from '@/lib/ai/client';
 
 // Table and column names are interpolated into SQL and select strings.
 const SAFE_IDENTIFIER = /^[a-z0-9_]+$/i;
@@ -619,6 +621,44 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, ...described });
   }
 
+  // Claude's column suggestions for the Mapping step.
+  if (body.action === 'suggest-mapping') {
+    const { collectionName, mode, headers, sampleRows, existingColumns, taggedColumns } = body as {
+      collectionName?: string;
+      mode?: string;
+      headers?: unknown[];
+      sampleRows?: unknown[];
+      existingColumns?: Record<string, unknown>;
+      taggedColumns?: unknown[];
+    };
+    if (!Array.isArray(headers) || headers.length === 0) {
+      return NextResponse.json({ error: 'headers are required' }, { status: 400 });
+    }
+    try {
+      const suggestion = await suggestMapping(
+        {
+          collectionName: String(collectionName ?? ''),
+          mode: mode === 'existing' ? 'existing' : 'new',
+          headers: headers.map(String).slice(0, 200),
+          sampleRows: Array.isArray(sampleRows)
+            ? sampleRows.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object').slice(0, 12)
+            : [],
+          existingColumns:
+            existingColumns && typeof existingColumns === 'object'
+              ? Object.fromEntries(Object.entries(existingColumns).map(([k, v]) => [k, String(v)]))
+              : {},
+          taggedColumns: Array.isArray(taggedColumns) ? taggedColumns.map(String) : [],
+        },
+        { admin: supabase, userId: admin.id },
+      );
+      return NextResponse.json(suggestion);
+    } catch (err) {
+      if (err instanceof AiError) return NextResponse.json({ error: err.message }, { status: err.status });
+      console.error('[suggest-mapping] error', err);
+      return NextResponse.json({ error: 'Failed to call AI service' }, { status: 500 });
+    }
+  }
+
   // Short + long descriptions for a collection or folder, written by Claude.
   if (body.action === 'generate-descriptions') {
     const { name, category, era, region, headers, sampleRows, kind, tabNames } = body as {
@@ -644,10 +684,10 @@ export async function POST(request: NextRequest) {
         headers: Array.isArray(headers) ? headers.map(String) : undefined,
         sampleRows: Array.isArray(sampleRows) ? sampleRows : undefined,
         tabNames: Array.isArray(tabNames) ? tabNames.map(String) : undefined,
-      });
+      }, { admin: supabase, userId: admin.id });
       return NextResponse.json(descriptions);
     } catch (err) {
-      if (err instanceof DescriptionError) return NextResponse.json({ error: err.message }, { status: err.status });
+      if (err instanceof AiError) return NextResponse.json({ error: err.message }, { status: err.status });
       console.error('[generate-descriptions] error', err);
       return NextResponse.json({ error: 'Failed to call AI service' }, { status: 500 });
     }

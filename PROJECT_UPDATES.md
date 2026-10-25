@@ -2,6 +2,30 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-25T20:11Z: AI features on the `ai-features` branch (not live)
+
+Built on a branch off main, kept off main until Kevin says so: page transcription, import column suggestions, the research assistant moved from `future-checklist` with caps per account level, and an admin view of AI spend against a $500 monthly budget. `ai_features_migration.sql` was run and checked on the live database the same day.
+
+**Minor updates**
+- **Usage, caps and budget** (`lib/ai/`): every Claude call is logged with tokens and cost (`ai_usage`; prices in `lib/ai/models.ts`). Assistant caps: free 10/day and 50/month, members and donors 40 and 400, admins none. The assistant pauses for non-admins at $450 of monthly spend, and admin tools stop at $500. A question reserves its slot atomically (`ai_reserve_assistant_message`, per-user advisory lock). A question that fails before answering doesn't count against the user, but its spend counts toward the budget. Admin → AI Usage shows spend by feature and by user, and edits the caps (`app_settings.ai_limits`). The cap functions are service-key only; anon calls were checked and refused.
+- **Assistant** (`lib/assistant/`, `/api/assistant/*`): moved to the official Anthropic SDK (1.3.0) and Claude Sonnet 5; the AI SDK v6 the branch used is a major version behind. Answers stream as JSON lines; a small hook (`lib/hooks/use-assistant-chat.ts`) replaces `useChat`. Tools call the search engine directly with the user's real access (the old tool fetched the search endpoint without the user's cookies). Members-only matches come back as counts only, and related records in locked collections hide their names. Fixed tools: the bookmarks tool read columns that don't exist, collection filters broke on commas and parentheses, `find_records` was retired, and `record_id` is validated as a uuid. Each answer stores its exact API turns, and history replays them; a turn that stops mid-tool is closed with "interrupted" results. Mounted in `MainNavServer` (it already looks up the user), plus an Assistant nav link.
+- **Transcription** (`lib/transcription/`, Admin → Transcriptions): pages go to Claude through Supabase's resize endpoint at 2576px (a 29 MB original arrives as 0.87 MB). There is one transcript per page (`scan_transcriptions`, keyed `bucket/path` via `referenceKey`), shown under the scan in the record viewer with an AI label. Admins correct transcripts in place; Claude's original is kept in `ai_text`. The pilot runs the same pages through Sonnet 5 and Opus 5.5 (`transcription_trials`). Batches use the Batch API at half price. A batch is refused if it would pass the budget, and running batches hold their estimate against it. Collection is idempotent: only one caller can switch a job to ingesting, transcripts never overwrite existing ones, and the cost is logged under the job's id. Pages with OCR text are skipped unless "Also redo" is ticked. Each batch can pick its own model.
+- **Search finds transcripts:** `lib/collections/search.ts` now holds the search engine (moved out of the route; on 5 queries it returned the same groups, totals and record ids as live). It adds "On scanned pages" hits, one per page with a snippet, only for collections the viewer can open.
+- **Import suggestions** (`lib/ai/mapping.ts`): when a file is read, Claude checks column matches in the background. Differences show under each column with Accept and Apply all. New collections get suggested table and search columns on Preview (`components/admin/import-display-columns.tsx`). The prompt keeps notes and transcriber's-notes columns, and picks names and places for search.
+- **Live tests** (about $3.70, all logged): a pilot of 20 pages × 2 models, a batch of Manumission Books, 4 assistant questions, and 2 import-suggestion calls.
+  - **Pilot cost per page in a batch:** Sonnet 2.4¢ (20/20 read); Opus 4.5¢ (19/20).
+  - **Pilot agreement between models:** 98–100% on the pension letters, 82–98% on the Georgia and SC registers, 52–87% on the St. Augustine baptisms (Sonnet marked words illegible that Opus read), and 74–85% on the Cherokee Henderson Roll.
+  - **Pilot failure:** Opus ran 16,000 and then 32,000 tokens on one Cherokee page without finishing, where Sonnet needed 8,400. The limit stays at 16,000, and the prompt now says to read the page once and move on.
+  - **Batch:** all 26 pages done in about 3 minutes for $0.33 (estimate $0.52). Collecting the results a second time didn't double-count. Search found "Plantation" on a page through its transcript; logged out, the collection stayed locked.
+  - **Assistant:** 0.2–1.1¢ per question with prompt caching. As a free account, 7 members-only groups came back with no record data.
+- **SQL tests:** 14 PGlite tests of the migration, run with Supabase's default grants.
+
+**Next actions**
+- Kevin and the client compare the pilot readings in Admin → Transcriptions, then choose the batch model, per collection where it matters.
+- Set a $500 monthly spend limit in the Anthropic Console as a hard backstop.
+- Optional: test effort `medium` on Opus for the dense rolls before using Opus there (needs a little more pilot spend).
+- When ready to go live: merge to main and deploy.
+
 ## 2026-10-25T19:05Z: Search stops giving away members-only records
 
 Site search read every table with the service key and returned matching records from every collection, whatever the visitor's membership. Searching "john" while logged out returned 47 result groups; 43 were from members-only collections and showed names, ages, places and dates. `/api/collection-search/record` went further and returned any members-only record in full to anyone who had its id or slug. Slugs are guessable (`john-smith-0`), and search handed out the ids.

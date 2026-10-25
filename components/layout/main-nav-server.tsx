@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { MainNav } from '@/components/layout/main-nav';
+import { AssistantBubble } from '@/components/assistant/assistant-bubble';
 import type { Profile } from '@/lib/types';
 
 export async function MainNavServer() {
@@ -16,5 +17,12 @@ export async function MainNavServer() {
     profile = data as Profile | null;
   }
 
-  return <MainNav profile={profile} />;
+  return (
+    <>
+      <MainNav profile={profile} />
+      {/* The research assistant, for signed-in users only. Mounted here because
+          this already looks up the user on every page. */}
+      {profile && <AssistantBubble />}
+    </>
+  );
 }

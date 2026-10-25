@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { HighlightMatch } from '@/components/shared/highlight-match';
 import type { Collection, CollectionRecord } from '@/lib/types';
 import { LockedSearchSummary } from '@/components/collection/locked-search-summary';
+import { ScanPageMatches, type PageMatchResult } from '@/components/collection/scan-page-matches';
 
 interface CollectionResult {
   slug: string;
@@ -54,6 +55,8 @@ interface CollectionRecordGroup {
   records: RecordResult[];
   /** Members-only collection the viewer can't open: a match count, no record data. */
   locked?: 'login' | 'subscribe';
+  /** Scanned pages whose transcript matches (one per page, not per record). */
+  pageMatches?: PageMatchResult[];
 }
 
 interface SearchResults {
@@ -335,9 +338,11 @@ export default function SearchPage() {
                           <span className="text-xs text-brand-muted ml-2">in {group.parentName}</span>
                         )}
                       </div>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-brand-card-hover text-brand-muted whitespace-nowrap flex-shrink-0">
-                        {group.records.length} of {group.total}
-                      </span>
+                      {group.total > 0 && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-brand-card-hover text-brand-muted whitespace-nowrap flex-shrink-0">
+                          {group.records.length} of {group.total}
+                        </span>
+                      )}
                     </div>
 
                     <div className="grid gap-3">
@@ -374,6 +379,45 @@ export default function SearchPage() {
                         </button>
                       ))}
                     </div>
+
+                    {group.pageMatches && group.pageMatches.length > 0 && (
+
+                      <ScanPageMatches
+
+                        matches={group.pageMatches}
+
+                        query={query}
+
+                        onOpen={(m) =>
+
+                          openRecordModal({
+
+                            id: m.recordId,
+
+                            slug: m.recordSlug,
+
+                            collectionSlug: group.collectionSlug,
+
+                            collectionName: group.collectionName,
+
+                            parentSlug: group.parentSlug,
+
+                            matchField: 'transcription',
+
+                            matchValue: m.snippet,
+
+                            displayFields: {},
+
+                            score: 0,
+
+                          })
+
+                        }
+
+                      />
+
+                    )}
+
 
                     {remaining > 0 && (
                       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">

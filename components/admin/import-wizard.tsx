@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -37,6 +37,9 @@ import { ImportFailureList } from './import-failure-list';
 import { ImportFailedRowsDownload } from './import-failed-rows-download';
 import { ImportPlacementField } from './import-placement-field';
 import { ImportImageMatches } from './import-image-matches';
+import { ImportMappingSuggestions, SuggestedTarget, type SuggestStatus } from './import-mapping-suggestions';
+import { ImportDisplayColumns } from './import-display-columns';
+import type { MappingSuggestion } from '@/lib/ai/mapping';
 import { CollectionFolderForm, type CreatedFolder } from './collection-folder-form';
 import { CollectionFolderDialog } from './collection-folder-dialog';
 import { folderOptions } from '@/lib/collections/folders';
@@ -213,6 +216,15 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
   const [importProgress, setImportProgress] = useState<({ phase: 'checking' | 'saving' } & ChunkProgress) | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // Claude's column suggestions for the current file, fetched in the background.
+  const [suggestion, setSuggestion] = useState<MappingSuggestion | null>(null);
+  const [suggestStatus, setSuggestStatus] = useState<SuggestStatus>('idle');
+  // The file the latest request was for, so a slow answer for an earlier file is dropped.
+  const suggestFor = useRef(0);
+  // New collections: the columns its table shows and search reads (null = the default).
+  const [displayPick, setDisplayPick] = useState<string[] | null>(null);
+  const [searchPick, setSearchPick] = useState<string[] | null>(null);
 
   // The browser sends the rows chunk by chunk, so closing the tab mid-import
   // would stop it partway. Ask first.
@@ -407,12 +419,36 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
       }
 
       setStep('mapping');
+
+      // Ask Claude to check the matches while the admin reviews them. Never blocks the wizard.
+      const request = ++suggestFor.current;
+      setSuggestion(null);
+      setDisplayPick(null);
+      setSearchPick(null);
+      setSuggestStatus('loading');
+      void postImport({
+        action: 'suggest-mapping',
+        collectionName: mode === 'existing' ? selectedCollection?.name ?? '' : newCollection.name,
+        mode: mode === 'existing' && schema.exists ? 'existing' : 'new',
+        headers: dataHeaders,
+        sampleRows: parsed.rows.slice(0, 12),
+        existingColumns: schema.exists ? schema.columnTypes : {},
+        taggedColumns: [...fixedColumns],
+      }).then(({ ok, data }) => {
+        if (suggestFor.current !== request) return;
+        if (ok) {
+          setSuggestion(data as unknown as MappingSuggestion);
+          setSuggestStatus('ready');
+        } else {
+          setSuggestStatus('failed');
+        }
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to read the file');
     } finally {
       setUploading(false);
     }
-  }, [mode, selectedCollection, activePlacement, fixedColumns, newCollection.slug]);
+  }, [mode, selectedCollection, activePlacement, fixedColumns, newCollection.slug, newCollection.name]);
 
   // Generate descriptions with AI
   const generateDescriptions = async () => {
@@ -682,6 +718,43 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
     () => [...new Set(Object.values(columnMapping).filter(Boolean))],
     [columnMapping],
   );
+  // Columns a visitor sees: everything mapped except the ones the database or
+  // the site manage (image_path renders in the record modal; ocr_text/slug aren't columns to browse).
+  const userColumns = useMemo(
+    () => mappedColumns.filter((c) => !SYSTEM_COLUMNS.has(c) && !BUILT_IN_COLUMNS.has(c)),
+    [mappedColumns],
+  );
+  // A new collection's table and search columns: the admin's pick, else Claude's, else the first few.
+  const displayColumnsForImport = useMemo(() => {
+    const pick = (displayPick ?? suggestion?.displayColumns ?? []).filter((c) => userColumns.includes(c));
+    return pick.length ? pick.slice(0, 12) : userColumns.slice(0, 12);
+  }, [displayPick, suggestion, userColumns]);
+  const searchColumnsForImport = useMemo(() => {
+    const pick = (searchPick ?? suggestion?.searchColumns ?? []).filter((c) => userColumns.includes(c));
+    return pick.length ? pick.slice(0, 4) : userColumns.slice(0, 4);
+  }, [searchPick, suggestion, userColumns]);
+
+  // Headers where Claude would map differently from what's selected now.
+  const differingHeaders = useMemo(
+    () =>
+      suggestion
+        ? fileHeaders.filter((h) => h in suggestion.columns && suggestion.columns[h].target !== (columnMapping[h] || ''))
+        : [],
+    [suggestion, fileHeaders, columnMapping],
+  );
+
+  const applySuggestions = (headers: string[]) => {
+    if (!suggestion) return;
+    const targets = headers.map((h) => suggestion.columns[h]?.target).filter((t): t is string => !!t);
+    // A brand-new column name has to be offered in the dropdown too.
+    setDbColumns((prev) => [...new Set([...prev, ...targets.filter((t) => !['image_path', 'ocr_text', 'slug'].includes(t))])]);
+    setColumnMapping((prev) => {
+      const next = { ...prev };
+      for (const h of headers) if (h in suggestion.columns) next[h] = suggestion.columns[h].target;
+      return next;
+    });
+  };
+
   // The tag column is checked against the table along with the mapped ones.
   const checkedColumns = useMemo(
     () => [...new Set([...mappedColumns, ...fixedColumns])],
@@ -821,9 +894,6 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
       setStep('preview');
     };
 
-    // image_path renders inside the record modal and ocr_text/slug aren't
-    // useful columns, so none of them are displayed or searched.
-    const userMappedCols = mappedColumns.filter((c) => !SYSTEM_COLUMNS.has(c) && !BUILT_IN_COLUMNS.has(c));
 
     let collectionCreated = false;
     let linkedPlaceholder = false;
@@ -859,8 +929,8 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
           tableName,
           discriminatorColumn: placementAtImport.kind === 'shared' ? placementAtImport.column : undefined,
           discriminatorValue: placementAtImport.kind === 'shared' ? placementAtImport.value.trim() : undefined,
-          displayColumns: userMappedCols.slice(0, 12),
-          searchColumns: userMappedCols.slice(0, 4),
+          displayColumns: displayColumnsForImport,
+          searchColumns: searchColumnsForImport,
           hasImages: hasImageColumn,
         });
         if (!linked.ok) return await backToPreview(linked.data.error || `Couldn't connect ${selectedCollection.name} to its table`);
@@ -883,8 +953,8 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
           parentSlug: newCollection.parentSlug || null,
           displayType: newCollection.displayType,
           accessTier: newCollection.accessTier,
-          displayColumns: userMappedCols.slice(0, 12),
-          searchColumns: userMappedCols.slice(0, 4),
+          displayColumns: displayColumnsForImport,
+          searchColumns: searchColumnsForImport,
           hasImages: newCollection.hasImages,
           hasOcr: newCollection.hasOcr,
           isPublished: false,
@@ -1402,6 +1472,12 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
             );
           })()}
 
+          <ImportMappingSuggestions
+            status={suggestStatus}
+            differing={differingHeaders.length}
+            onApplyAll={() => applySuggestions(differingHeaders)}
+          />
+
           <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden">
             {/* Mobile-first: each mapping stacks on phones and becomes a 4-column row from md up. */}
             <div className="hidden md:grid md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.9fr)] gap-4 px-4 py-3 border-b border-brand-gold/[0.08] text-[11px] font-semibold uppercase tracking-wider text-brand-muted">
@@ -1423,20 +1499,29 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
                     className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.9fr)] md:gap-4 md:items-center"
                   >
                     <span className="text-sm text-brand-cream break-words">{header}</span>
-                    <select
-                      value={dbCol}
-                      onChange={(e) => setColumnMapping({ ...columnMapping, [header]: e.target.value })}
-                      aria-label={`Database column for ${header}`}
-                      className="px-2 py-1.5 bg-brand-bg border border-brand-gold/[0.08] rounded-lg text-xs text-brand-cream"
-                    >
-                      <option value="">— Skip —</option>
-                      {dbColumns.map((col) => (
-                        <option key={col} value={col}>{col}</option>
-                      ))}
-                      <option value="image_path">image_path</option>
-                      <option value="ocr_text">ocr_text</option>
-                      <option value="slug">slug</option>
-                    </select>
+                    <div className="min-w-0">
+                      <select
+                        value={dbCol}
+                        onChange={(e) => setColumnMapping({ ...columnMapping, [header]: e.target.value })}
+                        aria-label={`Database column for ${header}`}
+                        className="w-full px-2 py-1.5 bg-brand-bg border border-brand-gold/[0.08] rounded-lg text-xs text-brand-cream"
+                      >
+                        <option value="">— Skip —</option>
+                        {dbColumns.map((col) => (
+                          <option key={col} value={col}>{col}</option>
+                        ))}
+                        <option value="image_path">image_path</option>
+                        <option value="ocr_text">ocr_text</option>
+                        <option value="slug">slug</option>
+                      </select>
+                      {suggestion && differingHeaders.includes(header) && (
+                        <SuggestedTarget
+                          target={suggestion.columns[header].target}
+                          reason={suggestion.columns[header].reason}
+                          onAccept={() => applySuggestions([header])}
+                        />
+                      )}
+                    </div>
                     <ImportColumnTypeField
                       column={dbCol}
                       fixedType={existingType ?? (BUILT_IN_COLUMNS.has(dbCol) ? 'text' : undefined)}
@@ -1796,6 +1881,17 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
             onBackToMapping={() => setStep('mapping')}
           />
 
+          {(mode === 'new' || activePlacement) && (
+            <ImportDisplayColumns
+              columns={userColumns}
+              display={displayColumnsForImport}
+              search={searchColumnsForImport}
+              onDisplayChange={setDisplayPick}
+              onSearchChange={setSearchPick}
+              suggested={displayPick === null && searchPick === null && !!suggestion?.displayColumns.length}
+            />
+          )}
+
           <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -2008,6 +2104,11 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
                 setTableSchema(null);
                 setTypeOverrides({});
                 setResult(EMPTY_RESULT);
+                suggestFor.current++;
+                setSuggestion(null);
+                setSuggestStatus('idle');
+                setDisplayPick(null);
+                setSearchPick(null);
               }}
               variant="outline"
               className="border-brand-gold/20 text-brand-cream rounded-xl"

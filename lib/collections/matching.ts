@@ -152,7 +152,7 @@ const TEXT_TYPES = new Set(['text', 'character varying', 'character', 'citext'])
  * Unquoted, a comma or parenthesis in a value ("Warren County, Georgia") breaks
  * the whole filter, and spaces in a column name ("Entry Type") are dropped.
  */
-function quoted(value: string): string {
+export function quoted(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 

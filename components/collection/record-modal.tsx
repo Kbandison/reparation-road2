@@ -15,6 +15,7 @@ import { useTreeSaves } from '@/lib/hooks/use-tree-saves';
 import { ModalRelatedRecords } from '@/components/collection/modal-related-records';
 import { RecordCitation } from '@/components/collection/record-citation';
 import { ZoomableImage } from '@/components/collection/zoomable-image';
+import { ScanTranscript } from '@/components/collection/scan-transcript';
 
 interface RecordModalProps {
   collection: Collection;
@@ -395,6 +396,9 @@ export function RecordModal({
                         <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
                       </div>
                     </button>
+                  )}
+                  {!isPdf && imagePath && (
+                    <ScanTranscript key={imagePath} collectionSlug={activeCollection.slug} imagePath={imagePath} />
                   )}
                 </div>
               </div>
