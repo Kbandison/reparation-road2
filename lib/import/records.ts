@@ -41,6 +41,28 @@ export function mapRow(
 }
 
 /**
+ * The part of `imageMapping` these rows use, looked up the way mapRow does. A
+ * file sent in chunks carries only its own matches with each one, instead of
+ * every match in the file with every chunk.
+ */
+export function imageMappingForRows(
+  rows: Record<string, unknown>[],
+  columnMapping: Record<string, string>,
+  imageMapping: Record<string, string>,
+): Record<string, string> {
+  const imageHeaders = Object.entries(columnMapping).filter(([, dbCol]) => dbCol === 'image_path').map(([fileCol]) => fileCol);
+  const subset: Record<string, string> = {};
+  for (const row of rows) {
+    for (const header of imageHeaders) {
+      if (isBlank(row[header])) continue;
+      const name = displayValue(row[header]);
+      if (Object.hasOwn(imageMapping, name)) subset[name] = imageMapping[name];
+    }
+  }
+  return subset;
+}
+
+/**
  * Maps every row and tags it with its spreadsheet row number, so problems are
  * reported as rows the admin can find in Excel. Falls back to index + 2 (the
  * header is row 1) when row numbers aren't supplied.

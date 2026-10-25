@@ -24,6 +24,8 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 The import wizard loads an `.xlsx` into a new or existing collection. The rules live in `lib/import/`.
 
+- **Any size of file:** the spreadsheet is read in the browser, in a Web Worker (`lib/import/read-spreadsheet.ts`), and the rows go to the server in chunks of up to 5,000 rows or 3 MB (`lib/import/chunks.ts`). Vercel refuses any request or response over 4.5 MB, which used to stop files past roughly 17,000 rows. Every chunk is checked before any is written, then they're saved one after another with a progress bar. Keep the tab open until it finishes.
+- **If a chunk fails partway** (a dropped connection, a timeout), the wizard counts the table's rows to see whether it landed. A chunk that fully landed is counted, one where nothing landed is retried once, and anything else stops the import. The rows that didn't go in end up in **Download rows to fix**, so only those need importing again.
 - **Column types:** a new column is a whole number only if every value in the file is one; otherwise it's text, kept exactly as transcribed ("7months", "-", "abt 30"). You can change a new column's type on the Mapping step.
 - **Checked before writing:** the Preview step compares every row with the table's real column types (read from PostgREST's OpenAPI description with the service key) and flags mismatches and blank required cells by spreadsheet row. An existing number or yes/no column can be converted to text there.
 - **Drafts:** a new collection stays a Draft until every record is in, then publishes itself.

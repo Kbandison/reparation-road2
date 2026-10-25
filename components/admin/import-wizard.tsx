@@ -22,12 +22,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ImportCollection } from '@/lib/collections/queries';
 import { collectionCategories, collectionEras, collectionRegions } from '@/lib/constants';
-import { BUILT_IN_COLUMNS, SYSTEM_COLUMNS, collectionFixedValues, findConflicts, prepareRows, toTableName } from '@/lib/import/records';
+import { BUILT_IN_COLUMNS, SYSTEM_COLUMNS, collectionFixedValues, findConflicts, imageMappingForRows, prepareRows, toTableName } from '@/lib/import/records';
 import { hasTabs, isPlaceholder, placementProblems, suggestPlacements, type Placement } from '@/lib/import/placeholders';
 import { isFailedRowsHelperHeader } from '@/lib/import/failed-rows';
 import { displayValue, isBlank, profileColumn, typeLabel, type ColumnProfile } from '@/lib/import/values';
 import { imageKey, isStorageLink, matchImages } from '@/lib/import/image-matching';
 import type { ImportColumnType, ImportFailure, TableColumns } from '@/lib/import/types';
+import { fetchApi } from '@/lib/import/http';
+import { checkChunks, chunkRows, insertChunks, jsonBytes, type ChunkProgress, type RowChunk } from '@/lib/import/chunks';
+import { readSpreadsheet } from '@/lib/import/read-spreadsheet';
 import { ImportColumnTypeField } from './import-column-type-field';
 import { ImportPreflight } from './import-preflight';
 import { ImportFailureList } from './import-failure-list';
@@ -59,30 +62,33 @@ interface ImportResult {
 
 const EMPTY_RESULT: ImportResult = { inserted: 0, total: 0, failures: [], error: null, collection: 'none', linkedPlaceholder: false };
 
-/** POSTs a JSON action to the import API and hands back the status with the parsed body. */
-async function postImport(payload: Record<string, unknown>) {
-  const res = await fetch('/api/admin/import', {
+/** POSTs a JSON action to the import API. A failure always carries a readable `data.error`. */
+function postImport(payload: Record<string, unknown>) {
+  return fetchApi('/api/admin/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data };
 }
 
 /** The target table's real columns and types, or { exists: false } when there's no such table. */
 async function loadTableSchema(table: string): Promise<TableSchemaState> {
-  const res = await fetch(`/api/admin/import?action=schema&table=${encodeURIComponent(table)}`);
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 404 && data.exists === false) return { exists: false };
-  if (!res.ok) throw new Error(data.error || 'Could not read the table schema');
+  const { ok, status, data } = await fetchApi(`/api/admin/import?action=schema&table=${encodeURIComponent(table)}`);
+  if (status === 404 && data.exists === false) return { exists: false };
+  if (!ok) throw new Error(data.error || 'Could not read the table schema');
   return {
     exists: true,
-    columns: data.columns ?? [],
-    columnTypes: data.columnTypes ?? {},
-    requiredColumns: data.requiredColumns ?? [],
-    rowCount: data.rowCount ?? null,
+    columns: (data.columns as string[] | undefined) ?? [],
+    columnTypes: (data.columnTypes as Record<string, string> | undefined) ?? {},
+    requiredColumns: (data.requiredColumns as string[] | undefined) ?? [],
+    rowCount: (data.rowCount as number | null | undefined) ?? null,
   };
+}
+
+/** How many rows the table holds right now, or null when it can't be read. */
+async function countTableRows(table: string): Promise<number | null> {
+  const { ok, data } = await fetchApi(`/api/admin/import?action=row-count&table=${encodeURIComponent(table)}`);
+  return ok && typeof data.count === 'number' ? data.count : null;
 }
 
 interface StorageFile {
@@ -203,8 +209,23 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
 
   // Import outcome
   const [result, setResult] = useState<ImportResult>(EMPTY_RESULT);
+  // Rows checked or saved so far while the import runs (null while the table is prepared).
+  const [importProgress, setImportProgress] = useState<({ phase: 'checking' | 'saving' } & ChunkProgress) | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // The browser sends the rows chunk by chunk, so closing the tab mid-import
+  // would stop it partway. Ask first.
+  useEffect(() => {
+    if (step !== 'importing') return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Older browsers only show the prompt when returnValue is set.
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [step]);
 
   const selectedCollection = collections.find((c) => c.slug === selectedSlug);
   const collectionBySlug = useMemo(() => new Map(collections.map((c) => [c.slug, c])), [collections]);
@@ -307,14 +328,15 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
   // Step: Upload file
   const handleFileUpload = useCallback(async (file: File) => {
     setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
 
     try {
-      const res = await fetch('/api/admin/import', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) { toast.error(data.error); setUploading(false); return; }
-
+      // Read in the browser, off the main thread: sending the rows back from
+      // the server broke past Vercel's 4.5 MB response limit.
+      const parsed = await readSpreadsheet(file);
+      if (parsed.rows.length === 0) {
+        toast.error('This file has no rows to import');
+        return;
+      }
       // Read the target table's real columns and types. A new collection's
       // table normally doesn't exist yet, but an earlier failed run can leave
       // one behind, and its types are what the rows must fit.
@@ -326,19 +348,18 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
       // table can legitimately not exist yet.
       if (mode === 'existing' && !schema.exists && activePlacement?.kind !== 'own') {
         toast.error(`This collection's table (${table}) doesn't exist`);
-        setUploading(false);
         return;
       }
       const existingCols = schema.exists ? schema.columns : [];
       // A "rows to fix" download carries two helper columns; they're never data.
-      const dataHeaders = (data.headers as string[]).filter((h) => !isFailedRowsHelperHeader(h));
+      const dataHeaders = parsed.headers.filter((h) => !isFailedRowsHelperHeader(h));
 
       setFileName(file.name);
-      setFileHeaders(data.headers);
-      setSampleRows(data.sampleRows);
-      setAllRows(data.allRows);
-      setRowNumbers(data.rowNumbers ?? []);
-      setRowCount(data.rowCount);
+      setFileHeaders(parsed.headers);
+      setSampleRows(parsed.rows.slice(0, 10));
+      setAllRows(parsed.rows);
+      setRowNumbers(parsed.rowNumbers);
+      setRowCount(parsed.rows.length);
       setTableSchema(schema);
       setTypeOverrides({});
 
@@ -347,7 +368,7 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
         // maps to a NEW column (added on import) instead of being dropped.
         const mapping: Record<string, string> = {};
         const tagged: string[] = [];
-        for (const header of data.headers) {
+        for (const header of parsed.headers) {
           if (isFailedRowsHelperHeader(header)) {
             mapping[header] = '';
             continue;
@@ -374,10 +395,10 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
       } else {
         // New collection — DB columns are derived from the file (plus any a
         // leftover table already has).
-        const cols: string[] = (data.headers as string[]).map((h) => toColumnName(h));
+        const cols: string[] = parsed.headers.map((h) => toColumnName(h));
         setDbColumns([...new Set([...existingCols, ...dataHeaders.map(toColumnName)])]);
         const mapping: Record<string, string> = {};
-        data.headers.forEach((h: string, i: number) => {
+        parsed.headers.forEach((h, i) => {
           // Image-like columns always go to image_path so no redundant DB column is created.
           mapping[h] = isFailedRowsHelperHeader(h) ? '' : looksLikeImageColumn(cols[i]) ? 'image_path' : cols[i];
         });
@@ -387,9 +408,10 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
 
       setStep('mapping');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to parse file');
+      toast.error(err instanceof Error ? err.message : 'Failed to read the file');
+    } finally {
+      setUploading(false);
     }
-    setUploading(false);
   }, [mode, selectedCollection, activePlacement, fixedColumns, newCollection.slug]);
 
   // Generate descriptions with AI
@@ -739,7 +761,12 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
     if (!ok) throw new Error(data.error || `Couldn't convert ${column}`);
     setTableSchema((prev) =>
       prev?.exists
-        ? { ...prev, columns: data.columns, columnTypes: data.columnTypes, requiredColumns: data.requiredColumns }
+        ? {
+            ...prev,
+            columns: data.columns as string[],
+            columnTypes: data.columnTypes as Record<string, string>,
+            requiredColumns: data.requiredColumns as string[],
+          }
         : prev,
     );
     toast.success(`${column} is now a text column`);
@@ -749,17 +776,36 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
   const handleImport = async () => {
     if (!readyToImport) return;
     setStep('importing');
+    setImportProgress(null);
 
     const tableName = targetTable;
     const placementAtImport = activePlacement;
-    const recordsPayload = {
-      tableName,
-      records: allRows,
-      rowNumbers,
-      columnMapping,
-      imageMapping: Object.keys(imageMapping).length > 0 ? imageMapping : undefined,
-      fixedValues: fixedColumns.size > 0 ? fixedValues : undefined,
+
+    // The rows travel in chunks, each well under Vercel's 4.5 MB request
+    // limit. Each chunk carries only the image matches its own rows use.
+    const imageMappingFor = (rows: Record<string, unknown>[]) =>
+      Object.keys(imageMapping).length > 0 ? imageMappingForRows(rows, columnMapping, imageMapping) : undefined;
+    const chunks = chunkRows(allRows.length, (i) => {
+      const row = allRows[i];
+      // +12 for the row's number in rowNumbers and the JSON punctuation around it.
+      return jsonBytes(row) + jsonBytes(imageMappingFor([row]) ?? {}) + 12;
+    });
+    const chunkPayload = (chunk: RowChunk) => {
+      const records = allRows.slice(chunk.start, chunk.end);
+      return {
+        action: 'insert-records',
+        tableName,
+        records,
+        rowNumbers: rowNumbers.slice(chunk.start, chunk.end),
+        columnMapping,
+        imageMapping: imageMappingFor(records),
+        fixedValues: fixedColumns.size > 0 ? fixedValues : undefined,
+        // Slugs keep numbering from the previous chunk, as if the file went in whole.
+        slugOffset: chunk.start,
+      };
     };
+    const trackProgress = (phase: 'checking' | 'saving') => (progress: ChunkProgress) =>
+      setImportProgress({ phase, ...progress });
 
     // A failure before any rows are written goes back to Preview with the reason,
     // re-reading the table when the server found something the browser didn't.
@@ -792,13 +838,17 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
         if (!created.ok) return await backToPreview(created.data.error || 'Failed to prepare table columns');
       }
 
-      if (mode === 'new' || placementAtImport) {
-        // 2. Have the server confirm the whole file fits BEFORE the collection
-        //    exists (or a placeholder is pointed at the table). A problem here
-        //    leaves nothing behind but an empty table, which the next attempt reuses.
-        const check = await postImport({ ...recordsPayload, action: 'insert-records', dryRun: true });
-        if (!check.ok) return await backToPreview(check.data.error || 'The file failed its final check', check.status === 422);
-      }
+      // 2. Have the server confirm every chunk fits BEFORE any is written, and
+      //    before the collection exists (or a placeholder is pointed at the
+      //    table). A problem here leaves nothing behind but an empty table,
+      //    which the next attempt reuses.
+      setImportProgress({ phase: 'checking', done: 0, total: allRows.length });
+      const refused = await checkChunks(
+        chunks,
+        (chunk) => postImport({ ...chunkPayload(chunk), dryRun: true }),
+        trackProgress('checking'),
+      );
+      if (refused) return await backToPreview(refused.data.error || 'The file failed its final check', refused.status === 422);
 
       if (placementAtImport && selectedCollection) {
         // 3a. Point the placeholder at its table (and tag). It stays live, so
@@ -843,18 +893,26 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
         collectionCreated = true;
       }
 
-      // 4. Insert. The server re-checks every row first and writes nothing on a mismatch.
-      const inserted = await postImport({ ...recordsPayload, action: 'insert-records' });
-      if (inserted.status === 422 && mode === 'existing') {
-        return await backToPreview(inserted.data.error || "Some values don't fit this table", true);
+      // 4. Insert, chunk by chunk. The server re-checks every row first and
+      //    writes nothing from a chunk on a mismatch.
+      setImportProgress({ phase: 'saving', done: 0, total: allRows.length });
+      const outcome = await insertChunks({
+        chunks,
+        rowNumbers,
+        insert: (chunk) => postImport(chunkPayload(chunk)),
+        countRows: () => countTableRows(tableName),
+        onProgress: trackProgress('saving'),
+      });
+      if (outcome.rejectedUpFront && mode === 'existing') {
+        return await backToPreview(outcome.stopReason || "Some values don't fit this table", true);
       }
-      if (!inserted.ok) throw new Error(inserted.data.error || 'Import failed');
+      const complete = outcome.stopReason === null && outcome.failures.length === 0;
 
       // 5. A new collection goes live only when every record landed.
       let collection: ImportResult['collection'] = mode === 'existing'
         ? (selectedCollection?.is_published ? 'published' : 'draft')
         : 'draft';
-      if (mode === 'new' && inserted.data.success) {
+      if (mode === 'new' && complete) {
         const published = await postImport({ action: 'publish-collection', slug: newCollection.slug });
         if (published.ok) collection = 'published';
         else toast.error(published.data.error || 'The records are in, but publishing failed. Publish it from Admin → Collections.');
@@ -862,21 +920,22 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
 
       // 6. Record counts on collection cards (and their parents' totals) are
       //    stored, so refresh them now that rows were added.
-      if (Number(inserted.data.inserted) > 0) {
+      if (outcome.inserted > 0) {
         const synced = await fetch('/api/admin/sync-counts', { method: 'POST' }).catch(() => null);
         if (!synced?.ok) toast.error('The records are in, but the record counts didn’t refresh. Use Sync Record Counts in Admin → Collections.');
       }
 
       setResult({
-        inserted: inserted.data.inserted ?? 0,
-        total: inserted.data.total ?? allRows.length,
-        failures: inserted.data.failures ?? [],
-        error: null,
+        inserted: outcome.inserted,
+        total: allRows.length,
+        failures: outcome.failures,
+        error: outcome.stopReason,
         collection,
         linkedPlaceholder,
       });
-      if (inserted.data.success) toast.success(`Imported ${Number(inserted.data.inserted).toLocaleString()} records`);
-      else toast.error(`Imported ${inserted.data.inserted} of ${inserted.data.total}. Some rows need attention`);
+      if (complete) toast.success(`Imported ${outcome.inserted.toLocaleString()} records`);
+      else if (outcome.stopReason) toast.error(`The import stopped after ${outcome.inserted.toLocaleString()} of ${allRows.length.toLocaleString()} records`);
+      else toast.error(`Imported ${outcome.inserted.toLocaleString()} of ${allRows.length.toLocaleString()}. Some rows need attention`);
     } catch (err) {
       setResult({
         inserted: 0,
@@ -1830,13 +1889,33 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
       )}
 
       {/* Step: Importing */}
-      {step === 'importing' && (
-        <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-10 text-center">
-          <Loader2 className="w-10 h-10 text-brand-gold mx-auto mb-4 animate-spin" />
-          <h3 className="font-display text-lg font-semibold text-brand-cream mb-2">Importing Records...</h3>
-          <p className="text-sm text-brand-muted">Please wait while records are being inserted into the database.</p>
-        </div>
-      )}
+      {step === 'importing' && (() => {
+        const percent = importProgress && importProgress.total > 0
+          ? Math.round((importProgress.done / importProgress.total) * 100)
+          : 0;
+        return (
+          <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 sm:p-10 text-center">
+            <Loader2 className="w-10 h-10 text-brand-gold mx-auto mb-4 animate-spin" aria-hidden="true" />
+            <h3 className="font-display text-lg font-semibold text-brand-cream mb-2">Importing Records…</h3>
+            <p className="text-sm text-brand-muted" aria-live="polite">
+              {!importProgress
+                ? 'Preparing the table…'
+                : `${importProgress.phase === 'checking' ? 'Checking rows' : 'Saving records'}… ${importProgress.done.toLocaleString()} of ${importProgress.total.toLocaleString()}`}
+            </p>
+            <div
+              className="mx-auto mt-4 h-1.5 max-w-sm rounded-full bg-brand-bg overflow-hidden"
+              role="progressbar"
+              aria-label={importProgress?.phase === 'saving' ? 'Records saved' : 'Rows checked'}
+              aria-valuenow={percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div className="h-full bg-brand-gold transition-[width] duration-300" style={{ width: `${percent}%` }} />
+            </div>
+            <p className="text-[11px] text-brand-muted mt-3">Keep this tab open until it finishes.</p>
+          </div>
+        );
+      })()}
 
       {/* Step: Done */}
       {step === 'done' && (() => {

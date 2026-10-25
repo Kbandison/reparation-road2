@@ -2,6 +2,24 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-25T18:10Z: Imports of any size
+
+A large table failed with "The file failed its final check". Vercel refuses any request or response over 4.5 MB (FUNCTION_PAYLOAD_TOO_LARGE). The wizard uploaded the file and got every row back in one response, then sent every row, plus every image match, in a single request, twice (once for the check, once for the insert). At about 263 bytes per row, anything past roughly 17,000 rows failed before a single row was written. The message was vague because Vercel's refusal is plain text and the wizard only read JSON.
+
+**Minor updates**
+- The spreadsheet is read in the browser, in a Web Worker so the page stays responsive (`lib/import/read-spreadsheet.ts`, `parse-spreadsheet.ts`, `parse-spreadsheet.worker.ts`). It uses the same SheetJS reading as before, with the same rows and row numbers. The server no longer parses files, and the route no longer imports `xlsx`.
+- Rows go to the server in chunks of up to 5,000 rows or 3 MB (`lib/import/chunks.ts`). A realistic 40,000-row file is 14.4 MB in one piece; chunked, its biggest request is 1.8 MB. Each chunk carries only its own rows' image matches (`imageMappingForRows`).
+- Every chunk is dry-run before any is written. Existing collections get this check too, so a value that doesn't fit still means nothing goes in.
+- Inserting shows a progress bar ("Saving records… 12,000 of 34,512"), and the browser asks before the tab is closed mid-import.
+- When a chunk's request fails in a way that could have happened midway (5xx or a dropped connection), the wizard reads the table's row count (`GET ?action=row-count`). A chunk that fully landed is counted, one where nothing landed is retried once, and anything else stops the import. The rows that didn't go in, or may not have, land in "Download rows to fix" with the reason. There are no blind retries, so rows can't be saved twice.
+- Slugs keep their `<name>-<row index>` numbering across chunks (`assignUniqueSlugs` takes an offset; the route takes `slugOffset`). A test confirms chunked slugs match whole-file slugs.
+- Errors that aren't the API's own JSON now read plainly, e.g. "The request was too large for the server (FUNCTION_PAYLOAD_TOO_LARGE)." (`lib/import/http.ts`).
+- The import route sets `maxDuration = 300` explicitly.
+- Checked: 29 helper tests (parsing matches the old server parse, chunk sizes, the retry and stop cases, slugs, error text); a production build read a 40,000-row file through the worker in Chromium in about 0.3s with the page still painting; the row count works on every table, including `enslaved_catholic_kentuky`; `tsc` and ESLint are clean on the changed files.
+
+**Next actions**
+- Re-run the import that failed. It most likely left the empty `18th_century_tax_lists` table (no collection uses it), which a retry under the same slug reuses automatically. Its `date` column was created as a whole number, so if the file's dates aren't all whole numbers, Preview will offer to convert it to text.
+
 ## 2026-10-11T19:08Z: Archive matching goes easier on the live database
 
 Re-running archive matching for every tree person, four people at a time, slowed the whole site. Typical page queries went from about 70ms to 174ms, with spikes near a second, and the family tree was slow to open. The tree's automatic "match everyone" loop, which runs after a GEDCOM import, has the same pattern. The re-run was stopped at 1,150 of 2,846 people (all saved).

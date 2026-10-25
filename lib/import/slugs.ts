@@ -21,8 +21,10 @@ export function slugify(text: string, maxLength = 80): string {
  * - A slug the file supplies is kept as-is unless it's taken, then gets -2, -3…
  *
  * `taken` holds the table's existing slugs and is updated in place.
+ * `indexOffset` is the position of `records[0]` in the whole file: a file sent
+ * in chunks keeps numbering from where the previous chunk stopped.
  */
-export function assignUniqueSlugs(records: Record<string, unknown>[], taken: Set<string>): void {
+export function assignUniqueSlugs(records: Record<string, unknown>[], taken: Set<string>, indexOffset = 0): void {
   const nextNumber = new Map<string, number>();
 
   const claim = (preferred: string, base: string, firstNumber: number): string => {
@@ -47,6 +49,6 @@ export function assignUniqueSlugs(records: Record<string, unknown>[], taken: Set
       ([column, value]) => column !== 'slug' && typeof value === 'string' && value.trim(),
     )?.[1] as string | undefined;
     const base = (firstText && slugify(firstText)) || 'record';
-    record.slug = claim(`${base}-${index}`, base, 0);
+    record.slug = claim(`${base}-${indexOffset + index}`, base, 0);
   });
 }

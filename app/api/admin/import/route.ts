@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import * as XLSX from 'xlsx';
 import { SYSTEM_COLUMNS, findConflicts, prepareRows, toTableName } from '@/lib/import/records';
 import { assignUniqueSlugs } from '@/lib/import/slugs';
 import { describeColumns, fetchTableSchema, waitForSchema, type TableSchema } from '@/lib/import/table-schema';
 import { insertRows, loadExistingSlugs, normalizeRecords } from '@/lib/import/insert';
-import { canConvertToText, isBlank } from '@/lib/import/values';
+import { canConvertToText } from '@/lib/import/values';
 import { imageKey } from '@/lib/import/image-matching';
 import { DescriptionError, generateDescriptions } from '@/lib/ai/descriptions';
 
 // Table and column names are interpolated into SQL and select strings.
 const SAFE_IDENTIFIER = /^[a-z0-9_]+$/i;
+
+// An insert chunk writes up to a few thousand rows in 500-row batches. Set
+// explicitly, as the other long-running admin routes do, rather than relying
+// on the platform default.
+export const maxDuration = 300;
 
 const errorMessage = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
@@ -57,6 +61,17 @@ export async function GET(request: NextRequest) {
     const { count } = await supabase.from(tableName).select('id', { count: 'exact', head: true });
 
     return NextResponse.json({ exists: true, ...describeColumns(schema), rowCount: count ?? null });
+  }
+
+  // The wizard reads this when an insert request fails, to tell whether the
+  // chunk landed before the failure, so it never re-sends rows already saved.
+  if (action === 'row-count') {
+    const tableName = searchParams.get('table') || '';
+    if (!SAFE_IDENTIFIER.test(tableName)) return NextResponse.json({ error: 'Invalid table name' }, { status: 400 });
+    // '*' rather than 'id': some older tables have no id column.
+    const { count, error } = await supabase.from(tableName).select('*', { count: 'exact', head: true });
+    if (error || count === null) return NextResponse.json({ error: error?.message || 'Could not count rows' }, { status: 502 });
+    return NextResponse.json({ count });
   }
 
   if (action === 'storage-buckets') {
@@ -153,54 +168,19 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
 }
 
-// POST — parse xlsx, create table, or insert records
+// POST — create the table and collection, or check and insert records. The
+// spreadsheet itself is read in the browser (lib/import/read-spreadsheet.ts)
+// and its rows arrive here in chunks, each under Vercel's 4.5 MB body limit.
 export async function POST(request: NextRequest) {
   const admin = await verifyAdmin();
   if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const contentType = request.headers.get('content-type') || '';
-
-  // Handle multipart file upload (xlsx parsing)
-  if (contentType.includes('multipart/form-data')) {
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    if (!file) return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-
-    // Parse with header row
-    const parsed = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-
-    // Keep each row's real spreadsheet row number so problems can be reported
-    // as rows the admin can find in Excel. SheetJS skips empty rows, so the
-    // array index drifts; it records the true 0-based sheet row as a
-    // non-enumerable __rowNum__. Rows holding only whitespace aren't records.
-    const rows: Record<string, unknown>[] = [];
-    const rowNumbers: number[] = [];
-    parsed.forEach((row, i) => {
-      if (Object.values(row).every(isBlank)) return;
-      rows.push(row);
-      const sheetRow = (row as { __rowNum__?: number }).__rowNum__;
-      rowNumbers.push(typeof sheetRow === 'number' ? sheetRow + 1 : i + 2);
-    });
-    const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
-
-    // Column types are chosen in the wizard from every row (lib/import/values),
-    // not guessed here from a sample.
-    return NextResponse.json({
-      headers,
-      rowCount: rows.length,
-      sampleRows: rows.slice(0, 10),
-      allRows: rows,
-      rowNumbers,
-    });
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Expected a JSON request body' }, { status: 400 });
   }
-
-  // Handle JSON actions
-  const body = await request.json();
   const supabase = createAdminClient();
 
   // Match uploaded filenames to records and write the storage path onto their
@@ -674,7 +654,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (body.action === 'insert-records') {
-    const { tableName, records, rowNumbers, columnMapping, imageMapping, fixedValues, dryRun } = body as {
+    const { tableName, records, rowNumbers, columnMapping, imageMapping, fixedValues, dryRun, slugOffset } = body as {
       tableName: string;
       records: Record<string, unknown>[];
       rowNumbers?: number[]; // spreadsheet row of each record, for error reports
@@ -682,10 +662,14 @@ export async function POST(request: NextRequest) {
       imageMapping?: Record<string, string>; // file image name -> storage path
       fixedValues?: Record<string, string>; // db col -> value written on every row (a shared table's tab tag)
       dryRun?: boolean; // check the file against the table without writing
+      slugOffset?: number; // position of records[0] in the whole file, when it arrives in chunks
     };
 
     if (!tableName || !SAFE_IDENTIFIER.test(tableName) || !Array.isArray(records) || records.length === 0 || !columnMapping) {
       return NextResponse.json({ error: 'tableName, records, and columnMapping are required' }, { status: 400 });
+    }
+    if (slugOffset !== undefined && !(Number.isInteger(slugOffset) && slugOffset >= 0)) {
+      return NextResponse.json({ error: 'slugOffset must be a whole number' }, { status: 400 });
     }
 
     const fixed = fixedValues && typeof fixedValues === 'object' ? fixedValues : {};
@@ -739,6 +723,7 @@ export async function POST(request: NextRequest) {
         assignUniqueSlugs(
           prepared.map((p) => p.record),
           await loadExistingSlugs(supabase, tableName),
+          slugOffset ?? 0,
         );
       } catch (err) {
         return NextResponse.json({ error: errorMessage(err, 'Could not read existing slugs') }, { status: 502 });
