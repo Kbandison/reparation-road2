@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
+import { checkCollectionAccess } from '@/lib/collections/access';
 import type { Collection } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -33,6 +35,16 @@ export async function GET(request: NextRequest) {
 
   if (!collection) {
     return NextResponse.json({ error: 'Collection not found' }, { status: 404 });
+  }
+
+  // Read with the service key, so the paywall is checked here: a members-only
+  // record goes only to members.
+  const access = await checkCollectionAccess(await createClient(), collection);
+  if (!access.hasAccess) {
+    return NextResponse.json(
+      { error: 'This record is in a members-only collection.', reason: access.reason },
+      { status: 403 },
+    );
   }
 
   // Try fetching by id first, then by slug

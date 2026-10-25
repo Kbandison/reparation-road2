@@ -2,6 +2,21 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-10-25T19:05Z: Search stops giving away members-only records
+
+Site search read every table with the service key and returned matching records from every collection, whatever the visitor's membership. Searching "john" while logged out returned 47 result groups; 43 were from members-only collections and showed names, ages, places and dates. `/api/collection-search/record` went further and returned any members-only record in full to anyone who had its id or slug. Slugs are guessable (`john-smith-0`), and search handed out the ids.
+
+**Minor updates**
+- `lib/collections/access.ts`: `getViewerAccess` reads the viewer once, and `accessFor` applies the paywall rule (free collections are open; every other tier needs a paid or donor membership). `checkCollectionAccess` now uses both, with unchanged results.
+- Search keeps showing members-only matches as locked teasers: the collection, how many records match, and a Sign in or View membership button (`components/collection/locked-search-group.tsx`, on both the collection browser and `/search`). No record data is sent; paging a locked collection returns nothing.
+- The record endpoint answers 403 for a members-only record the viewer can't open, and the page-scan list endpoint (`/images`) does the same. Clicking a bookmark from a members-only collection, saved while a member, now says so instead of doing nothing.
+- Checked on a local production build against the live database, logged out: 43 of 47 groups locked with zero records, the 4 free collections unchanged, members-only record and scan list refused, free ones served. The access rule was tested for anonymous, free, paid and donor viewers against the collection pages' check. Screenshots at desktop and phone width.
+
+**Next actions**
+- Deploy (pending Kevin's go-ahead).
+- Found while testing, not fixed: the forum's "Attach an archive record" picker treats each search result group as a single record, so it lists collections with blank titles.
+- Consider collapsing a logged-out visitor's many locked groups into one summary card, or listing them after the open results.
+
 ## 2026-10-25T18:10Z: Imports of any size
 
 A large table failed with "The file failed its final check". Vercel refuses any request or response over 4.5 MB (FUNCTION_PAYLOAD_TOO_LARGE). The wizard uploaded the file and got every row back in one response, then sent every row, plus every image match, in a single request, twice (once for the check, once for the insert). At about 263 bytes per row, anything past roughly 17,000 rows failed before a single row was written. The message was vague because Vercel's refusal is plain text and the wizard only read JSON.

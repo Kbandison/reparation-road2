@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
+import { accessFor, getViewerAccess } from '@/lib/collections/access';
 import type { Collection } from '@/lib/types';
 
 interface RecordResult {
@@ -21,6 +23,11 @@ interface CollectionRecordGroup {
   parentName: string | null;
   total: number;
   records: RecordResult[];
+  /**
+   * Set when the viewer can't open this collection: the group says how many
+   * records match, but carries none of their data.
+   */
+  locked?: 'login' | 'subscribe';
 }
 
 const SYSTEM_COLS = new Set([
@@ -357,6 +364,9 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createAdminClient();
+  // The search reads every table with the service key, so the paywall is
+  // applied here, per collection, before anything is returned.
+  const viewer = await getViewerAccess(await createClient());
 
   // 1. Fetch all published collections
   const { data: allCollections } = await supabase
@@ -420,6 +430,14 @@ export async function GET(request: NextRequest) {
       for (const g of groups) {
         const parent = g.parentSlug ? collectionByslug.get(g.parentSlug) : null;
         g.parentName = parent ? parent.name : null;
+        // Members-only matches stay visible as a count with a sign-up prompt,
+        // never as names or other record data.
+        const collection = collectionByslug.get(g.collectionSlug);
+        const access = collection ? accessFor(collection, viewer) : { hasAccess: false, reason: 'login' as const };
+        if (!access.hasAccess) {
+          g.records = [];
+          g.locked = access.reason;
+        }
         allGroups.push(g);
       }
     }),

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
+import { checkCollectionAccess } from '@/lib/collections/access';
 import { isPdfPath } from '@/lib/collections/helpers';
 import type { Collection } from '@/lib/types';
 
@@ -33,6 +35,12 @@ export async function GET(request: NextRequest) {
 
   if (!collection || !collection.table_name || !collection.has_images) {
     return NextResponse.json({ images: [] });
+  }
+
+  // Only someone who can open the collection gets its page list.
+  const access = await checkCollectionAccess(await createClient(), collection);
+  if (!access.hasAccess) {
+    return NextResponse.json({ images: [], reason: access.reason }, { status: 403 });
   }
 
   // Order by the collection's natural document order when defined, else the

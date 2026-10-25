@@ -6,6 +6,8 @@ import { RecordModal } from '@/components/collection/record-modal';
 import { trackActivity } from '@/lib/hooks/use-activity';
 import { getRecordTitle } from '@/lib/collections/helpers';
 import type { Collection, CollectionRecord } from '@/lib/types';
+import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 
 interface Props {
   collectionSlug: string;
@@ -15,6 +17,7 @@ interface Props {
 }
 
 export function BookmarkLink({ collectionSlug, recordId, children, className }: Props) {
+  const router = useRouter();
   const [record, setRecord] = useState<CollectionRecord | null>(null);
   const [collection, setCollection] = useState<Collection | null>(null);
   const [loading, setLoading] = useState(false);
@@ -26,6 +29,14 @@ export function BookmarkLink({ collectionSlug, recordId, children, className }: 
       const res = await fetch(
         `/api/collection-search/record?collection=${encodeURIComponent(collectionSlug)}&id=${encodeURIComponent(recordId)}`
       );
+      if (res.status === 403) {
+        // A bookmark from a members-only collection, saved while a member.
+        toast.error('That record is in a members-only collection.', {
+          action: { label: 'Membership', onClick: () => router.push('/membership') },
+        });
+        setLoading(false);
+        return;
+      }
       const data = await res.json();
       if (data.collection && data.record) {
         setCollection(data.collection);

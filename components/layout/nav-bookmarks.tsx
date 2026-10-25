@@ -8,6 +8,8 @@ import { RecordModal } from '@/components/collection/record-modal';
 import { trackActivity } from '@/lib/hooks/use-activity';
 import { getRecordTitle } from '@/lib/collections/helpers';
 import type { Profile, Collection, CollectionRecord } from '@/lib/types';
+import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 
 interface NavBookmarksProps {
   profile: Profile | null;
@@ -22,6 +24,7 @@ interface BookmarkItem {
 }
 
 export function NavBookmarks({ profile }: NavBookmarksProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
   const [count, setCount] = useState(0);
@@ -102,6 +105,14 @@ export function NavBookmarks({ profile }: NavBookmarksProps) {
       const res = await fetch(
         `/api/collection-search/record?collection=${encodeURIComponent(bm.collection_slug)}&id=${encodeURIComponent(bm.record_id)}`
       );
+      if (res.status === 403) {
+        // A bookmark from a members-only collection, saved while a member.
+        toast.error('That record is in a members-only collection.', {
+          action: { label: 'Membership', onClick: () => router.push('/membership') },
+        });
+        setModalLoading(false);
+        return;
+      }
       const data = await res.json();
       if (data.collection && data.record) {
         setModalCollection(data.collection);
