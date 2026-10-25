@@ -11,7 +11,7 @@ import { trackActivity } from '@/lib/hooks/use-activity';
 import { EmptyState } from '@/components/shared/empty-state';
 import { HighlightMatch } from '@/components/shared/highlight-match';
 import type { Collection, CollectionRecord } from '@/lib/types';
-import { LockedSearchGroup } from '@/components/collection/locked-search-group';
+import { LockedSearchSummary } from '@/components/collection/locked-search-summary';
 
 interface CollectionResult {
   slug: string;
@@ -319,19 +319,7 @@ export default function SearchPage() {
                 </h3>
               </div>
 
-              {results.records.map((group) => {
-                if (group.locked) {
-                  return (
-                    <LockedSearchGroup
-                      key={group.collectionSlug}
-                      collectionSlug={group.collectionSlug}
-                      collectionName={group.collectionName}
-                      parentName={group.parentName}
-                      total={group.total}
-                      reason={group.locked}
-                    />
-                  );
-                }
+              {results.records.filter((group) => !group.locked).map((group) => {
                 const remaining = group.total - group.records.length;
                 return (
                   <div key={group.collectionSlug} className="space-y-3">
@@ -418,6 +406,10 @@ export default function SearchPage() {
                   </div>
                 );
               })}
+              <LockedSearchSummary
+                groups={results.records.filter((group) => group.locked)}
+                reason={results.records.find((group) => group.locked)?.locked ?? 'login'}
+              />
             </section>
           )}
         </div>

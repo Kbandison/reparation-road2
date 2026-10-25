@@ -8,14 +8,13 @@ Site search read every table with the service key and returned matching records 
 
 **Minor updates**
 - `lib/collections/access.ts`: `getViewerAccess` reads the viewer once, and `accessFor` applies the paywall rule (free collections are open; every other tier needs a paid or donor membership). `checkCollectionAccess` now uses both, with unchanged results.
-- Search keeps showing members-only matches as locked teasers: the collection, how many records match, and a Sign in or View membership button (`components/collection/locked-search-group.tsx`, on both the collection browser and `/search`). No record data is sent; paging a locked collection returns nothing.
+- Search keeps showing members-only matches as a locked teaser: open results first, then one card ("18,929 more matching records in 43 members-only collections") with a Sign in or View membership button and an expandable list of the collections and their match counts (`components/collection/locked-search-summary.tsx`, on both the collection browser and `/search`). No record data is sent; paging a locked collection returns nothing.
 - The record endpoint answers 403 for a members-only record the viewer can't open, and the page-scan list endpoint (`/images`) does the same. Clicking a bookmark from a members-only collection, saved while a member, now says so instead of doing nothing.
 - Checked on a local production build against the live database, logged out: 43 of 47 groups locked with zero records, the 4 free collections unchanged, members-only record and scan list refused, free ones served. The access rule was tested for anonymous, free, paid and donor viewers against the collection pages' check. Screenshots at desktop and phone width.
 
 **Next actions**
-- Deploy (pending Kevin's go-ahead).
+- Deployed 2026-10-25 and checked live (logged out): 43 of 47 groups locked with no record data; members-only record refused with 403.
 - Found while testing, not fixed: the forum's "Attach an archive record" picker treats each search result group as a single record, so it lists collections with blank titles.
-- Consider collapsing a logged-out visitor's many locked groups into one summary card, or listing them after the open results.
 
 ## 2026-10-25T18:10Z: Imports of any size
 

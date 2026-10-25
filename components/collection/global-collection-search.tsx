@@ -9,7 +9,7 @@ import { snakeCaseToTitleCase } from '@/lib/utils/format';
 import { trackActivity } from '@/lib/hooks/use-activity';
 import { HighlightMatch } from '@/components/shared/highlight-match';
 import type { Collection, CollectionRecord } from '@/lib/types';
-import { LockedSearchGroup } from '@/components/collection/locked-search-group';
+import { LockedSearchSummary } from '@/components/collection/locked-search-summary';
 
 interface CollectionResult {
   slug: string;
@@ -350,19 +350,7 @@ export function GlobalCollectionSearch({ children, filters }: Props) {
                     </h3>
                   </div>
 
-                  {results.records.map((group) => {
-                    if (group.locked) {
-                      return (
-                        <LockedSearchGroup
-                          key={group.collectionSlug}
-                          collectionSlug={group.collectionSlug}
-                          collectionName={group.collectionName}
-                          parentName={group.parentName}
-                          total={group.total}
-                          reason={group.locked}
-                        />
-                      );
-                    }
+                  {results.records.filter((group) => !group.locked).map((group) => {
                     const remaining = group.total - group.records.length;
                     return (
                       <div key={group.collectionSlug} className="space-y-3">
@@ -449,6 +437,10 @@ export function GlobalCollectionSearch({ children, filters }: Props) {
                       </div>
                     );
                   })}
+                  <LockedSearchSummary
+                    groups={results.records.filter((group) => group.locked)}
+                    reason={results.records.find((group) => group.locked)?.locked ?? 'login'}
+                  />
                 </section>
               )}
             </div>
