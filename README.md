@@ -40,6 +40,13 @@ The import wizard loads an `.xlsx` into a new or existing collection. The rules 
 - **Folders** are collections that hold other collections as tabs, never records (`display_type = 'folder'`, needs `collections_folders_migration.sql`). Create them from Import Records → Create Folder, or "+ New folder…" in Create New Collection's parent picker. Move collections between folders from Admin → Collections → Edit. Rules live in `lib/collections/folders.ts`.
 - **Generate with AI** writes short and long descriptions with Claude Sonnet (`lib/ai/descriptions.ts`, official Anthropic SDK, needs `ANTHROPIC_API_KEY`).
 
+## Citations and sources
+
+- **Collection level:** Admin → Collections → Edit has a Citation & Source section. The citation format is a template with placeholders (`{{record_title}}`, `{{url}}`, …) and a live preview; the source is the archival provenance. Needs `collection_citation_template.sql`.
+- **Folders cover their tabs:** a tab that leaves either field blank uses its folder's, then that folder's folder. The two fall back independently, and `{{collection_name}}` is always the record's own tab.
+- **Record level:** a record's edit window can override either field for that record alone (`record_citations`, from `reparation_road_record_citations.sql`).
+- **Where it shows:** the source appears as a card on the collection page (even for members-only collections) and under "Cite this Record" on every record. The rules live in `lib/collections/citation.ts`.
+
 ## Storage (Admin → Upload Images)
 
 A file manager over Supabase Storage (`components/admin/storage-*`, `lib/storage/`, `/api/admin/storage`).

@@ -18,6 +18,7 @@ import { snakeCaseToTitleCase } from '@/lib/utils/format';
 import { Button } from '@/components/ui/button';
 import { StorageBrowser } from '@/components/admin/storage-browser';
 import type { Collection, CollectionRecord } from '@/lib/types';
+import { fetchCitationChain, resolveCitationDefaults, type CitationDefaults } from '@/lib/collections/citation';
 
 interface AdminRecordEditModalProps {
   collection: Collection;
@@ -66,6 +67,11 @@ export function AdminRecordEditModal({
   const [initialCitation, setInitialCitation] = useState('');
   const [initialSource, setInitialSource] = useState('');
   const [citationOpen, setCitationOpen] = useState(false);
+  // What a blank override falls back to: the collection's values, then its folders'.
+  const [collectionDefaults, setCollectionDefaults] = useState<CitationDefaults>(() =>
+    resolveCitationDefaults([collection]),
+  );
+  const fallbackSource = collectionDefaults.sourceInformation;
 
   // Storage browser visibility
   const [storageOpen, setStorageOpen] = useState(false);
@@ -250,6 +256,17 @@ export function AdminRecordEditModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record?.id, collection.table_name]);
+
+  useEffect(() => {
+    let active = true;
+    fetchCitationChain(supabase, collection.slug).then((chain) => {
+      if (active && chain.length > 0) setCollectionDefaults(resolveCitationDefaults(chain));
+    });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collection.slug]);
 
   // Persist the citation/source override when it changed. Returns an error
   // message on failure, or null on success / no-op.
@@ -462,16 +479,16 @@ export function AdminRecordEditModal({
                     onChange={(e) => setSourceOverride(e.target.value)}
                     rows={3}
                     placeholder={
-                      collection.source_information
-                        ? `Leave blank to use the collection source:\n${collection.source_information}`
+                      fallbackSource
+                        ? `Leave blank to use the source from ${fallbackSource.from.name}:\n${fallbackSource.value}`
                         : 'Repository, record group, physical reference…'
                     }
                     className="w-full bg-brand-bg border border-brand-gold/[0.08] rounded-xl px-3 py-2 text-sm text-brand-cream placeholder:text-brand-muted/60 focus:outline-none focus:border-brand-gold/30 resize-y"
                   />
                   <p className="text-[11px] text-brand-muted">
-                    {collection.source_information
-                      ? 'Overrides the collection source for this record only.'
-                      : 'No collection-level source is set yet (edit it on the collection page).'}
+                    {fallbackSource
+                      ? `Overrides the source from ${fallbackSource.from.name} for this record only.`
+                      : 'No collection-level source is set yet. Add one from Edit on the Collections page.'}
                   </p>
                 </div>
               </div>

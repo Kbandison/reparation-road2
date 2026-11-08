@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ColumnManager } from '@/components/admin/column-manager';
+import { CollectionCitationFields } from '@/components/admin/collection-citation-fields';
 import type { Collection } from '@/lib/types';
 import { folderOptions, isFolder } from '@/lib/collections/folders';
+import { citationChainFromList, cleanCitationText, resolveCitationDefaults } from '@/lib/collections/citation';
 
 interface AdminCollectionEditModalProps {
   collection: Collection;
@@ -40,6 +42,13 @@ export function AdminCollectionEditModal({
   );
   const [searchColumns, setSearchColumns] = useState<string[]>(
     collection.search_columns || [],
+  );
+  const [citationTemplate, setCitationTemplate] = useState(collection.citation_template || '');
+  const [sourceInformation, setSourceInformation] = useState(collection.source_information || '');
+  // What the folder it sits in (as picked above, so a pending move counts) supplies when these are blank.
+  const inheritedCitation = useMemo(
+    () => resolveCitationDefaults(citationChainFromList(parentSlug || null, collections)),
+    [parentSlug, collections],
   );
 
   const [saving, setSaving] = useState(false);
@@ -108,8 +117,16 @@ export function AdminCollectionEditModal({
       .map((s) => s.trim())
       .filter(Boolean);
     const parentChanged = (collection.parent_slug ?? '') !== parentSlug;
+    // Sent only when changed, so the rest of the form still saves if a citation
+    // column is ever missing from the database again.
+    const nextTemplate = cleanCitationText(citationTemplate);
+    const nextSource = cleanCitationText(sourceInformation);
+    const templateChanged = nextTemplate !== cleanCitationText(collection.citation_template);
+    const sourceChanged = nextSource !== cleanCitationText(collection.source_information);
     const updates = {
       ...(parentChanged && { parent_slug: parentSlug || null }),
+      ...(templateChanged && { citation_template: nextTemplate }),
+      ...(sourceChanged && { source_information: nextSource }),
       name: name.trim(),
       short_description: shortDescription.trim() || null,
       long_description: longDescription.trim() || null,
@@ -243,6 +260,17 @@ export function AdminCollectionEditModal({
               />
             </div>
           </div>
+
+          <CollectionCitationFields
+            template={citationTemplate}
+            onTemplateChange={setCitationTemplate}
+            source={sourceInformation}
+            onSourceChange={setSourceInformation}
+            collectionName={name.trim()}
+            collectionSlug={collection.slug}
+            inherited={inheritedCitation}
+            folder={folder}
+          />
 
           {!folder && (
           <div className="space-y-2 border-t border-brand-gold/[0.08] pt-4">
