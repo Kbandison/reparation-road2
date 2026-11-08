@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TreeArchiveMatch } from '@/lib/types';
 import { getRecordTitle, imagePathOf } from '@/lib/collections/helpers';
+import { scanState } from '@/lib/collections/blur';
 import { formatFieldValue, snakeCaseToTitleCase } from '@/lib/utils/format';
 
 // Server-only: reads collection tables and writes tree rows with the caller's
@@ -90,7 +91,7 @@ export async function loadSavedRecordPreviews(
   const slugs = [...new Set(saved.map((m) => m.collection_slug))];
   const { data: collections } = await supabase
     .from('collections')
-    .select('slug, name, table_name, display_columns, title_columns')
+    .select('*')
     .in('slug', slugs);
   const bySlug = new Map((collections ?? []).map((c) => [c.slug, c]));
 
@@ -125,7 +126,8 @@ export async function loadSavedRecordPreviews(
       collectionName: collection?.name ?? m.collection_name ?? m.collection_slug,
       title,
       detailUrl: m.detail_url || `/collection/${m.collection_slug}?record=${encodeURIComponent(m.record_slug ?? m.record_id)}`,
-      imagePath: record ? imagePathOf(record) || null : null,
+      // A blurred collection's scan that isn't blurred yet is left out entirely.
+      imagePath: record && scanState(collection, imagePathOf(record)) !== 'pending' ? imagePathOf(record) || null : null,
       details,
       missing: !record,
     };

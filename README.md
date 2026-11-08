@@ -34,6 +34,8 @@ The import wizard loads an `.xlsx` into a new or existing collection. The rules 
 - **Tab tags:** tabs that share a table are told apart by a tag column (`discriminator_column`/`discriminator_value`). Every import into such a tab writes the tag on every row; a file column feeding the tag column is replaced by it.
 - **Record counts** are re-synced after every import, parents included.
 - **Image matching** (`lib/import/image-matching.ts`) runs on its own on the image step. Only exact name matches link (extension, case and punctuation ignored); near misses wait for confirmation, and Preview won't import names without a file until you confirm.
+- **Add a column to existing records** (fourth option on the first step; `components/admin/import-add-column.tsx`, `lib/import/add-column.ts`, `/api/admin/record-columns`): fills a new or existing text column, such as each record's image link, on records already in a collection. Rows are matched to records on one to three columns (case and extra spaces ignored). Before anything is written it lists unmatched rows, rows that fit more than one record, and rows that give one record two different values. Values are written by record id, only to that collection's rows.
+- **Blurred images on import:** a new collection can be set to blur its images (Collection step), with a link for every record and a per-record link column (Preview step). The blur runs in the browser right after the records are saved, and the collection publishes only once every image is blurred. Imports into a collection that's already blurred blur their new images the same way.
 
 ## Folders and AI descriptions
 
@@ -46,6 +48,15 @@ The import wizard loads an `.xlsx` into a new or existing collection. The rules 
 - **Folders cover their tabs:** a tab that leaves either field blank uses its folder's, then that folder's folder. The two fall back independently, and `{{collection_name}}` is always the record's own tab.
 - **Record level:** a record's edit window can override either field for that record alone (`record_citations`, from `reparation_road_record_citations.sql`).
 - **Where it shows:** under "Cite this Record" on every record (the collection page itself doesn't show it). The rules live in `lib/collections/citation.ts`.
+
+## Blurred images (rights and licensing)
+
+Some collections can't show their scans in full. Admin → Collections → Edit → **Blurred images** handles it (`lib/collections/blur.ts`; needs `image_blur_migration.sql`).
+
+- **Blurring** runs in the admin's browser (`lib/images/blur-scan.ts`): each scan is shrunk to about 96 pixels, which removes the detail for good, then softened and scaled back up. A PDF comes out as a blurred PDF, rendered with PDF.js, whose worker and decoders `scripts/copy-pdfjs-assets.mjs` copies into `public/pdfjs/` before every dev start and build.
+- **Storage:** copies go to the public `blurred-images` bucket. Every link to the scan, in any collection and in cover images, is pointed at the copy (the same link rewriting the storage manager uses). The original moves to the private `restricted-images` bucket. `blurred_scans` records each one, so **Restore the originals** puts everything back. The Upload Images page shows both buckets read-only.
+- **Everywhere:** because the links themselves change, every page shows the copy. A scan in a blurred collection that hasn't been processed yet shows "Image being prepared", never the original (`scanState`).
+- **Links:** a blurred image opens the original at its source. A record's own link (the collection's link column) wins over the collection-wide link. Hovering shows "View the original image" (always visible on touch screens). Without a link, an image keeps its usual zoom and a PDF keeps "Open in new tab".
 
 ## Storage (Admin → Upload Images)
 

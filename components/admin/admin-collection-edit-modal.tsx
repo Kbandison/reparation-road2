@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { X, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ColumnManager } from '@/components/admin/column-manager';
 import { CollectionCitationFields } from '@/components/admin/collection-citation-fields';
+import { CollectionBlurFields } from '@/components/admin/collection-blur-fields';
 import type { Collection } from '@/lib/types';
 import { folderOptions, isFolder } from '@/lib/collections/folders';
 import { citationChainFromList, cleanCitationText, resolveCitationDefaults } from '@/lib/collections/citation';
@@ -43,6 +44,14 @@ export function AdminCollectionEditModal({
   const [searchColumns, setSearchColumns] = useState<string[]>(
     collection.search_columns || [],
   );
+  const [imageLink, setImageLink] = useState(collection.image_link || '');
+  const [imageLinkColumn, setImageLinkColumn] = useState(collection.image_link_column || '');
+  // Blurring runs in this window, so it can't be closed until that finishes.
+  const [blurBusy, setBlurBusy] = useState(false);
+  const requestClose = useCallback(() => {
+    if (blurBusy) toast.message('Blurring is still running. Keep this window open until it finishes.');
+    else onClose();
+  }, [blurBusy, onClose]);
   const [citationTemplate, setCitationTemplate] = useState(collection.citation_template || '');
   const [sourceInformation, setSourceInformation] = useState(collection.source_information || '');
   // What the folder it sits in (as picked above, so a pending move counts) supplies when these are blank.
@@ -63,11 +72,12 @@ export function AdminCollectionEditModal({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      // A confirm dialog on top handles its own Escape.
+      if (e.key === 'Escape' && !(e.target as HTMLElement | null)?.closest('[role="alertdialog"]')) requestClose();
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [onClose]);
+  }, [requestClose]);
 
   const generateDescriptions = async () => {
     if (!name.trim()) {
@@ -123,10 +133,16 @@ export function AdminCollectionEditModal({
     const nextSource = cleanCitationText(sourceInformation);
     const templateChanged = nextTemplate !== cleanCitationText(collection.citation_template);
     const sourceChanged = nextSource !== cleanCitationText(collection.source_information);
+    const nextImageLink = imageLink.trim() || null;
+    const nextLinkColumn = imageLinkColumn || null;
+    const imageLinkChanged = nextImageLink !== (collection.image_link || null);
+    const linkColumnChanged = nextLinkColumn !== (collection.image_link_column || null);
     const updates = {
       ...(parentChanged && { parent_slug: parentSlug || null }),
       ...(templateChanged && { citation_template: nextTemplate }),
       ...(sourceChanged && { source_information: nextSource }),
+      ...(imageLinkChanged && { image_link: nextImageLink }),
+      ...(linkColumnChanged && { image_link_column: nextLinkColumn }),
       name: name.trim(),
       short_description: shortDescription.trim() || null,
       long_description: longDescription.trim() || null,
@@ -168,7 +184,7 @@ export function AdminCollectionEditModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={requestClose}
       />
 
       <div className="relative bg-brand-bg border border-brand-gold/[0.12] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
@@ -183,7 +199,7 @@ export function AdminCollectionEditModal({
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="p-1.5 rounded-lg hover:bg-brand-card transition-colors text-brand-muted hover:text-brand-cream"
             aria-label="Close"
           >
@@ -272,6 +288,17 @@ export function AdminCollectionEditModal({
             folder={folder}
           />
 
+          {collection.table_name && collection.has_images && (
+            <CollectionBlurFields
+              collection={collection}
+              imageLink={imageLink}
+              onImageLinkChange={setImageLink}
+              linkColumn={imageLinkColumn}
+              onLinkColumnChange={setImageLinkColumn}
+              onBusyChange={setBlurBusy}
+            />
+          )}
+
           {!folder && (
           <div className="space-y-2 border-t border-brand-gold/[0.08] pt-4">
             <Label>Title Columns</Label>
@@ -329,15 +356,15 @@ export function AdminCollectionEditModal({
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-brand-gold/[0.08] flex-shrink-0">
           <Button
             variant="outline"
-            onClick={onClose}
-            disabled={saving}
+            onClick={requestClose}
+            disabled={saving || blurBusy}
             className="border-brand-gold/20 text-brand-cream rounded-xl"
           >
             Cancel
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving || !name.trim()}
+            disabled={saving || blurBusy || !name.trim()}
             className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl"
           >
             {saving ? (

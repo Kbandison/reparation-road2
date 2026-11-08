@@ -8,6 +8,8 @@ import { buildImageUrl, getRecordTitle, isPdfPath, nextImageIndex, prevImageInde
 import { snakeCaseToTitleCase, formatFieldValue } from '@/lib/utils/format';
 import { trackActivity } from '@/lib/hooks/use-activity';
 import { RecordModal } from '@/components/collection/record-modal';
+import { PendingScan } from '@/components/collection/pending-scan';
+import { scanState } from '@/lib/collections/blur';
 
 interface BookGridProps {
   collection: Collection;
@@ -38,9 +40,11 @@ export function BookGrid({ collection, records }: BookGridProps) {
         {records.map((record, idx) => {
           const imagePath = (record.image_path as string) || (record.image_url as string);
           const isPdf = isPdfPath(imagePath);
+          // A blurred collection's scan that isn't blurred yet never shows.
+          const pending = scanState(collection, imagePath) === 'pending';
           // PDFs can't be thumbnailed via the transform endpoint; show a
           // document placeholder. The modal renders the actual PDF on click.
-          const imageUrl = isPdf ? null : buildImageUrl(imagePath, { width: 600 });
+          const imageUrl = isPdf || pending ? null : buildImageUrl(imagePath, { width: 600 });
           const label = columns
             .map((col) => record[col])
             .filter(Boolean)
@@ -55,7 +59,9 @@ export function BookGrid({ collection, records }: BookGridProps) {
               <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl overflow-hidden hover:border-brand-gold/25 hover:-translate-y-1 transition-all duration-200">
                 {/* Thumbnail */}
                 <div className="aspect-[3/4] relative bg-brand-bg">
-                  {imageUrl ? (
+                  {pending ? (
+                    <PendingScan compact className="w-full h-full" />
+                  ) : imageUrl ? (
                     <Image
                       src={imageUrl}
                       alt={String(label)}

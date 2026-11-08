@@ -2,6 +2,26 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-11-08T19:47Z: Blurred images for rights-restricted collections
+
+Some scans can't be shown in full because of rights, licensing, or the terms agreed with a document's owner. Samuel Bonham & Co. is the first. A collection can now show everyone a heavily blurred copy of each scan, with the image linking to the original at its source. The blur is real: the copy is a different, low-detail file, and the original moves to private storage, so it can't be fetched from the page.
+
+**Minor updates**
+- `image_blur_migration.sql` (manual run): `collections.blur_images`, `image_link`, `image_link_column`; the `blurred_scans` table (admin-only, RLS on with no policies); the `blurred-images` (public) and `restricted-images` (private) buckets.
+- Blurring runs in the admin's browser (`lib/images/blur-scan.ts`, driven by `lib/images/run-blur.ts`). Each image is shrunk to 96px, softened and scaled back up. PDFs are rendered with PDF.js and rebuilt as blurred PDFs with pdf-lib, so the PDF viewer and "Open in new tab" still work. New dependencies: `pdfjs-dist` 6.5.438 (Mozilla, Apache-2.0) and `pdf-lib` 1.17.1 (MIT). `scripts/copy-pdfjs-assets.mjs` copies PDF.js's worker and decoders into `public/pdfjs/` (git-ignored) on `predev` and `prebuild`.
+- `/api/admin/image-blur` hands out signed URLs, then relinks every reference to the blurred copy (record scans in any collection, `image_url` on older tables, cover images) and moves the original to the private bucket. Restore reverses it. Work runs in batches of 5, so no request runs long.
+- Admin → Collections → Edit → **Blurred images**: blur, blur waiting images, restore originals, a link for every record, and the per-record link column. The window can't close mid-run.
+- Visitors: with a link, hovering the image shows "View the original image at <site>" and the whole image opens it in a new tab (always visible on touch screens). With no link, the image keeps its zoom and a PDF keeps "Open in new tab". A scan not blurred yet shows "Image being prepared" in the modal, the record page, book covers, family-tree cards, full-screen paging and the admin record editor.
+- Import wizard: new collections can be set to blur (Collection step) and given a link column (Preview step). Blurring runs as its own progress phase before the collection publishes. Imports into a blurred collection blur their new scans.
+- New import mode **Add a column to existing records** (`lib/import/add-column.ts`, `/api/admin/record-columns`). It matches spreadsheet rows to records on one to three columns, reports unmatched, ambiguous, conflicting and blank rows before writing, writes text values by record id (only the collection's own rows), and can set the column as the collection's image link column.
+- The Upload Images page shows both blur buckets read-only. The import's image step doesn't offer them.
+- Checked: `tsc` clean and the production build passes. The Bonham PDF blurred in 0.3s headless (7 KB, same page size), and inside a temporary page in a real production build (PDF 0.5s, a 476 KB JPEG scan 0.9s, worker and WebAssembly loaded from `/pdfjs/`). The temporary page was then deleted. Logic checks cover bucket detection, pending vs blurred, link precedence, URL safety (`javascript:` refused) and the matching planner.
+
+**Next actions**
+- Run `image_blur_migration.sql`, then deploy.
+- Blur Samuel Bonham & Co. from Edit and set its link. Then check the record modal, record page and full-screen paging live, and confirm the original PDF's public URL no longer serves.
+- Not yet exercised against live storage: the relink/move/restore route. Bonham is its first real run; Restore undoes it.
+
 ## 2026-11-08T18:44Z: Collection-level citations and sources work
 
 The collection-level Citation & Source editor never saved anything. The August migration added `collections.source_information`, but `citation_template` was never created. The editor sent both in one update, PostgREST rejected the whole thing over the missing column, and the editor ignored the error and showed "Saved". No collection had a source. On 2026-11-07 someone entered collection-wide sources (a DAR book, a NARA special list) as overrides on one record each in African American Revolutionary Soldiers and Free Black Heads of Household 1790. Those two overrides are left as they are for now.

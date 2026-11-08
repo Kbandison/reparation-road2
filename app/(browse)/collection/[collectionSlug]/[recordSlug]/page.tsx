@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getCollectionBySlug, getRecordBySlug, getRelatedRecords } from '@/lib/collections/queries';
 import { checkCollectionAccess } from '@/lib/collections/access';
 import { getRecordTitle } from '@/lib/collections/helpers';
+import { scanState, sourceImageLink } from '@/lib/collections/blur';
 import { RecordDetailFields } from '@/components/collection/record-detail-fields';
 import { ImageViewer } from '@/components/collection/image-viewer';
 import { OcrDisplay } from '@/components/collection/ocr-display';
@@ -61,6 +62,7 @@ export default async function RecordDetailPage({ params }: Props) {
     : [];
 
   const imagePath = (record.image_url as string) || (record.image_path as string);
+  const scan = scanState(collection, imagePath);
 
   return (
     <>
@@ -93,7 +95,12 @@ export default async function RecordDetailPage({ params }: Props) {
         <div className="lg:col-span-2 space-y-8">
           {/* Image */}
           {collection.has_images && imagePath && (
-            <ImageViewer imagePath={imagePath} alt={recordTitle} />
+            <ImageViewer
+              imagePath={imagePath}
+              alt={recordTitle}
+              pending={scan === 'pending'}
+              sourceLink={scan === 'blurred' ? sourceImageLink(collection, record) : null}
+            />
           )}
 
           {/* Fields */}

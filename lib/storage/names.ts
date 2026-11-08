@@ -6,6 +6,8 @@
 /** The file Supabase writes to keep an otherwise-empty folder in existence. Hidden everywhere. */
 export const FOLDER_PLACEHOLDER = '.emptyFolderPlaceholder';
 
+import { BLURRED_BUCKET, RESTRICTED_BUCKET } from '@/lib/collections/blur';
+
 /** Buckets that site features write to by name. */
 export const FORUM_MEDIA_BUCKET = 'forum-media';
 export const FAMILY_TREE_MEDIA_BUCKET = 'family-tree-media';
@@ -13,9 +15,15 @@ export const FAMILY_TREE_MEDIA_BUCKET = 'family-tree-media';
 /**
  * The media manager shows these read-only: the forum and family tree store
  * links to their files in their own tables, so renaming or deleting anything
- * in them would break posts and trees.
+ * in them would break posts and trees. The blurred-image buckets are managed
+ * from a collection's Edit window (blurred_scans tracks every file in them).
  */
-export const LOCKED_BUCKETS: ReadonlySet<string> = new Set([FORUM_MEDIA_BUCKET, FAMILY_TREE_MEDIA_BUCKET]);
+export const LOCKED_BUCKETS: ReadonlySet<string> = new Set([
+  FORUM_MEDIA_BUCKET,
+  FAMILY_TREE_MEDIA_BUCKET,
+  BLURRED_BUCKET,
+  RESTRICTED_BUCKET,
+]);
 
 // S3-compatible bucket names top out at 63 characters.
 const MAX_NAME_LENGTH = 63;

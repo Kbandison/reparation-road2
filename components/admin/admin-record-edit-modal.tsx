@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { StorageBrowser } from '@/components/admin/storage-browser';
 import type { Collection, CollectionRecord } from '@/lib/types';
 import { fetchCitationChain, resolveCitationDefaults, type CitationDefaults } from '@/lib/collections/citation';
+import { scanState } from '@/lib/collections/blur';
 
 interface AdminRecordEditModalProps {
   collection: Collection;
@@ -294,8 +295,10 @@ export function AdminRecordEditModal({
   const editableColumns = columns.filter(
     (c) => !SYSTEM_FIELDS.has(c) && !IMAGE_FIELDS.has(c)
   );
+  // A blurred collection's scan that isn't blurred yet isn't shown here either.
+  const imagePending = !!imageField && scanState(collection, values[imageField]) === 'pending';
   const currentImageUrl =
-    imageField && values[imageField]
+    imageField && values[imageField] && !imagePending
       ? buildImageUrl(values[imageField], { width: 1200 })
       : null;
 
@@ -347,6 +350,13 @@ export function AdminRecordEditModal({
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
+              )}
+
+              {imagePending && (
+                <p className="text-[11px] text-brand-muted bg-brand-card border border-brand-gold/[0.08] rounded-xl px-3 py-2">
+                  This collection shows its images blurred, and this one hasn&apos;t been blurred yet, so
+                  it&apos;s hidden everywhere. Blur it from Admin → Collections → Edit → Blurred images.
+                </p>
               )}
 
               <div className="flex flex-wrap gap-2">

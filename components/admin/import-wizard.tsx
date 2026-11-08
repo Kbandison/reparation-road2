@@ -16,6 +16,7 @@ import {
   AlertCircle,
   CheckCircle,
   Sparkles,
+  Columns3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +40,10 @@ import { ImportPlacementField } from './import-placement-field';
 import { ImportImageMatches } from './import-image-matches';
 import { CollectionFolderForm, type CreatedFolder } from './collection-folder-form';
 import { CollectionFolderDialog } from './collection-folder-dialog';
+import { ImportAddColumn } from './import-add-column';
 import { folderOptions } from '@/lib/collections/folders';
+import { safeExternalUrl } from '@/lib/collections/blur';
+import { blurCollection } from '@/lib/images/run-blur';
 
 type Step = 'mode' | 'collection' | 'upload' | 'mapping' | 'images' | 'preview' | 'importing' | 'done';
 
@@ -58,6 +62,8 @@ interface ImportResult {
   collection: 'none' | 'draft' | 'published';
   // A placeholder collection got its table during this import.
   linkedPlaceholder: boolean;
+  // Blurred-image collections: why some images aren't blurred yet (they stay hidden).
+  blurProblem?: string | null;
 }
 
 const EMPTY_RESULT: ImportResult = { inserted: 0, total: 0, failures: [], error: null, collection: 'none', linkedPlaceholder: false };
@@ -143,7 +149,7 @@ function looksLikeImageColumn(col: string): boolean {
 export function ImportWizard({ collections, imageSource = null, imageSourceVersion = 0, uploadsInProgress = 0 }: ImportWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('mode');
-  const [mode, setMode] = useState<'existing' | 'new' | 'folder'>('existing');
+  const [mode, setMode] = useState<'existing' | 'new' | 'folder' | 'add-column'>('existing');
   // Create Folder: the folder just made (shows the next-step choices).
   const [createdFolder, setCreatedFolder] = useState<CreatedFolder | null>(null);
   // Folders made in this session, offered as parents until the page's list catches up.
@@ -163,7 +169,11 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
     parentSlug: '', displayType: 'table', accessTier: 'explorer',
     hasImages: false, hasOcr: false,
     shortDescription: '', longDescription: '',
+    // Rights-restricted images: shown blurred, linking to the original (lib/collections/blur.ts).
+    blurImages: false, imageLink: '',
   });
+  // Which mapped column holds each record's own link to its original image.
+  const [imageLinkColumn, setImageLinkColumn] = useState('');
   const [generating, setGenerating] = useState(false);
 
   // File data
@@ -210,7 +220,7 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
   // Import outcome
   const [result, setResult] = useState<ImportResult>(EMPTY_RESULT);
   // Rows checked or saved so far while the import runs (null while the table is prepared).
-  const [importProgress, setImportProgress] = useState<({ phase: 'checking' | 'saving' } & ChunkProgress) | null>(null);
+  const [importProgress, setImportProgress] = useState<({ phase: 'checking' | 'saving' | 'blurring' } & ChunkProgress) | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -755,6 +765,12 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
   // Whether the image-matching step applies (some column feeds image_path).
   const hasImageColumn = Object.values(columnMapping).includes('image_path');
 
+  // Images go in blurred: a new collection set up that way, or an existing one already blurred.
+  const blurApplies = mode === 'new'
+    ? newCollection.hasImages && newCollection.blurImages
+    : selectedCollection?.blur_images === true;
+  const blurLinkInvalid = mode === 'new' && blurApplies && !!newCollection.imageLink.trim() && !safeExternalUrl(newCollection.imageLink);
+
   // Preview step: widen an existing column to text so its values can go in as written.
   const handleConvert = async (column: string) => {
     const { ok, data } = await postImport({ action: 'convert-column-to-text', tableName: targetTable, column });
@@ -775,6 +791,10 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
   // Step: Do the import
   const handleImport = async () => {
     if (!readyToImport) return;
+    if (blurLinkInvalid) {
+      toast.error('The image link must be a web address (https://…). Fix it on the Collection step.');
+      return;
+    }
     setStep('importing');
     setImportProgress(null);
 
@@ -888,6 +908,11 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
           hasImages: newCollection.hasImages,
           hasOcr: newCollection.hasOcr,
           isPublished: false,
+          ...(blurApplies && {
+            blurImages: true,
+            imageLink: newCollection.imageLink.trim() || null,
+            imageLinkColumn: imageLinkColumn || null,
+          }),
         });
         if (!createdCollection.ok) return await backToPreview(createdCollection.data.error || 'Failed to create the collection');
         collectionCreated = true;
@@ -908,17 +933,34 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
       }
       const complete = outcome.stopReason === null && outcome.failures.length === 0;
 
-      // 5. A new collection goes live only when every record landed.
+      // 5. Rights-restricted images are blurred before anyone sees them. Until
+      //    a scan is blurred, pages show "being prepared" instead of it.
+      let blurProblem: string | null = null;
+      const blurSlug = mode === 'new' ? newCollection.slug : selectedCollection?.slug;
+      if (blurApplies && blurSlug && hasImageColumn && outcome.inserted > 0) {
+        setImportProgress({ phase: 'blurring', done: 0, total: 0 });
+        try {
+          const blurred = await blurCollection(blurSlug, (progress) => setImportProgress({ phase: 'blurring', ...progress }));
+          if (blurred.failed.length > 0) {
+            blurProblem = `${blurred.failed.length.toLocaleString()} image${blurred.failed.length === 1 ? '' : 's'} couldn't be blurred (${blurred.failed[0].error}). They stay hidden until blurred from Admin → Collections → Edit.`;
+          }
+        } catch (err) {
+          blurProblem = `The images weren't blurred (${err instanceof Error ? err.message : 'unknown error'}). They stay hidden until blurred from Admin → Collections → Edit.`;
+        }
+      }
+
+      // 6. A new collection goes live only when every record landed (and, for
+      //    blurred images, every image is blurred).
       let collection: ImportResult['collection'] = mode === 'existing'
         ? (selectedCollection?.is_published ? 'published' : 'draft')
         : 'draft';
-      if (mode === 'new' && complete) {
+      if (mode === 'new' && complete && !blurProblem) {
         const published = await postImport({ action: 'publish-collection', slug: newCollection.slug });
         if (published.ok) collection = 'published';
         else toast.error(published.data.error || 'The records are in, but publishing failed. Publish it from Admin → Collections.');
       }
 
-      // 6. Record counts on collection cards (and their parents' totals) are
+      // 7. Record counts on collection cards (and their parents' totals) are
       //    stored, so refresh them now that rows were added.
       if (outcome.inserted > 0) {
         const synced = await fetch('/api/admin/sync-counts', { method: 'POST' }).catch(() => null);
@@ -932,6 +974,7 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
         error: outcome.stopReason,
         collection,
         linkedPlaceholder,
+        blurProblem,
       });
       if (complete) toast.success(`Imported ${outcome.inserted.toLocaleString()} records`);
       else if (outcome.stopReason) toast.error(`The import stopped after ${outcome.inserted.toLocaleString()} of ${allRows.length.toLocaleString()} records`);
@@ -974,10 +1017,10 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
     <div className="max-w-4xl">
       {/* Progress steps */}
       <div className="flex items-center gap-2 mb-8 text-xs text-brand-muted overflow-x-auto">
-        {(mode === 'folder' && step !== 'mode' ? ['Mode', 'Folder'] : ['Mode', 'Collection', 'Upload', 'Mapping', hasImageColumn ? 'Images' : null, 'Preview', 'Import']).filter(Boolean).map((s, i) => (
+        {(mode === 'folder' && step !== 'mode' ? ['Mode', 'Folder'] : mode === 'add-column' && step !== 'mode' ? ['Mode', 'Add a column'] : ['Mode', 'Collection', 'Upload', 'Mapping', hasImageColumn ? 'Images' : null, 'Preview', 'Import']).filter(Boolean).map((s, i) => (
           <span key={i} className="flex items-center gap-2 whitespace-nowrap">
             {i > 0 && <ArrowRight className="w-3 h-3" />}
-            <span className={step === s?.toLowerCase() || (s === 'Folder' && step === 'collection') || (s === 'Import' && (step === 'importing' || step === 'done')) ? 'text-brand-gold font-medium' : ''}>
+            <span className={step === s?.toLowerCase() || ((s === 'Folder' || s === 'Add a column') && step === 'collection') || (s === 'Import' && (step === 'importing' || step === 'done')) ? 'text-brand-gold font-medium' : ''}>
               {s}
             </span>
           </span>
@@ -988,7 +1031,7 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
       {step === 'mode' && (
         <div className="space-y-4">
           <p className="text-sm text-brand-muted mb-4">Choose what you want to do:</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <button
               onClick={() => { setMode('existing'); setStep('collection'); }}
               className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 text-left hover:border-brand-gold/25 transition-all group"
@@ -1013,11 +1056,23 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
               <h3 className="font-display text-base font-semibold text-brand-cream group-hover:text-brand-gold mb-1">Create Folder</h3>
               <p className="text-xs text-brand-muted">Group collections as tabs. No spreadsheet needed; folders can go inside folders.</p>
             </button>
+            <button
+              onClick={() => { setMode('add-column'); setStep('collection'); }}
+              className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 text-left hover:border-brand-gold/25 transition-all group"
+            >
+              <Columns3 className="w-8 h-8 text-brand-gold mb-3" />
+              <h3 className="font-display text-base font-semibold text-brand-cream group-hover:text-brand-gold mb-1">Add a Column to Existing Records</h3>
+              <p className="text-xs text-brand-muted">Fill a new or existing column, like each record&apos;s image link, on records already in a collection.</p>
+            </button>
           </div>
         </div>
       )}
 
       {/* Step: Create Folder */}
+      {step === 'collection' && mode === 'add-column' && (
+        <ImportAddColumn collections={collections} onBack={() => setStep('mode')} />
+      )}
+
       {step === 'collection' && mode === 'folder' && (
         createdFolder ? (
           <div className="bg-brand-card border border-brand-gold/[0.08] rounded-2xl p-6 sm:p-10 text-center">
@@ -1242,6 +1297,48 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
               <span className="text-sm text-brand-cream">Has OCR Text</span>
             </label>
           </div>
+
+          {newCollection.hasImages && (
+            <div className="space-y-3 rounded-xl border border-brand-gold/[0.08] bg-brand-bg/40 p-4">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newCollection.blurImages}
+                  onChange={(e) => setNewCollection({ ...newCollection, blurImages: e.target.checked })}
+                  className="w-4 h-4 rounded mt-0.5"
+                />
+                <span>
+                  <span className="block text-sm text-brand-cream">Blur the images (rights or licensing)</span>
+                  <span className="block text-[11px] text-brand-muted mt-0.5">
+                    Everyone sees a heavily blurred copy; the originals go to private storage. The blurring runs
+                    in this browser right after the records are saved, before the collection goes live.
+                  </span>
+                </span>
+              </label>
+              {newCollection.blurImages && (
+                <div className="space-y-1.5 pl-6">
+                  <Label htmlFor="new-image-link" className="text-xs text-brand-muted">Link for every record (optional)</Label>
+                  <Input
+                    id="new-image-link"
+                    type="url"
+                    inputMode="url"
+                    value={newCollection.imageLink}
+                    onChange={(e) => setNewCollection({ ...newCollection, imageLink: e.target.value })}
+                    placeholder="https://… where the original image can be seen"
+                    className="bg-brand-card border-brand-gold/[0.15]"
+                    aria-invalid={blurLinkInvalid}
+                  />
+                  {blurLinkInvalid ? (
+                    <p className="text-[11px] text-brand-burgundy-light">Use a full web address, starting with https://</p>
+                  ) : (
+                    <p className="text-[11px] text-brand-muted">
+                      Records can also have their own links: pick that column on the Preview step.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="space-y-3 border-t border-brand-gold/[0.08] pt-4">
             <div className="flex items-center justify-between">
@@ -1827,6 +1924,26 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
             </table>
           </div>
 
+          {mode === 'new' && blurApplies && (
+            <div className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-4 space-y-1.5">
+              <Label htmlFor="image-link-column" className="text-sm text-brand-cream">Column with each record&apos;s own image link</Label>
+              <select
+                id="image-link-column"
+                value={imageLinkColumn}
+                onChange={(e) => setImageLinkColumn(e.target.value)}
+                className="w-full rounded-xl border border-brand-gold/[0.15] bg-brand-bg px-3 py-2 text-sm text-brand-cream focus:border-brand-gold/40 focus:outline-none"
+              >
+                <option value="">None{newCollection.imageLink.trim() ? ' (every record uses the collection link)' : ''}</option>
+                {mappedColumns.filter((c) => !SYSTEM_COLUMNS.has(c) && !BUILT_IN_COLUMNS.has(c)).map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-brand-muted">
+                A record&apos;s own link wins over the collection link. Images with no link keep their usual zoom.
+              </p>
+            </div>
+          )}
+
           <div className="bg-brand-card border border-brand-gold/[0.08] rounded-xl p-4 text-sm">
             <p className="text-brand-cream font-medium mb-2">Import Summary</p>
             <ul className="space-y-1 text-brand-muted text-xs">
@@ -1864,6 +1981,12 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
               {Object.keys(imageMapping).length > 0 && (
                 <li>Images matched: <span className="text-brand-cream">{Object.keys(imageMapping).length}</span></li>
               )}
+              {blurApplies && hasImageColumn && (
+                <li>
+                  Images:{' '}
+                  <span className="text-brand-cream">blurred in this browser right after the records are saved; the originals go to private storage.</span>
+                </li>
+              )}
               {mode === 'new' && (
                 <li>
                   Goes live:{' '}
@@ -1900,12 +2023,14 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
             <p className="text-sm text-brand-muted" aria-live="polite">
               {!importProgress
                 ? 'Preparing the table…'
-                : `${importProgress.phase === 'checking' ? 'Checking rows' : 'Saving records'}… ${importProgress.done.toLocaleString()} of ${importProgress.total.toLocaleString()}`}
+                : importProgress.phase === 'blurring'
+                  ? `Blurring images… ${importProgress.done.toLocaleString()} of ${importProgress.total.toLocaleString()}`
+                  : `${importProgress.phase === 'checking' ? 'Checking rows' : 'Saving records'}… ${importProgress.done.toLocaleString()} of ${importProgress.total.toLocaleString()}`}
             </p>
             <div
               className="mx-auto mt-4 h-1.5 max-w-sm rounded-full bg-brand-bg overflow-hidden"
               role="progressbar"
-              aria-label={importProgress?.phase === 'saving' ? 'Records saved' : 'Rows checked'}
+              aria-label={importProgress?.phase === 'blurring' ? 'Images blurred' : importProgress?.phase === 'saving' ? 'Records saved' : 'Rows checked'}
               aria-valuenow={percent}
               aria-valuemin={0}
               aria-valuemax={100}
@@ -1958,6 +2083,10 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
                 </div>
               </div>
             </div>
+          )}
+
+          {result.blurProblem && (
+            <p className="text-xs text-brand-gold mt-3 break-words" role="alert">{result.blurProblem}</p>
           )}
 
           {result.collection === 'published' && mode === 'new' && (
