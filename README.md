@@ -45,7 +45,7 @@ The import wizard loads an `.xlsx` into a new or existing collection. The rules 
 - **Collection level:** Admin → Collections → Edit has a Citation & Source section. The citation format is a template with placeholders (`{{record_title}}`, `{{url}}`, …) and a live preview; the source is the archival provenance. Needs `collection_citation_template.sql`.
 - **Folders cover their tabs:** a tab that leaves either field blank uses its folder's, then that folder's folder. The two fall back independently, and `{{collection_name}}` is always the record's own tab.
 - **Record level:** a record's edit window can override either field for that record alone (`record_citations`, from `reparation_road_record_citations.sql`).
-- **Where it shows:** the source appears as a card on the collection page (even for members-only collections) and under "Cite this Record" on every record. The rules live in `lib/collections/citation.ts`.
+- **Where it shows:** under "Cite this Record" on every record (the collection page itself doesn't show it). The rules live in `lib/collections/citation.ts`.
 
 ## Storage (Admin → Upload Images)
 

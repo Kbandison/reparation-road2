@@ -95,20 +95,6 @@ export async function fetchCitationChain(supabase: SupabaseClient, slug: string)
   return chain;
 }
 
-/**
- * The source to show for a collection: its own, else the nearest parent
- * folder's. Only reads the database when the collection leaves it blank.
- */
-export async function getCollectionSource(
-  supabase: SupabaseClient,
-  collection: Pick<Collection, 'source_information' | 'parent_slug'>,
-): Promise<string | null> {
-  const own = cleanCitationText(collection.source_information);
-  if (own || !collection.parent_slug) return own;
-  const parents = await fetchCitationChain(supabase, collection.parent_slug);
-  return resolveCitationDefaults(parents).sourceInformation?.value ?? null;
-}
-
 // ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
