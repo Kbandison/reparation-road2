@@ -10,6 +10,8 @@ import { blurScan, type ScanKind } from '@/lib/images/blur-scan';
 const ENDPOINT = '/api/admin/image-blur';
 // Server batches are capped at 20; small ones keep progress moving.
 const BATCH = 5;
+// Short, so a re-blur at a new strength reaches visitors within minutes.
+const COPY_CACHE_SECONDS = '300';
 
 export interface BlurStatus {
   blurImages: boolean;
@@ -61,6 +63,8 @@ export const getBlurStatus = (collection: string) =>
 export const setBlurSwitch = (collection: string, on: boolean) =>
   call<{ blurImages: boolean }>({ method: 'POST', body: { action: on ? 'enable' : 'disable', collection } });
 
+type Storage = ReturnType<typeof createClient>['storage'];
+
 async function download(item: PreparedItem): Promise<Blob> {
   const first = await fetch(item.downloadUrl!).catch(() => null);
   if (first?.ok) return first.blob();
@@ -70,6 +74,20 @@ async function download(item: PreparedItem): Promise<Blob> {
     if (raw.ok) return raw.blob();
   }
   throw new Error(`The original couldn't be downloaded (${first?.status ?? 'network error'}).`);
+}
+
+/** Downloads one original, blurs it, and uploads the copy to its slot. Throws with a readable reason. */
+async function blurOne(item: PreparedItem, storage: Storage): Promise<void> {
+  if (item.error || !item.upload || !item.kind) throw new Error(item.error || 'No upload slot');
+  const blurred = await blurScan(await download(item), item.kind);
+  const { error } = await storage
+    .from(item.upload.bucket)
+    .uploadToSignedUrl(item.upload.path, item.upload.token, blurred.blob, {
+      contentType: blurred.contentType,
+      upsert: true,
+      cacheControl: COPY_CACHE_SECONDS,
+    });
+  if (error) throw new Error(`Uploading the blurred copy failed: ${error.message}`);
 }
 
 /**
@@ -98,15 +116,7 @@ export async function blurCollection(
     // One at a time: blurring is CPU-heavy, and a big PDF holds a lot of memory.
     for (const item of items) {
       try {
-        if (item.error || !item.upload || !item.kind) throw new Error(item.error || 'No upload slot');
-        const blurred = await blurScan(await download(item), item.kind);
-        const { error } = await storage
-          .from(item.upload.bucket)
-          .uploadToSignedUrl(item.upload.path, item.upload.token, blurred.blob, {
-            contentType: blurred.contentType,
-            upsert: true,
-          });
-        if (error) throw new Error(`Uploading the blurred copy failed: ${error.message}`);
+        await blurOne(item, storage);
         uploaded.push(item.key);
       } catch (err) {
         result.failed.push({ key: item.key, error: err instanceof Error ? err.message : 'Blurring failed' });
@@ -141,6 +151,40 @@ export async function blurCollection(
         break;
       }
     }
+  }
+  return result;
+}
+
+/**
+ * Re-makes every blurred copy from its original in private storage, at the
+ * current blur strength. Links stay as they are; the originals stay private.
+ */
+export async function reblurCollection(
+  collection: string,
+  onProgress?: (progress: BlurProgress) => void,
+): Promise<{ reblurred: number; failed: { key: string; error: string }[] }> {
+  const status = await getBlurStatus(collection);
+  const storage = createClient().storage;
+  const total = status.restorable;
+  const result = { reblurred: 0, failed: [] as { key: string; error: string }[] };
+  let done = 0;
+  onProgress?.({ done, total });
+
+  for (let after: string | null = ''; after !== null; ) {
+    const page: { items: PreparedItem[]; next: string | null } = await call({
+      method: 'POST',
+      body: { action: 'reblur-prepare', collection, after },
+    });
+    for (const item of page.items) {
+      try {
+        await blurOne(item, storage);
+        result.reblurred++;
+      } catch (err) {
+        result.failed.push({ key: item.key, error: err instanceof Error ? err.message : 'Re-blurring failed' });
+      }
+      onProgress?.({ done: ++done, total });
+    }
+    after = page.next;
   }
   return result;
 }

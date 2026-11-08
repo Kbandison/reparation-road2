@@ -29,6 +29,7 @@ import {
  * POST { action: 'prepare', keys }         signed download + upload URLs
  * POST { action: 'commit', keys }          relink to the copies, hide the originals
  * POST { action: 'retry-moves' }           re-try originals that didn't move
+ * POST { action: 'reblur-prepare', after }  re-blur from the private originals (new strength)
  * POST { action: 'restore' }               undo a batch: originals back, copies gone
  */
 
@@ -229,6 +230,7 @@ export async function POST(request: NextRequest) {
     action?: string;
     collection?: string;
     keys?: unknown;
+    after?: unknown;
   };
   const collection = await loadCollection(admin, body.collection);
   if (collection instanceof NextResponse) return collection;
@@ -354,6 +356,53 @@ export async function POST(request: NextRequest) {
       console.error('[image-blur] commit failed', collection.slug, err);
       return fail(err instanceof Error ? err.message : 'Relinking failed', 502);
     }
+  }
+
+  // Re-blurring (after the blur strength changes) works from the originals in
+  // the private bucket and overwrites each copy in place: links don't change,
+  // and the original never becomes public.
+  if (body.action === 'reblur-prepare') {
+    const after = typeof body.after === 'string' ? body.after : '';
+    let query = admin
+      .from('blurred_scans')
+      .select('id, original_key, blurred_key, restricted_key')
+      .eq('collection_id', collection.id)
+      .order('original_key')
+      .limit(MAX_BATCH);
+    if (after) query = query.gt('original_key', after);
+    const { data, error } = await query;
+    if (error) return fail(error.message);
+    const rows = (data ?? []) as BlurredScanRow[];
+
+    const items = await Promise.all(
+      rows.map(async (row) => {
+        const kind = kindOf(row.original_key);
+        // Hidden originals are read from the private bucket; one that never
+        // moved is still where it was.
+        const source = splitKey(row.restricted_key || row.original_key);
+        const copy = splitKey(row.blurred_key);
+        const bucket = admin.storage.from(source.bucket);
+        const [raw, resized, upload] = await Promise.all([
+          bucket.createSignedUrl(source.path, URL_LIFETIME_SECONDS),
+          kind === 'image'
+            ? bucket.createSignedUrl(source.path, URL_LIFETIME_SECONDS, {
+                transform: { width: DOWNLOAD_WIDTH, resize: 'contain', quality: 80 },
+              })
+            : Promise.resolve(null),
+          admin.storage.from(copy.bucket).createSignedUploadUrl(copy.path, { upsert: true }),
+        ]);
+        if (raw.error || !raw.data) return { key: row.original_key, error: `The original can’t be read: ${raw.error?.message ?? 'not found'}` };
+        if (upload.error || !upload.data) return { key: row.original_key, error: `No upload slot for the copy: ${upload.error?.message}` };
+        return {
+          key: row.original_key,
+          kind,
+          downloadUrl: resized?.data?.signedUrl ?? raw.data.signedUrl,
+          fallbackUrl: raw.data.signedUrl,
+          upload: { bucket: copy.bucket, path: upload.data.path, token: upload.data.token },
+        };
+      }),
+    );
+    return NextResponse.json({ items, next: rows.length === MAX_BATCH ? rows[rows.length - 1].original_key : null });
   }
 
   if (body.action === 'retry-moves') {

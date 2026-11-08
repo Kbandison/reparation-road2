@@ -1,28 +1,31 @@
 /**
- * The heavy, irreversible blur for scans that can't be shown in full (rights,
+ * The irreversible blur for scans that can't be shown in full (rights,
  * licensing, or the terms agreed with a document's owner). Browser only: it
  * draws on canvases, and renders PDFs with PDF.js.
  *
  * Each image is first shrunk to at most INFO_SIZE pixels on its long side.
  * That is what makes the blur safe: the detail is gone from the file, not just
- * hidden. At 200 pixels a page of handwriting keeps the shape of its lines but
- * no legible letter, and nothing can sharpen them back. The small image is
- * then softened and scaled up, so it reads as a blurred page rather than a
- * mosaic.
+ * hidden, and nothing can sharpen it back. At 520 pixels a ledger page keeps
+ * its rows, ruling and the shape of the handwriting, so it plainly is a
+ * document worth opening, but no word can be read even zoomed in (the level
+ * the client chose, 2026-11-08: "almost legible, but not"). The small image is
+ * then lightly softened and scaled up, so it reads as an out-of-focus page
+ * rather than a mosaic. Raising INFO_SIZE or lowering the softening starts to
+ * make words readable.
  *
  * A PDF comes back as a PDF (every page blurred the same way), so it still
  * opens in the browser's PDF viewer like any other.
  */
 
 /** Long side of the shrink that throws the detail away. */
-const INFO_SIZE = 200;
+const INFO_SIZE = 520;
 /** Size the softening passes run at. */
-const SOFTEN_SIZE = 480;
+const SOFTEN_SIZE = 1040;
 /** Long side of the blurred copy (never larger than the original). */
 const OUTPUT_SIZE = 1200;
 const JPEG_QUALITY = 0.8;
 /** Long side PDF pages are rendered at before the shrink. */
-const PDF_RENDER_SIZE = 800;
+const PDF_RENDER_SIZE = 1200;
 const MAX_PDF_PAGES = 500;
 
 export type ScanKind = 'image' | 'pdf';
@@ -118,8 +121,8 @@ function blurDrawable(source: CanvasImageSource, width: number, height: number):
   const soft = scaledTo(width, height, Math.min(SOFTEN_SIZE, Math.max(width, height)));
   const softCanvas = makeCanvas(soft.width, soft.height);
   context(softCanvas).drawImage(tiny, 0, 0, soft.width, soft.height);
-  // A light softening: enough to hide the 200-pixel grid, not the page's layout.
-  gaussianish(softCanvas, Math.max(2, Math.round(Math.max(soft.width, soft.height) / 120)));
+  // A light softening: enough to blur strokes into each other, not the page's layout.
+  gaussianish(softCanvas, Math.max(2, Math.round(Math.max(soft.width, soft.height) / 420)));
 
   const out = scaledTo(width, height, Math.min(OUTPUT_SIZE, Math.max(width, height)));
   const outCanvas = makeCanvas(out.width, out.height);

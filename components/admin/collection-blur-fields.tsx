@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { EyeOff, Loader2, RotateCcw } from 'lucide-react';
+import { EyeOff, Loader2, RefreshCw, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ import {
 import {
   blurCollection,
   getBlurStatus,
+  reblurCollection,
   restoreCollection,
   type BlurProgress,
   type BlurStatus,
@@ -34,7 +35,7 @@ interface CollectionBlurFieldsProps {
   onBusyChange: (busy: boolean) => void;
 }
 
-type Run = { kind: 'blur' | 'restore'; progress: BlurProgress } | null;
+type Run = { kind: 'blur' | 'restore' | 'reblur'; progress: BlurProgress } | null;
 
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 
@@ -124,6 +125,23 @@ export function CollectionBlurFields({
     await loadStatus();
   };
 
+  // After the blur strength changes: re-make every copy from the private originals.
+  const startReblur = async () => {
+    setRun({ kind: 'reblur', progress: { done: 0, total: status?.restorable ?? 0 } });
+    try {
+      const result = await reblurCollection(collection.slug, (progress) => setRun({ kind: 'reblur', progress }));
+      if (result.failed.length === 0) toast.success(`Re-blurred ${plural(result.reblurred, 'image')}. Visitors see the new version within a few minutes.`);
+      else {
+        toast.error(`${plural(result.failed.length, 'image')} couldn't be re-blurred: ${result.failed[0].error}`);
+        console.error('[image-blur] re-blur failures', result.failed);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Re-blurring failed');
+    }
+    setRun(null);
+    await loadStatus();
+  };
+
   const startRestore = async () => {
     setConfirm(null);
     setRun({ kind: 'restore', progress: { done: 0, total: status?.restorable ?? 0 } });
@@ -185,7 +203,7 @@ export function CollectionBlurFields({
             <div className="h-full bg-brand-gold transition-all" style={{ width: `${percent}%` }} />
           </div>
           <p className="text-[11px] text-brand-muted">
-            {run.kind === 'blur' ? 'Blurring' : 'Restoring'} {run.progress.done.toLocaleString()} of{' '}
+            {run.kind === 'blur' ? 'Blurring' : run.kind === 'reblur' ? 'Re-blurring' : 'Restoring'} {run.progress.done.toLocaleString()} of{' '}
             {run.progress.total.toLocaleString()}… keep this window open.
           </p>
         </div>
@@ -201,6 +219,18 @@ export function CollectionBlurFields({
             >
               <EyeOff className="w-3.5 h-3.5 mr-1.5" />
               {on ? `Blur ${plural(waiting, 'waiting image')}` : 'Blur this collection’s images'}
+            </Button>
+          )}
+          {on && status.restorable > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={startReblur}
+              title="Re-make the blurred copies from the private originals at the current blur strength"
+              className="border-brand-gold/20 text-brand-cream rounded-xl text-xs h-8"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+              Re-blur at the current strength
             </Button>
           )}
           {on && (
@@ -254,7 +284,8 @@ export function CollectionBlurFields({
             </select>
             <p className="text-[11px] text-brand-muted">
               A record&apos;s own link wins over the one above. Hovering the image shows &ldquo;View the
-              original image&rdquo;, and clicking opens the link. Images with no link keep their usual zoom.
+              original image&rdquo;; clicking shows a short &ldquo;You&apos;re leaving Reparation Road&rdquo; notice
+              with a Go now button that opens the link. Images with no link keep their usual zoom.
             </p>
           </div>
         </div>

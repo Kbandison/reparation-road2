@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { ExternalLink } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ZoomableImage } from '@/components/collection/zoomable-image';
-import { SourceImageLink } from '@/components/collection/source-image-link';
+import { SourceImageLink, SourceLink } from '@/components/collection/source-image-link';
 import { PendingScan } from '@/components/collection/pending-scan';
 import { buildImageUrl, isPdfPath } from '@/lib/collections/helpers';
 
@@ -39,14 +39,12 @@ export function ImageViewer({ imagePath, alt, sourceLink = null, pending = false
   }
 
   const sourceAnchor = sourceLink && (
-    <a
+    <SourceLink
       href={sourceLink}
-      target="_blank"
-      rel="noopener noreferrer"
       className="inline-flex items-center gap-1.5 text-sm text-brand-gold hover:text-brand-gold-light"
     >
       <ExternalLink className="w-4 h-4" /> View the original image
-    </a>
+    </SourceLink>
   );
 
   // PDFs render in the browser's native viewer via an <iframe>; no lightbox.
