@@ -39,6 +39,7 @@ The import wizard loads an `.xlsx` into a new or existing collection. The rules 
 
 ## Folders and AI descriptions
 
+- **Deleting a collection** keeps its data table unless "Also delete the data table" is ticked (several collections can share a table). A kept table holds on to its name: importing a new collection with the same slug finds it, and the wizard offers **Replace the leftover table** (type its name to confirm). **Admin → Collections → Unused tables** (`lib/collections/unused-tables.ts`, `/api/admin/tables`) lists every records table no collection uses, with a peek at its rows and a remove that re-checks it's unused and never cascades into anything that depends on it.
 - **Folders** are collections that hold other collections as tabs, never records (`display_type = 'folder'`, needs `collections_folders_migration.sql`). Create them from Import Records → Create Folder, or "+ New folder…" in Create New Collection's parent picker. Move collections between folders from Admin → Collections → Edit. Rules live in `lib/collections/folders.ts`.
 - **Generate with AI** writes short and long descriptions with Claude Sonnet (`lib/ai/descriptions.ts`, official Anthropic SDK, needs `ANTHROPIC_API_KEY`).
 
