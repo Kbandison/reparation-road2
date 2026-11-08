@@ -8,7 +8,7 @@ Some scans can't be shown in full because of rights, licensing, or the terms agr
 
 **Minor updates**
 - `image_blur_migration.sql` (manual run): `collections.blur_images`, `image_link`, `image_link_column`; the `blurred_scans` table (admin-only, RLS on with no policies); the `blurred-images` (public) and `restricted-images` (private) buckets.
-- Blurring runs in the admin's browser (`lib/images/blur-scan.ts`, driven by `lib/images/run-blur.ts`). Each image is shrunk to 96px, softened and scaled back up. PDFs are rendered with PDF.js and rebuilt as blurred PDFs with pdf-lib, so the PDF viewer and "Open in new tab" still work. New dependencies: `pdfjs-dist` 6.5.438 (Mozilla, Apache-2.0) and `pdf-lib` 1.17.1 (MIT). `scripts/copy-pdfjs-assets.mjs` copies PDF.js's worker and decoders into `public/pdfjs/` (git-ignored) on `predev` and `prebuild`.
+- Blurring runs in the admin's browser (`lib/images/blur-scan.ts`, driven by `lib/images/run-blur.ts`). Each image is shrunk to 200px on its long side, softened and scaled back up. Kevin picked this strength over a heavier 96px version, because the lighter one still reads as a page. PDFs are rendered with PDF.js and rebuilt as blurred PDFs with pdf-lib, so the PDF viewer and "Open in new tab" still work. New dependencies: `pdfjs-dist` 6.5.438 (Mozilla, Apache-2.0) and `pdf-lib` 1.17.1 (MIT). `scripts/copy-pdfjs-assets.mjs` copies PDF.js's worker and decoders into `public/pdfjs/` (git-ignored) on `predev` and `prebuild`.
 - `/api/admin/image-blur` hands out signed URLs, then relinks every reference to the blurred copy (record scans in any collection, `image_url` on older tables, cover images) and moves the original to the private bucket. Restore reverses it. Work runs in batches of 5, so no request runs long.
 - Admin → Collections → Edit → **Blurred images**: blur, blur waiting images, restore originals, a link for every record, and the per-record link column. The window can't close mid-run.
 - Visitors: with a link, hovering the image shows "View the original image at <site>" and the whole image opens it in a new tab (always visible on touch screens). With no link, the image keeps its zoom and a PDF keeps "Open in new tab". A scan not blurred yet shows "Image being prepared" in the modal, the record page, book covers, family-tree cards, full-screen paging and the admin record editor.
@@ -18,7 +18,7 @@ Some scans can't be shown in full because of rights, licensing, or the terms agr
 - Checked: `tsc` clean and the production build passes. The Bonham PDF blurred in 0.3s headless (7 KB, same page size), and inside a temporary page in a real production build (PDF 0.5s, a 476 KB JPEG scan 0.9s, worker and WebAssembly loaded from `/pdfjs/`). The temporary page was then deleted. Logic checks cover bucket detection, pending vs blurred, link precedence, URL safety (`javascript:` refused) and the matching planner.
 
 **Next actions**
-- Run `image_blur_migration.sql`, then deploy.
+- `image_blur_migration.sql` run and checked 2026-11-08 (columns, table hidden from the public, bucket visibility); deployed the same day.
 - Blur Samuel Bonham & Co. from Edit and set its link. Then check the record modal, record page and full-screen paging live, and confirm the original PDF's public URL no longer serves.
 - Not yet exercised against live storage: the relink/move/restore route. Bonham is its first real run; Restore undoes it.
 

@@ -5,16 +5,17 @@
  *
  * Each image is first shrunk to at most INFO_SIZE pixels on its long side.
  * That is what makes the blur safe: the detail is gone from the file, not just
- * hidden, and nothing can sharpen handwriting back out of a 96-pixel image.
- * The tiny image is then softened and scaled up, so it reads as a smooth blur
- * of the page's shape and tone rather than a mosaic.
+ * hidden. At 200 pixels a page of handwriting keeps the shape of its lines but
+ * no legible letter, and nothing can sharpen them back. The small image is
+ * then softened and scaled up, so it reads as a blurred page rather than a
+ * mosaic.
  *
  * A PDF comes back as a PDF (every page blurred the same way), so it still
  * opens in the browser's PDF viewer like any other.
  */
 
 /** Long side of the shrink that throws the detail away. */
-const INFO_SIZE = 96;
+const INFO_SIZE = 200;
 /** Size the softening passes run at. */
 const SOFTEN_SIZE = 480;
 /** Long side of the blurred copy (never larger than the original). */
@@ -117,7 +118,8 @@ function blurDrawable(source: CanvasImageSource, width: number, height: number):
   const soft = scaledTo(width, height, Math.min(SOFTEN_SIZE, Math.max(width, height)));
   const softCanvas = makeCanvas(soft.width, soft.height);
   context(softCanvas).drawImage(tiny, 0, 0, soft.width, soft.height);
-  gaussianish(softCanvas, Math.max(2, Math.round(Math.max(soft.width, soft.height) / 40)));
+  // A light softening: enough to hide the 200-pixel grid, not the page's layout.
+  gaussianish(softCanvas, Math.max(2, Math.round(Math.max(soft.width, soft.height) / 120)));
 
   const out = scaledTo(width, height, Math.min(OUTPUT_SIZE, Math.max(width, height)));
   const outCanvas = makeCanvas(out.width, out.height);
