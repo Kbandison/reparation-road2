@@ -82,7 +82,7 @@ export function CollectionCitationFields({
         <p className="text-[11px] text-brand-muted mt-1">
           {folder
             ? 'Every tab inside this folder uses these unless the tab sets its own.'
-            : 'Used on every record in this collection, and the source shows on the collection page.'}{' '}
+            : 'Shown under “Cite this Record” on every record in this collection.'}{' '}
           A single record can still override both from its edit window.
         </p>
       </div>

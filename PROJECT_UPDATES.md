@@ -10,13 +10,14 @@ The collection-level Citation & Source editor never saved anything. The August m
 - `collection_citation_template.sql` adds the missing column (manual run).
 - The editor moved into Admin → Collections → Edit (`components/admin/collection-citation-fields.tsx`), so folders can have one too: citation format with placeholder chips that insert at the cursor, a live preview, a status badge (Custom / From *folder* / Default), and the source with what a blank field inherits. The two fields are sent only when changed, and save errors now surface through the modal's toast. The old panel above the admin records table is gone.
 - Folder fallback: record override → tab → parent folder(s), each field on its own (`lib/collections/citation.ts`). The record edit window's hint shows the inherited source.
-- The collection page shows a Source card with Copy (`components/collection/collection-source.tsx`), on tabs and folders, including members-only collections. URLs in sources are links, there and in "Cite this Record".
+- URLs in sources are now links in "Cite this Record".
 - Fixed in "Cite this Record": paging the record modal from a record with an override to one without kept showing the first record's override.
 - Checked: `tsc` clean and the production build passes; resolver checks (independent fallback, two-level folders, cycle guard, partial rows, default citation identical to before); collection, tab and folder pages render 200 on a local production build against the live database.
 
 **Next actions**
-- Run `collection_citation_template.sql`, then deploy.
-- Set a source on a collection from Edit and confirm the card and "Cite this Record" show it.
+- SQL run and deployed 2026-11-08; collection, tab and folder pages checked live (200).
+- Removed the same day: a Source card on the collection page, shipped with this change. The source now shows only under "Cite this Record" on each record.
+- Set a source on a collection from Edit and confirm "Cite this Record" shows it, on a tab and on a folder's tab.
 - Decide later whether to move the two record-level sources up to their collections.
 
 ## 2026-10-25T20:11Z: AI features on the `ai-features` branch (not live)
