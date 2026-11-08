@@ -2,6 +2,23 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-11-08T18:44Z: Collection-level citations and sources work
+
+The collection-level Citation & Source editor never saved anything. The August migration added `collections.source_information`, but `citation_template` was never created. The editor sent both in one update, PostgREST rejected the whole thing over the missing column, and the editor ignored the error and showed "Saved". No collection had a source. On 2026-11-07 someone entered collection-wide sources (a DAR book, a NARA special list) as overrides on one record each in African American Revolutionary Soldiers and Free Black Heads of Household 1790. Those two overrides are left as they are for now.
+
+**Minor updates**
+- `collection_citation_template.sql` adds the missing column (manual run).
+- The editor moved into Admin → Collections → Edit (`components/admin/collection-citation-fields.tsx`), so folders can have one too: citation format with placeholder chips that insert at the cursor, a live preview, a status badge (Custom / From *folder* / Default), and the source with what a blank field inherits. The two fields are sent only when changed, and save errors now surface through the modal's toast. The old panel above the admin records table is gone.
+- Folder fallback: record override → tab → parent folder(s), each field on its own (`lib/collections/citation.ts`). The record edit window's hint shows the inherited source.
+- The collection page shows a Source card with Copy (`components/collection/collection-source.tsx`), on tabs and folders, including members-only collections. URLs in sources are links, there and in "Cite this Record".
+- Fixed in "Cite this Record": paging the record modal from a record with an override to one without kept showing the first record's override.
+- Checked: `tsc` clean and the production build passes; resolver checks (independent fallback, two-level folders, cycle guard, partial rows, default citation identical to before); collection, tab and folder pages render 200 on a local production build against the live database.
+
+**Next actions**
+- Run `collection_citation_template.sql`, then deploy.
+- Set a source on a collection from Edit and confirm the card and "Cite this Record" show it.
+- Decide later whether to move the two record-level sources up to their collections.
+
 ## 2026-10-25T20:11Z: AI features on the `ai-features` branch (not live)
 
 Built on a branch off main, kept off main until Kevin says so: page transcription, import column suggestions, the research assistant moved from `future-checklist` with caps per account level, and an admin view of AI spend against a $500 monthly budget. `ai_features_migration.sql` was run and checked on the live database the same day.

@@ -16,6 +16,8 @@ import { AccessGate } from '@/components/collection/access-gate';
 import { ActivityTracker } from '@/components/collection/activity-tracker';
 import { BookmarkRecordOpener } from '@/components/collection/bookmark-record-opener';
 import { ComingSoon } from '@/components/collection/coming-soon';
+import { CollectionSource } from '@/components/collection/collection-source';
+import { getCollectionSource } from '@/lib/collections/citation';
 
 interface Props {
   params: Promise<{ collectionSlug: string }>;
@@ -46,6 +48,9 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
   if (!collection) notFound();
 
   const isParent = !collection.table_name;
+
+  // Provenance is public metadata, so it shows even when the records are members-only.
+  const source = await getCollectionSource(supabase, collection);
 
   // Parent collection → show subcollections
   if (isParent) {
@@ -97,6 +102,8 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
             </span>
           )}
         </div>
+
+        {source && <CollectionSource source={source} />}
 
         {children.length > 0 ? (
           <SubcollectionGrid children={children} parentSlugs={parentSlugs} />
@@ -172,6 +179,8 @@ export default async function CollectionBrowserPage({ params, searchParams }: Pr
           </span>
         )}
       </div>
+
+      {source && <CollectionSource source={source} />}
 
       {!access.hasAccess ? (
         <AccessGate collection={collection} reason={access.reason!} />

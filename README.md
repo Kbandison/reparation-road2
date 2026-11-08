@@ -49,6 +49,13 @@ Every Claude call goes through the official Anthropic SDK (`lib/ai/`), is logged
 - **Scan transcription** (Admin → Transcriptions; `lib/transcription/`): Claude reads each scanned page from Supabase's resize endpoint at 2576px and writes it out word for word. One transcript per page (`scan_transcriptions`, keyed `bucket/path`), shown under the scan in the record viewer as an AI transcription; admins can correct it in place (Claude's original stays in `ai_text`). A pilot runs the same pages through Sonnet 5 and Opus 5.5 so the batch model can be chosen. Collections are transcribed through the Batch API at half price; a run is refused if it would pass the month's budget, and batches still running hold their estimate against it. Pages whose records already have OCR text are skipped unless "Also redo" is ticked. Search finds names in transcripts and shows them as "On scanned pages" hits, one per page, only where the viewer can open the collection.
 - **Import suggestions** (`lib/ai/mapping.ts`): when a file is read, Claude checks the column matches in the background; differences show under each column with Accept and Apply all, never applied on their own. New collections also get suggested table and search columns on the Preview step.
 
+## Citations and sources
+
+- **Collection level:** Admin → Collections → Edit has a Citation & Source section. The citation format is a template with placeholders (`{{record_title}}`, `{{url}}`, …) and a live preview; the source is the archival provenance. Needs `collection_citation_template.sql`.
+- **Folders cover their tabs:** a tab that leaves either field blank uses its folder's, then that folder's folder. The two fall back independently, and `{{collection_name}}` is always the record's own tab.
+- **Record level:** a record's edit window can override either field for that record alone (`record_citations`, from `reparation_road_record_citations.sql`).
+- **Where it shows:** the source appears as a card on the collection page (even for members-only collections) and under "Cite this Record" on every record. The rules live in `lib/collections/citation.ts`.
+
 ## Storage (Admin → Upload Images)
 
 A file manager over Supabase Storage (`components/admin/storage-*`, `lib/storage/`, `/api/admin/storage`).

@@ -4,7 +4,14 @@ import { useState, useMemo, useEffect } from 'react';
 import { Copy, Check, Quote, ChevronDown, ChevronRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { Collection, CollectionRecord } from '@/lib/types';
-import { getRecordTitle } from '@/lib/collections/helpers';
+import {
+  buildRecordCitation,
+  cleanCitationText,
+  fetchCitationChain,
+  resolveCitationDefaults,
+  type CitationDefaults,
+} from '@/lib/collections/citation';
+import { Linkify } from '@/components/shared/linkify';
 
 interface RecordCitationProps {
   collection: Collection;
@@ -13,77 +20,76 @@ interface RecordCitationProps {
   defaultOpen?: boolean;
 }
 
-function buildCitation(
-  collection: Collection,
-  record: CollectionRecord,
-  override: string | null,
-): string {
-  // An explicit per-record override wins outright.
-  if (override && override.trim()) return override.trim();
-
-  const recordTitle = getRecordTitle(record, collection.display_columns || []);
-  const recordSlug = record.slug || record.id;
-  const collectionSlug = collection.slug;
-  const url = `reparationroad.org/collection/${collectionSlug}/${recordSlug}`;
-  const accessedDate = new Date().toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-
-  // Admin-set collection template.
-  if (collection.citation_template) {
-    return collection.citation_template
-      .replace(/\{\{record_title\}\}/g, recordTitle)
-      .replace(/\{\{collection_name\}\}/g, collection.name)
-      .replace(/\{\{record_id\}\}/g, recordSlug)
-      .replace(/\{\{collection_slug\}\}/g, collectionSlug)
-      .replace(/\{\{accessed_date\}\}/g, accessedDate)
-      .replace(/\{\{url\}\}/g, url);
-  }
-
-  // Default citation (Chicago/Turabian style).
-  return `"${recordTitle}," ${collection.name}, Reparation Road Digital Archive, ${url}, accessed ${accessedDate}.`;
+interface RecordOverride {
+  citation: string | null;
+  source_information: string | null;
 }
 
 export function RecordCitation({ collection, record, defaultOpen = false }: RecordCitationProps) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(defaultOpen);
-  const [override, setOverride] = useState<{
-    citation: string | null;
-    source_information: string | null;
-  } | null>(null);
 
-  // Pull any per-record override (public read). Fails silently if the table
-  // doesn't exist yet (before the migration is run) — the record just uses the
-  // collection defaults.
+  // Both lookups are stored with the key they were fetched for, so paging the
+  // modal to another record or collection never shows the previous one's values
+  // while the next fetch is in flight.
+  const overrideKey = `${collection.table_name}:${record.id}`;
+  const [fetchedOverride, setFetchedOverride] = useState<{ key: string; data: RecordOverride | null } | null>(null);
+  const [fetchedDefaults, setFetchedDefaults] = useState<{ slug: string; defaults: CitationDefaults } | null>(null);
+
+  // Per-record override (public read).
   useEffect(() => {
     let active = true;
     if (!collection.table_name || !record.id) return;
-    const supabase = createClient();
-    supabase
+    const key = `${collection.table_name}:${record.id}`;
+    createClient()
       .from('record_citations')
       .select('citation, source_information')
       .eq('table_name', collection.table_name)
       .eq('record_id', record.id)
       .maybeSingle()
       .then(({ data }) => {
-        if (active && data) setOverride(data);
+        if (active) setFetchedOverride({ key, data: data ?? null });
       });
     return () => {
       active = false;
     };
   }, [collection.table_name, record.id]);
 
-  const citation = useMemo(
-    () => buildCitation(collection, record, override?.citation ?? null),
-    [collection, record, override],
+  // Collection defaults with the parent-folder fallback. Read fresh because
+  // some callers pass a partial collection row.
+  useEffect(() => {
+    let active = true;
+    const slug = collection.slug;
+    fetchCitationChain(createClient(), slug).then((chain) => {
+      if (active && chain.length > 0) setFetchedDefaults({ slug, defaults: resolveCitationDefaults(chain) });
+    });
+    return () => {
+      active = false;
+    };
+  }, [collection.slug]);
+
+  const override = fetchedOverride?.key === overrideKey ? fetchedOverride.data : null;
+  // Until the chain arrives, use whatever the collection row itself carries.
+  const defaults = useMemo(
+    () =>
+      fetchedDefaults?.slug === collection.slug
+        ? fetchedDefaults.defaults
+        : resolveCitationDefaults([collection]),
+    [fetchedDefaults, collection],
   );
 
-  const source =
-    (override?.source_information && override.source_information.trim()) ||
-    (collection.source_information && collection.source_information.trim()) ||
-    null;
+  const citation = useMemo(
+    () =>
+      buildRecordCitation(
+        collection,
+        record,
+        defaults.citationTemplate?.value ?? null,
+        override?.citation ?? null,
+      ),
+    [collection, record, defaults, override],
+  );
+
+  const source = cleanCitationText(override?.source_information) ?? defaults.sourceInformation?.value ?? null;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(citation);
@@ -147,7 +153,7 @@ export function RecordCitation({ collection, record, defaultOpen = false }: Reco
                 Source
               </p>
               <p className="text-xs text-brand-cream/70 leading-relaxed whitespace-pre-line select-all">
-                {source}
+                <Linkify text={source} />
               </p>
             </div>
           )}
