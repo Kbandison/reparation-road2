@@ -15,7 +15,7 @@ import { useTreeSaves } from '@/lib/hooks/use-tree-saves';
 import { ModalRelatedRecords } from '@/components/collection/modal-related-records';
 import { RecordCitation } from '@/components/collection/record-citation';
 import { ZoomableImage } from '@/components/collection/zoomable-image';
-import { SourceImageLink } from '@/components/collection/source-image-link';
+import { SourceImageLink, SourceLink } from '@/components/collection/source-image-link';
 import { PendingScan } from '@/components/collection/pending-scan';
 import { scanState, sourceImageLink } from '@/lib/collections/blur';
 
@@ -379,14 +379,12 @@ export function RecordModal({
                       Document {isPdf ? 'PDF' : 'Image'}
                     </p>
                     {sourceLink ? (
-                      <a
+                      <SourceLink
                         href={sourceLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-[11px] text-brand-gold hover:text-brand-gold-light"
                       >
                         <ExternalLink className="w-3 h-3" /> View original
-                      </a>
+                      </SourceLink>
                     ) : isPdf && scan !== 'pending' && (
                       <a
                         href={imageUrl!}

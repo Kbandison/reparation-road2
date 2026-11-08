@@ -2,6 +2,20 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-11-08T20:44Z: Lighter blur, and a notice before leaving for the source
+
+The client asked for the blur to be "almost legible, but not", enough to make people click through, and for a notice before the link takes them away.
+
+**Minor updates**
+- Blur level E (`lib/images/blur-scan.ts`): shrink to 520px instead of 200, with a lighter softening. Rows, ruling and the shape of the handwriting show; no word is readable at 3x zoom. Picked from five levels rendered on the Bonham page. The step beyond E (700px) looked almost the same, so E is about as close to legible as this method goes while staying safe.
+- **Re-blur at the current strength** (Edit → Blurred images; `reblur-prepare` in `/api/admin/image-blur`, `reblurCollection` in `lib/images/run-blur.ts`): re-makes every copy from the originals in private storage and overwrites it in place. Links don't change and the originals stay private. Copies now upload with a 5-minute cache (was an hour), so changes reach visitors quickly.
+- Source links (the hover overlay and the "View original" links) open `LeavingSiteDialog`: "You're leaving Reparation Road", the destination site, a 5-second countdown ring, **Go now** (a real link, so it opens a new tab) and **Stay here**. Kevin chose new tab, button only: browsers block tabs opened by a timer, so at zero it says "Click Go now to open it" and highlights the button.
+- Checked: the shipped code's blur is byte-identical to the approved sample E (Bonham PDF, 38 KB, 0.4s). The dialog was tested in a production build on a temporary page (since deleted): countdown 5→0, nothing opened at zero, Go now opened the Georgetown link in a new tab, Escape and Stay here close it, reopening restarts at 5, no page errors, desktop and phone layouts. `tsc` and ESLint are clean.
+- Also confirmed live: Bonham's first blur (by the client, 20:29Z) worked end to end. All 82 records point at the copy, and the original's public URL returns 400.
+
+**Next actions**
+- After deploy: Bonham → Edit → Blurred images → **Re-blur at the current strength**. Visitors see level E within 5 minutes; the old copy was cached for up to an hour.
+
 ## 2026-11-08T20:17Z: Leftover tables stop blocking imports; Unused tables page
 
 The client deleted Samuel Bonham & Co. to practice the import with a source link and the blur. Deleting a collection keeps its table unless "Also delete the data table" is ticked, so `samuel_bonham_co` (82 records) stayed. Re-importing under the same name then stopped at "A table named samuel_bonham_co already holds 82 records".
