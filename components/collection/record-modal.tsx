@@ -16,6 +16,9 @@ import { ModalRelatedRecords } from '@/components/collection/modal-related-recor
 import { RecordCitation } from '@/components/collection/record-citation';
 import { ZoomableImage } from '@/components/collection/zoomable-image';
 import { ScanTranscript } from '@/components/collection/scan-transcript';
+import { SourceImageLink } from '@/components/collection/source-image-link';
+import { PendingScan } from '@/components/collection/pending-scan';
+import { scanState, sourceImageLink } from '@/lib/collections/blur';
 
 interface RecordModalProps {
   collection: Collection;
@@ -86,6 +89,10 @@ export function RecordModal({
   const rawImageUrl = buildImageUrl(imagePath);
   const ocrText = activeRecord.ocr_text as string | undefined;
   const hasImage = activeCollection.has_images && !!imageUrl;
+  // Rights-restricted collections: a blurred scan opens its original at the
+  // source when it has a link; one not blurred yet never shows at all.
+  const scan = scanState(activeCollection, imagePath);
+  const sourceLink = scan === 'blurred' ? sourceImageLink(activeCollection, activeRecord) : null;
 
   // Reset the transform-failed flags when navigating to a different record.
   const [prevImagePath, setPrevImagePath] = useState(imagePath);
@@ -270,6 +277,21 @@ export function RecordModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageZoom, activeCollection.slug]);
 
+  // The scan itself, shared by the zoomable and the linked layouts.
+  const scanImage = imgFailed && rawImageUrl ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={rawImageUrl} alt={String(title)} className="absolute inset-0 w-full h-full object-contain" />
+  ) : imageUrl ? (
+    <Image
+      src={imageUrl}
+      alt={String(title)}
+      fill
+      className="object-contain"
+      sizes="(max-width: 768px) 100vw, 50vw"
+      onError={() => setImgFailed(true)}
+    />
+  ) : null;
+
   const modal = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* Backdrop */}
@@ -357,7 +379,16 @@ export function RecordModal({
                     <p className="text-[11px] text-brand-muted font-medium uppercase tracking-wide">
                       Document {isPdf ? 'PDF' : 'Image'}
                     </p>
-                    {isPdf && (
+                    {sourceLink ? (
+                      <a
+                        href={sourceLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-brand-gold hover:text-brand-gold-light"
+                      >
+                        <ExternalLink className="w-3 h-3" /> View original
+                      </a>
+                    ) : isPdf && scan !== 'pending' && (
                       <a
                         href={imageUrl!}
                         target="_blank"
@@ -368,30 +399,28 @@ export function RecordModal({
                       </a>
                     )}
                   </div>
-                  {isPdf ? (
-                    <iframe
-                      src={`${imageUrl!}#toolbar=0&view=FitH`}
-                      title={String(title)}
-                      className="w-full aspect-[3/4] rounded-xl bg-white border border-brand-gold/[0.08]"
-                    />
+                  {scan === 'pending' ? (
+                    <PendingScan className="w-full aspect-[3/4] rounded-xl border border-brand-gold/[0.08]" />
+                  ) : isPdf ? (
+                    <div className="relative">
+                      <iframe
+                        src={`${imageUrl!}#toolbar=0&view=FitH`}
+                        title={String(title)}
+                        className="w-full aspect-[3/4] rounded-xl bg-white border border-brand-gold/[0.08]"
+                      />
+                      {sourceLink && <SourceImageLink href={sourceLink} className="rounded-xl" />}
+                    </div>
+                  ) : sourceLink ? (
+                    <div className="relative w-full aspect-[3/4] rounded-xl overflow-hidden bg-black">
+                      {scanImage}
+                      <SourceImageLink href={sourceLink} className="rounded-xl" />
+                    </div>
                   ) : (
                     <button
                       onClick={() => setImageZoom(true)}
                       className="relative w-full aspect-[3/4] rounded-xl overflow-hidden bg-black group cursor-zoom-in"
                     >
-                      {imgFailed && rawImageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={rawImageUrl} alt={String(title)} className="absolute inset-0 w-full h-full object-contain" />
-                      ) : (
-                        <Image
-                          src={imageUrl!}
-                          alt={String(title)}
-                          fill
-                          className="object-contain"
-                          sizes="(max-width: 768px) 100vw, 50vw"
-                          onError={() => setImgFailed(true)}
-                        />
-                      )}
+                      {scanImage}
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                         <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
                       </div>
@@ -506,7 +535,7 @@ export function RecordModal({
     ? zoomIdx < (zoomImages?.length ?? 0) - 1
     : !overrideData && !!hasNextImage;
 
-  const zoomOverlay = imageZoom && imageUrl && !isPdf ? (
+  const zoomOverlay = imageZoom && imageUrl && !isPdf && scan !== 'pending' ? (
     <div className="fixed inset-0 z-[110] bg-black/90">
       <button
         onClick={() => setImageZoom(false)}

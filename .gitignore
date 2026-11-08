@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local data files (spreadsheets used for imports, etc.)
 /data
+
+# PDF.js runtime files, copied from node_modules by scripts/copy-pdfjs-assets.mjs
+/public/pdfjs/

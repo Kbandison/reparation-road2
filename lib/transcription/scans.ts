@@ -3,6 +3,7 @@ import { referenceKey } from '@/lib/storage/references';
 import { getColumnTypes } from '@/lib/import/table-schema';
 import { isPdfPath } from '@/lib/collections/helpers';
 import type { Collection } from '@/lib/types';
+import { BLURRED_BUCKET, RESTRICTED_BUCKET } from '@/lib/collections/blur';
 
 // Server-only: reads collection tables with the service-role client.
 
@@ -38,6 +39,9 @@ export function transcribableKey(imagePath: unknown): string | null {
   if (!value || isPdfPath(value)) return null;
   const key = referenceKey(value);
   if (!key || key.startsWith(`${PLACEHOLDER_BUCKET}/`)) return null;
+  // Rights-restricted scans: the copies are blurred past reading, and the
+  // originals are private (lib/collections/blur.ts). Nothing to transcribe.
+  if (key.startsWith(`${BLURRED_BUCKET}/`) || key.startsWith(`${RESTRICTED_BUCKET}/`)) return null;
   return key;
 }
 
@@ -54,7 +58,7 @@ export interface ScanSummary {
 
 export interface CollectionScans {
   scans: ScanSummary[];
-  /** Records whose image can't be transcribed: no image, a PDF, the placeholder, or a bare filename. */
+  /** Records whose image can't be transcribed: no image, a PDF, the placeholder, a blurred scan, or a bare filename. */
   recordsWithoutScan: number;
 }
 

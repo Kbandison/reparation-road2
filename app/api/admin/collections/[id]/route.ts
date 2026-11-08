@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { descendantSlugs } from '@/lib/collections/folders';
+import { safeExternalUrl } from '@/lib/collections/blur';
 
 async function verifyAdmin() {
   const supabase = await createClient();
@@ -37,6 +38,10 @@ const ALLOWED_FIELDS = new Set([
   'sort_columns',
   'citation_template',
   'source_information',
+  // blur_images itself is switched only by /api/admin/image-blur, which also
+  // does the blurring, so the switch always matches what's in storage.
+  'image_link',
+  'image_link_column',
 ]);
 
 export async function PATCH(
@@ -57,6 +62,18 @@ export async function PATCH(
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
+  }
+
+  if ('image_link' in updates) {
+    const raw = typeof updates.image_link === 'string' ? updates.image_link.trim() : '';
+    const link = raw ? safeExternalUrl(raw) : null;
+    if (raw && !link) return NextResponse.json({ error: 'The image link must be a web address (https://…).' }, { status: 400 });
+    updates.image_link = link;
+  }
+  if ('image_link_column' in updates) {
+    const column = typeof updates.image_link_column === 'string' ? updates.image_link_column.trim() : '';
+    if (column && !/^[a-z0-9_]+$/i.test(column)) return NextResponse.json({ error: 'Invalid link column' }, { status: 400 });
+    updates.image_link_column = column || null;
   }
 
   const supabase = createAdminClient();

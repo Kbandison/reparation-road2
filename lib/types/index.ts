@@ -90,6 +90,13 @@ export interface Collection {
   // Default archival source / provenance shown on every record in the
   // collection (a record-level override can replace it). Null until set.
   source_information: string | null;
+  // Rights-restricted scans: everyone sees a blurred copy, and the image links
+  // to the original at its source (image_link_column's value per record, else
+  // image_link). See lib/collections/blur.ts. Optional until
+  // image_blur_migration.sql has run.
+  blur_images?: boolean;
+  image_link?: string | null;
+  image_link_column?: string | null;
   created_at: string;
   updated_at: string;
 }

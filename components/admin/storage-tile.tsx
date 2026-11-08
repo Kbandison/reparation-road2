@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { buildImageUrl } from '@/lib/collections/helpers';
+import { RESTRICTED_BUCKET } from '@/lib/collections/blur';
 import { canThumbnail, joinPath, splitFileName } from '@/lib/storage/names';
 import { formatBytes } from '@/lib/utils/format';
 import type { StorageBucket, StorageFile, StorageFolder } from '@/lib/storage/types';
@@ -137,7 +138,8 @@ export function StorageFileTile({
 }: { bucket: string; file: StorageFile } & TileActions) {
   const [broken, setBroken] = useState(false);
   // Scans run 20–35 MB, so the grid only ever loads a small rendered thumbnail.
-  const thumbnail = canThumbnail(file.name) && !broken
+  // The restricted bucket is private: its files have no public URL to render.
+  const thumbnail = canThumbnail(file.name) && !broken && bucket !== RESTRICTED_BUCKET
     ? buildImageUrl(joinPath(bucket, file.path), { width: 320, quality: 60 })
     : null;
   const ext = splitFileName(file.name).ext.replace('.', '').toUpperCase();

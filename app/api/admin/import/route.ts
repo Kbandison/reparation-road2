@@ -10,6 +10,7 @@ import { imageKey } from '@/lib/import/image-matching';
 import { generateDescriptions } from '@/lib/ai/descriptions';
 import { suggestMapping } from '@/lib/ai/mapping';
 import { AiError } from '@/lib/ai/client';
+import { BLURRED_BUCKET, RESTRICTED_BUCKET, safeExternalUrl } from '@/lib/collections/blur';
 
 // Table and column names are interpolated into SQL and select strings.
 const SAFE_IDENTIFIER = /^[a-z0-9_]+$/i;
@@ -79,7 +80,10 @@ export async function GET(request: NextRequest) {
   if (action === 'storage-buckets') {
     const { data, error } = await supabase.storage.listBuckets();
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    const buckets = (data || []).map((b) => ({ name: b.name, public: b.public }));
+    // The blurred-image buckets hold copies and hidden originals, never new scans to import.
+    const buckets = (data || [])
+      .filter((b) => b.name !== BLURRED_BUCKET && b.name !== RESTRICTED_BUCKET)
+      .map((b) => ({ name: b.name, public: b.public }));
     return NextResponse.json({ buckets });
   }
 
@@ -350,7 +354,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (body.action === 'create-collection') {
-    const { slug, name, shortDescription, longDescription, category, era, region, tableName, parentSlug, displayType, accessTier, displayColumns, searchColumns, hasImages, hasOcr, discriminatorColumn, discriminatorValue, isPublished } = body;
+    const { slug, name, shortDescription, longDescription, category, era, region, tableName, parentSlug, displayType, accessTier, displayColumns, searchColumns, hasImages, hasOcr, discriminatorColumn, discriminatorValue, isPublished, blurImages, imageLink, imageLinkColumn } = body;
 
     // A folder holds other collections (tabs), never records of its own.
     const asFolder = displayType === 'folder';
@@ -359,6 +363,14 @@ export async function POST(request: NextRequest) {
     }
     if (!String(name || '').trim()) return NextResponse.json({ error: 'A name is required' }, { status: 400 });
     if (asFolder && tableName) return NextResponse.json({ error: 'A folder has no table of its own' }, { status: 400 });
+
+    // Rights-restricted images (lib/collections/blur.ts). Only written when
+    // used, so imports keep working on a database without those columns.
+    const blur = !asFolder && blurImages === true;
+    const link = blur && imageLink ? safeExternalUrl(imageLink) : null;
+    if (blur && imageLink && !link) return NextResponse.json({ error: 'The image link must be a web address (https://…).' }, { status: 400 });
+    const linkColumn = blur && imageLinkColumn ? String(imageLinkColumn) : null;
+    if (linkColumn && !SAFE_IDENTIFIER.test(linkColumn)) return NextResponse.json({ error: 'Invalid link column' }, { status: 400 });
 
     // Tabs only show inside a folder: a parent with its own table renders as a
     // single list and hides them.
@@ -421,6 +433,7 @@ export async function POST(request: NextRequest) {
       // The wizard creates collections as Drafts and publishes them once every
       // record has landed, so a failed import never shows an empty collection.
       is_published: isPublished !== false,
+      ...(blur && { blur_images: true, image_link: link, image_link_column: linkColumn }),
     });
 
     if (error) {

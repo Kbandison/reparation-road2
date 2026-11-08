@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { checkCollectionAccess } from '@/lib/collections/access';
 import { isPdfPath } from '@/lib/collections/helpers';
+import { scanState } from '@/lib/collections/blur';
 import type { Collection } from '@/lib/types';
 
 // Returns the ordered list of DISTINCT viewable page scans for a whole
@@ -76,7 +77,8 @@ export async function GET(request: NextRequest) {
     const rows = (data as { id?: unknown; slug?: unknown; image_path?: unknown }[]) || [];
     for (const r of rows) {
       const img = String(r.image_path ?? '').trim();
-      if (!img || isPdfPath(img) || seen.has(img)) continue;
+      // A blurred collection's scans that aren't blurred yet stay out of the viewer.
+      if (!img || isPdfPath(img) || seen.has(img) || scanState(collection, img) === 'pending') continue;
       seen.add(img);
       images.push({
         path: img,
