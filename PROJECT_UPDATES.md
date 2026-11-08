@@ -2,6 +2,21 @@
 
 Newest first. Each entry records when it happened (UTC), what changed, and what comes next.
 
+## 2026-11-08T20:17Z: Leftover tables stop blocking imports; Unused tables page
+
+The client deleted Samuel Bonham & Co. to practice the import with a source link and the blur. Deleting a collection keeps its table unless "Also delete the data table" is ticked, so `samuel_bonham_co` (82 records) stayed. Re-importing under the same name then stopped at "A table named samuel_bonham_co already holds 82 records".
+
+**Minor updates**
+- Import wizard: a table that holds records but belongs to no collection gets its own notice with **Replace the leftover table**. You type the table name to confirm, it's removed, and the import creates a fresh table. A table another collection uses still blocks as before.
+- Delete window: when the table is kept, it now says the table stays, shows under Unused tables, and blocks re-importing under the same name until removed. The bulk delete says the same.
+- **Admin → Collections → Unused tables**: every records table no collection uses (38 on 2026-11-08, 7,368 records: 24 left over, 11 legacy copies, 3 backups), newest first. Each shows its row count, newest record, related-record and citation links, a peek at three rows, and Remove behind a typed confirmation.
+- Safety (`lib/collections/unused-tables.ts`): only tables shaped like a collection's records table (id, slug, image_path or ocr_text), never the site's own tables, and never one any collection uses, re-checked at the moment of removal. No CASCADE, so anything depending on the table makes the removal fail with the reason. Related-record links and citation overrides pointing at it are cleared.
+- Checked against the live database, read-only: all 34 tables that collections use are refused; site tables, a view and bad names are refused; `samuel_bonham_co` and the hyphenated `slave-importation-ga` are allowed. `tsc` clean and the production build passes.
+
+**Next actions**
+- The client can re-import Samuel Bonham & Co.: on Preview, Replace the leftover table, then tick Blur the images and set the link.
+- Review the 37 older unused tables and remove the ones nobody needs.
+
 ## 2026-11-08T19:47Z: Blurred images for rights-restricted collections
 
 Some scans can't be shown in full because of rights, licensing, or the terms agreed with a document's owner. Samuel Bonham & Co. is the first. A collection can now show everyone a heavily blurred copy of each scan, with the image linking to the original at its source. The blur is real: the copy is a different, low-detail file, and the original moves to private storage, so it can't be fetched from the page.

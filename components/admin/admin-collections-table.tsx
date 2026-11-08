@@ -497,7 +497,8 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
           {selectedIds.size} collection {selectedIds.size === 1 ? 'entry' : 'entries'}
         </span>{' '}
         from the browse tree. The underlying data tables and their records are{' '}
-        <span className="font-semibold text-brand-cream">not</span> deleted.
+        <span className="font-semibold text-brand-cream">not</span> deleted. They&apos;ll show under
+        Unused tables, where they can be removed; until then, a new import can&apos;t reuse their names.
         {selectedNames.length <= 6 && (
           <span className="block mt-2 text-brand-muted">
             {selectedNames.join(', ')}
@@ -564,6 +565,12 @@ export function AdminCollectionsTable({ collections }: AdminCollectionsTableProp
                 . This cannot be undone.
               </span>
             </label>
+          )}
+          {soleOwner && !deleteRecordsToo && (
+            <p className="mt-2 text-xs text-brand-muted">
+              Keeping the table? It stays in the database with its records and shows under Unused tables. Importing a
+              new collection with the same name won&apos;t work until it&apos;s removed (the import offers to replace it).
+            </p>
           )}
 
           {/* Shared table with a discriminator → can delete just this

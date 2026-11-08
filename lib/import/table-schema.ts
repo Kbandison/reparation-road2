@@ -51,6 +51,14 @@ export async function fetchTableSchema(tableName: string): Promise<TableSchema |
   return { columns };
 }
 
+/** Every table (and view) PostgREST serves, with its column names. Read fresh. */
+export async function fetchAllTableColumns(): Promise<Map<string, Set<string>>> {
+  const definitions = await fetchSchemaDefinitions();
+  return new Map(
+    Object.entries(definitions).map(([table, def]) => [table, new Set(Object.keys(def.properties ?? {}))]),
+  );
+}
+
 /** PostgREST's OpenAPI description of every table it serves, keyed by table name. */
 async function fetchSchemaDefinitions(): Promise<Record<string, OpenApiDefinition>> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

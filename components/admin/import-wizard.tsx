@@ -41,6 +41,7 @@ import { ImportImageMatches } from './import-image-matches';
 import { CollectionFolderForm, type CreatedFolder } from './collection-folder-form';
 import { CollectionFolderDialog } from './collection-folder-dialog';
 import { ImportAddColumn } from './import-add-column';
+import { DropTableDialog } from './drop-table-dialog';
 import { folderOptions } from '@/lib/collections/folders';
 import { safeExternalUrl } from '@/lib/collections/blur';
 import { blurCollection } from '@/lib/images/run-blur';
@@ -744,9 +745,10 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
       const owner = collections.find((c) => c.table_name === targetTable);
       if (owner && owner.slug !== ownSlug) {
         list.push(`The table ${targetTable} already belongs to "${owner.name}". Import into that collection instead, or ${fix}.`);
-      } else if (tableSchema.rowCount !== 0) {
+      } else if (tableSchema.rowCount !== 0 && owner) {
         list.push(`A table named ${targetTable} already holds ${tableSchema.rowCount?.toLocaleString() ?? 'some'} records. Go back and ${fix} so this collection gets its own table.`);
       }
+      // A table with records that no collection uses is handled by leftoverTable below.
     }
     return [...new Set(list)];
   }, [placementIssues, mode, slugTaken, newCollection.slug, activePlacement, tableSchema, selectedCollection, collections, targetTable]);
@@ -759,8 +761,22 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
 
   const unmappedRequired = importConflicts.filter((c) => c.kind === 'unmapped');
   const unlinkedAcknowledged = unlinkedImageNames.length === 0 || ackedUnlinked === unlinkedImageNames.length;
+  // A table that holds records but belongs to no collection, usually left
+  // behind when a collection was deleted without its table. Creating this
+  // collection's table would mix the rows in, so the import waits until the
+  // admin removes it (or changes the slug).
+  const leftoverTable =
+    (mode === 'new' || activePlacement?.kind === 'own') &&
+    tableSchema?.exists &&
+    tableSchema.rowCount !== 0 &&
+    !collections.some((c) => c.table_name === targetTable)
+      ? targetTable
+      : null;
+  const leftoverRows = tableSchema?.exists ? tableSchema.rowCount : null;
+  const [replacingLeftover, setReplacingLeftover] = useState(false);
+
   const readyToImport =
-    tableSchema !== null && importConflicts.length === 0 && blockers.length === 0 && unlinkedAcknowledged;
+    tableSchema !== null && importConflicts.length === 0 && blockers.length === 0 && !leftoverTable && unlinkedAcknowledged;
 
   // Whether the image-matching step applies (some column feeds image_path).
   const hasImageColumn = Object.values(columnMapping).includes('image_path');
@@ -1881,6 +1897,41 @@ export function ImportWizard({ collections, imageSource = null, imageSourceVersi
               </label>
             </div>
           )}
+
+          {leftoverTable && (
+            <div className="rounded-2xl border border-brand-gold/30 bg-brand-gold/[0.06] p-4 space-y-3" role="alert">
+              <p className="text-sm text-brand-cream">
+                A table named <span className="font-mono">{leftoverTable}</span> already holds{' '}
+                {leftoverRows?.toLocaleString() ?? 'some'} records, but no collection uses it. It was most likely
+                left behind when a collection was deleted without its table.
+              </p>
+              <p className="text-xs text-brand-muted">
+                Replace it to import into a fresh table, or go back and {mode === 'new' ? 'change the slug' : 'pick another table name'}.
+              </p>
+              <Button
+                type="button"
+                onClick={() => setReplacingLeftover(true)}
+                className="bg-brand-gold text-brand-bg hover:bg-brand-gold-light rounded-xl text-xs h-8"
+              >
+                Replace the leftover table
+              </Button>
+            </div>
+          )}
+          <DropTableDialog
+            table={replacingLeftover ? leftoverTable : null}
+            rows={leftoverRows}
+            context="It's in the way of this import."
+            onClose={() => setReplacingLeftover(false)}
+            onDropped={async (table) => {
+              setReplacingLeftover(false);
+              toast.success(`Removed ${table}. The import will create a fresh one.`);
+              try {
+                setTableSchema(await loadTableSchema(table));
+              } catch {
+                toast.error('Removed, but the table check didn’t refresh. Go back a step and return to Preview.');
+              }
+            }}
+          />
 
           <ImportPreflight
             tableName={targetTable}
